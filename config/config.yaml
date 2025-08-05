@@ -1,0 +1,13 @@
+# ssh-proxy service configuration
+
+# Server configuration
+ssh:
+  port: 2022
+
+# Identity service configuration
+identity:
+  baseURL: http://10.42.3.4:9090
+  APIKey: !file ${SECRET_FILES}/identity_key
+  timeout: 1000 
+
+
