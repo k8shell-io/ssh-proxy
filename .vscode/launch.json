@@ -17,6 +17,7 @@
             "cwd": "${workspaceFolder}",
             "args": [
                 "--logtext",
+                "--fork",
                 "--config",
                 "config/config.yaml"
             ],

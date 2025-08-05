@@ -1,8 +1,9 @@
 # ssh-proxy service configuration
 
-# Server configuration
+# ssh proxy configuration
 ssh:
   port: 2022
+  serverKey: ${SECRET_FILES}/server_key
 
 # Identity service configuration
 identity:
