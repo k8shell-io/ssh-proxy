@@ -3,6 +3,7 @@ module github.com/k8shell-io/ssh-proxy
 go 1.24.5
 
 require (
+	github.com/k8shell-io/identity v0.11.2 // indirect
 	github.com/k8shell-io/yaml-config v0.1.1 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect

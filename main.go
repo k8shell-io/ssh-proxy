@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -77,18 +76,22 @@ func main() {
 		return
 	}
 
-	sshServer, err := server.NewServer(opts.ConfigPath, opts.EnableForking)
+	srv, err := server.NewServer(opts.ConfigPath, opts.EnableForking)
 	if err != nil {
-		logger.Error().Msgf("Error starting ssh-proxy: %v", err)
+		logger.Error().Msgf("Failed to create server: %v", err)
 		os.Exit(1)
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	if err := srv.Start(); err != nil {
+		logger.Error().Msgf("Failed to start server: %v", err)
+		os.Exit(1)
+	}
 
-	logger.Info().Msg("SSH proxy server started, waiting for connections...")
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 
-	<-ctx.Done()
-	logger.Info().Msg("Shutting down SSH proxy server...")
-	sshServer.Stop()
+	<-sigCh
+	logger.Info().Msg("Received shutdown signal, stopping server...")
+
+	srv.Stop()
 }

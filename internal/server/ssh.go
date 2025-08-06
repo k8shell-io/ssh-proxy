@@ -8,7 +8,9 @@ import (
 	"os/exec"
 	"sync"
 	"syscall"
+	"time"
 
+	identity "github.com/k8shell-io/identity/pkg/client"
 	"github.com/k8shell-io/ssh-proxy/internal/config"
 	"github.com/k8shell-io/ssh-proxy/internal/log"
 	"github.com/rs/zerolog"
@@ -29,6 +31,7 @@ type Server struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	wg         sync.WaitGroup
+	identity   *identity.Client
 	useForking bool
 	configPath string
 }
@@ -42,7 +45,6 @@ func NewServer(configPath string, useForking bool) (*Server, error) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-
 	server := &Server{
 		Config:     config,
 		log:        log,
@@ -56,10 +58,14 @@ func NewServer(configPath string, useForking bool) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize SSH config: %w", err)
 	}
 
-	if err := server.Start(); err != nil {
-		return nil, fmt.Errorf("failed to start SSH server: %w", err)
+	if !useForking {
+		identityConfig := identity.Config{
+			BaseURL: config.Identity.BaseURL,
+			APIKey:  config.Identity.APIKey,
+			Timeout: time.Duration(config.Identity.Timeout) * time.Millisecond,
+		}
+		server.identity = identity.New(identityConfig)
 	}
-	log.Info().Msg("SSH server started successfully")
 
 	return server, nil
 }
@@ -104,11 +110,23 @@ func HandleConnectionFileDescriptor(fd int, configPath string) error {
 	logger := log.NewLogger("ssh-server")
 	logger.Info().Msgf("Handling connection from file descriptor %d", fd)
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	server := &Server{
 		Config:     config,
+		ctx:        ctx,
+		cancel:     cancel,
 		log:        logger,
 		configPath: configPath,
 	}
+
+	identityConfig := identity.Config{
+		BaseURL: config.Identity.BaseURL,
+		APIKey:  config.Identity.APIKey,
+		Timeout: time.Duration(config.Identity.Timeout) * time.Millisecond,
+	}
+	server.identity = identity.New(identityConfig)
 
 	if err := server.initSSHConfig(); err != nil {
 		return fmt.Errorf("failed to initialize SSH config: %w", err)
@@ -166,34 +184,34 @@ func (s *Server) Start() error {
 	return nil
 }
 
-// acceptConnections handles incoming SSH connections
 func (s *Server) acceptConnections() {
 	defer s.wg.Done()
 
 	for {
 		select {
 		case <-s.ctx.Done():
+			s.log.Info().Msg("Stopping connection acceptance due to context cancellation")
 			return
 		default:
-			conn, err := s.listener.Accept()
-			if err != nil {
-				select {
-				case <-s.ctx.Done():
-					return
-				default:
-					s.log.Error().Err(err).Msg("Failed to accept connection")
-					continue
-				}
-			}
+		}
 
-			// Handle each connection - either in subprocess or goroutine
-			if s.useForking {
-				s.wg.Add(1)
-				go s.handleConnectionSubProcess(conn)
-			} else {
-				s.wg.Add(1)
-				go s.handleConnection(conn)
+		conn, err := s.listener.Accept()
+		if err != nil {
+			select {
+			case <-s.ctx.Done():
+				return
+			default:
+				s.log.Error().Err(err).Msg("Failed to accept connection")
+				continue
 			}
+		}
+
+		if s.useForking {
+			s.wg.Add(1)
+			go s.handleConnectionSubProcess(conn)
+		} else {
+			s.wg.Add(1)
+			go s.handleConnection(conn)
 		}
 	}
 }
@@ -218,7 +236,11 @@ func (s *Server) handleConnectionSubProcess(netConn net.Conn) {
 	}
 	defer connFile.Close()
 
-	cmd := exec.Command(os.Args[0], "--fd", "3", "--config", s.configPath, "--logtext")
+	var optLogtext string = ""
+	if !log.JsonLogger {
+		optLogtext = "--logtext"
+	}
+	cmd := exec.Command(os.Args[0], "--fd", "3", "--config", s.configPath, optLogtext)
 	cmd.ExtraFiles = []*os.File{connFile}
 
 	cmd.Stdout = os.Stdout
@@ -291,13 +313,13 @@ func (s *Server) handleChannels(channels <-chan ssh.NewChannel) {
 
 // Stop gracefully shuts down the SSH server
 func (s *Server) Stop() {
-	s.log.Info().Msg("Stopping SSH proxy server")
-
+	s.log.Info().Msg("Stopping SSH server...")
 	s.cancel()
+
 	if s.listener != nil {
 		s.listener.Close()
 	}
 
 	s.wg.Wait()
-	s.log.Info().Msg("SSH proxy server stopped")
+	s.log.Info().Msg("SSH server stopped")
 }

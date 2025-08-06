@@ -1,5 +1,7 @@
 github.com/coreos/go-systemd/v22 v22.5.0/go.mod h1:Y58oyj3AT4RCenI/lSvhwexgC+NSVTIJ3seZv2GcEnc=
 github.com/godbus/dbus/v5 v5.0.4/go.mod h1:xhWf0FNVPg57R7Z0UbKHbJfkEywrmjJnf7w5xrFpKfA=
+github.com/k8shell-io/identity v0.11.2 h1:eDCLm6P3fDbAI7Nps9MoWmrVI808PiMti024m3PuDCw=
+github.com/k8shell-io/identity v0.11.2/go.mod h1:nnRu7Y5OUYdER6T0w54plfrRjWE9YAfWgjEZOGkgt88=
 github.com/k8shell-io/yaml-config v0.1.1 h1:k4Yx4elOAWGdxmka/fLo3N+dwCaJla0nEcX1qL/SMHk=
 github.com/k8shell-io/yaml-config v0.1.1/go.mod h1:e0hBGrhGNCqkE+fBe2tIvAFSiGk1SGnMnH7R7DahTcE=
 github.com/mattn/go-colorable v0.1.13 h1:fFA4WZxdEF4tXPZVKMLwD8oUnCTTo08duU7wxecdEvA=
