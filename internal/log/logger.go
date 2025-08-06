@@ -1,6 +1,7 @@
 package log
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"time"
@@ -20,9 +21,9 @@ func NewLogger(component string) *zerolog.Logger {
 	} else {
 		output = os.Stdout
 	}
-	log := zerolog.New(output).
-		With().
+	log := zerolog.New(output).With().
 		Timestamp().
+		Str("pid", fmt.Sprintf("%d", os.Getpid())).
 		Str("component", component).
 		Logger()
 	return &log

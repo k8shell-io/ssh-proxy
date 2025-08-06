@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/k8shell-io/yaml-config/pkg/yamlconfig"
+	"golang.org/x/crypto/ssh"
 )
 
 // Config represents the server configuration
@@ -39,4 +41,22 @@ func NewConfig(configFile string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+func (c *Config) GetServerKey() (ssh.Signer, error) {
+	if c.Ssh.ServerKey == "" {
+		return nil, fmt.Errorf("server key path not configured")
+	}
+
+	privateKeyBytes, err := os.ReadFile(c.Ssh.ServerKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read host key file '%s': %w", c.Ssh.ServerKey, err)
+	}
+
+	signer, err := ssh.ParsePrivateKey(privateKeyBytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse host key from '%s': %w", c.Ssh.ServerKey, err)
+	}
+
+	return signer, nil
 }
