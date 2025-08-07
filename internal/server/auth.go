@@ -13,12 +13,14 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// AllowedAuthsCallback returns the available authentication methods for the user.
 func (s *Server) AllowedAuthsCallback(conn ssh.ConnMetadata) ssh.ServerAuthCallbacks {
 	state := GetState(conn)
 	s.updateUser(s.ctx, state)
 	return s.getAvailableAuthMethods(state).Next
 }
 
+// AuthPublicKey handles public key authentication.
 func (s *Server) AuthPublicKey(conn ssh.ConnMetadata, pubKey ssh.PublicKey) (*ssh.Permissions, error) {
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
@@ -49,6 +51,7 @@ func (s *Server) AuthPublicKey(conn ssh.ConnMetadata, pubKey ssh.PublicKey) (*ss
 	}
 }
 
+// AuthPassword handles password authentication.
 func (s *Server) AuthPassword(conn ssh.ConnMetadata, password []byte) (*ssh.Permissions, error) {
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
@@ -79,6 +82,7 @@ func (s *Server) AuthPassword(conn ssh.ConnMetadata, password []byte) (*ssh.Perm
 	}
 }
 
+// AuthKeyboardInteractive handles keyboard-interactive authentication.
 func (s *Server) AuthKeyboardInteractive(conn ssh.ConnMetadata,
 	challenge ssh.KeyboardInteractiveChallenge) (*ssh.Permissions, error) {
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
@@ -129,6 +133,7 @@ func (s *Server) AuthKeyboardInteractive(conn ssh.ConnMetadata,
 	return s.checkAuthInteractiveResponse(ctx, state, answers)
 }
 
+// checkAuthInteractiveResponse verifies the response from a keyboard-interactive authentication challenge.
 func (s *Server) checkAuthInteractiveResponse(ctx context.Context,
 	state *State, _ []string) (*ssh.Permissions, error) {
 	onboardInfo := state.GetOnboardInfo()
@@ -146,6 +151,7 @@ func (s *Server) checkAuthInteractiveResponse(ctx context.Context,
 	return nil, s.getAvailableAuthMethods(state)
 }
 
+// AuthPublicKey handles public key authentication via the identity service.
 func (s *Server) authPublicKey(user *identity.User, pubKey ssh.PublicKey) bool {
 	pubKeyString := string(ssh.MarshalAuthorizedKey(pubKey))
 	pubKeyString = strings.TrimSuffix(pubKeyString, "\n")
@@ -165,12 +171,14 @@ func (s *Server) authPublicKey(user *identity.User, pubKey ssh.PublicKey) bool {
 	return true
 }
 
+// AuthPassword handles password authentication via the identity service.
 func (s *Server) authPassword(_ *identity.User) bool {
 	// TODO: Call your identity service to validate password
 	return false
 }
 
-// updateUser fetches user information and updates auth state
+// updateUser fetches user from the identity service and updates user state
+// When the user is not found, it retrieves the user onboarding capability.
 func (s *Server) updateUser(ctx context.Context, state *State) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
@@ -203,6 +211,8 @@ func (s *Server) updateUser(ctx context.Context, state *State) {
 	}
 }
 
+// getAvailableAuthMethods returns the available authentication methods for the user.
+// It returns callbacks for the SSH server authentication process.
 func (s *Server) getAvailableAuthMethods(state *State) *ssh.PartialSuccessError {
 	if state.User == nil {
 		onboardCap := state.GetOnboardCap()
