@@ -218,11 +218,12 @@ func containsAuthMethod(auths []identity.AuthMethod, method string) bool {
 }
 
 func (s *Server) authPublicKey(user *identity.User, pubKey ssh.PublicKey) bool {
-	pubKeyBytes := pubKey.Marshal()
+	pubKeyString := string(ssh.MarshalAuthorizedKey(pubKey))
+	pubKeyString = strings.TrimSuffix(pubKeyString, "\n")
 	pubKeyHash := ssh.FingerprintSHA256(pubKey)
 
 	s.log.Debug().Msgf("Authenticating user %s with public key: %s", user.Username, pubKeyHash)
-	authResponse, err := s.identity.AuthenticateUser(s.ctx, user.Username, string(pubKeyBytes))
+	authResponse, err := s.identity.AuthenticateUser(s.ctx, user.Username, pubKeyString)
 	if err != nil || authResponse == nil {
 		s.log.Error().Msgf("Failed to get authentication response for user %s: %v", user.Username, err)
 		return false
