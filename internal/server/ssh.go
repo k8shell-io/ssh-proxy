@@ -74,10 +74,11 @@ func (s *Server) initSSHConfig() error {
 	s.sshConfig = &ssh.ServerConfig{
 		// SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10
 		ServerVersion:               SERVER_VERSION,
+		KeyboardInteractiveCallback: s.AuthKeyboardInteractive,
 		PublicKeyCallback:           s.AuthPublicKey,
 		PasswordCallback:            s.AuthPassword,
-		KeyboardInteractiveCallback: nil,
-		MaxAuthTries:                3,
+		MaxAuthTries:                6,
+		AllowedAuthsCallback:        s.AllowedAuthsCallback,
 	}
 
 	serverKey, err := s.Config.GetServerKey()
