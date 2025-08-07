@@ -10,8 +10,9 @@ import (
 
 // Config represents the server configuration
 type Config struct {
-	Ssh      SshConfig      `yaml:"ssh"`
-	Identity IdentityConfig `yaml:"identity"`
+	Ssh         SshConfig         `yaml:"ssh"`
+	Identity    IdentityConfig    `yaml:"identity"`
+	Provisioner ProvisionerConfig `yaml:"provisioner"`
 }
 
 // SshConfig represents the SSH server configuration.
@@ -22,6 +23,12 @@ type SshConfig struct {
 
 // IdentityConfig represents the identity service configuration.
 type IdentityConfig struct {
+	BaseURL string `yaml:"baseURL"`
+	APIKey  string `yaml:"APIKey"`
+	Timeout int    `yaml:"timeout"`
+}
+
+type ProvisionerConfig struct {
 	BaseURL string `yaml:"baseURL"`
 	APIKey  string `yaml:"APIKey"`
 	Timeout int    `yaml:"timeout"`

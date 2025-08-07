@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	identityClient "github.com/k8shell-io/identity/pkg/client"
@@ -13,70 +13,8 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// AuthState represents the authentication state for a connection
-type AuthState struct {
-	Username    string
-	State       int // 0=initial, 1=partial, 2=authenticated
-	OnboardCap  *identity.OnBoardCapability
-	OnboardInfo *identity.OnboardUser
-	User        *identity.User
-	FailCount   int
-	LastAttempt time.Time
-	mu          sync.RWMutex
-}
-
-// Global state storage (in production, use Redis or similar)
-var authStates = make(map[string]*AuthState)
-var authStatesMutex sync.RWMutex
-
-func getConnectionID(conn ssh.ConnMetadata) (string, string) {
-	username := strings.Split(conn.User(), "~")[0]
-	connID := fmt.Sprintf("12345-%s", username)
-	return username, connID
-}
-
-func GetAuthState(conn ssh.ConnMetadata) *AuthState {
-	username, connID := getConnectionID(conn)
-
-	authStatesMutex.RLock()
-	defer authStatesMutex.RUnlock()
-	state := authStates[connID]
-	if state == nil {
-		state = &AuthState{
-			Username: username,
-			State:    0,
-		}
-		authStates[connID] = state
-	}
-	return state
-}
-
-func (s *AuthState) SetOnboardInfo(onboardInfo *identity.OnboardUser) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.OnboardInfo = onboardInfo
-}
-
-func (s *AuthState) GetOnboardInfo() *identity.OnboardUser {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.OnboardInfo
-}
-
-func (s *AuthState) SetOnboardCap(onboardCap *identity.OnBoardCapability) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.OnboardCap = onboardCap
-}
-
-func (s *AuthState) GetOnboardCap() *identity.OnBoardCapability {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.OnboardCap
-}
-
 func (s *Server) AllowedAuthsCallback(conn ssh.ConnMetadata) ssh.ServerAuthCallbacks {
-	state := GetAuthState(conn)
+	state := GetState(conn)
 	s.updateUser(s.ctx, state)
 	return s.getAvailableAuthMethods(state).Next
 }
@@ -85,10 +23,10 @@ func (s *Server) AuthPublicKey(conn ssh.ConnMetadata, pubKey ssh.PublicKey) (*ss
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
 
-	state := GetAuthState(conn)
+	state := GetState(conn)
 	s.updateUser(ctx, state)
 	if state.User != nil {
-		if containsAuthMethod(state.User.Auths, "publickey") {
+		if slices.Contains(state.User.Auths, "publickey") {
 			if s.authPublicKey(state.User, pubKey) {
 				s.log.Info().Msgf("User %s authenticated with public key", state.User.Username)
 				return &ssh.Permissions{}, nil
@@ -115,10 +53,10 @@ func (s *Server) AuthPassword(conn ssh.ConnMetadata, password []byte) (*ssh.Perm
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
 
-	state := GetAuthState(conn)
+	state := GetState(conn)
 	s.updateUser(ctx, state)
 	if state.User != nil {
-		if containsAuthMethod(state.User.Auths, "password") {
+		if slices.Contains(state.User.Auths, "password") {
 			if s.authPassword(state.User) {
 				s.log.Info().Msgf("User %s authenticated with password", state.User.Username)
 				return &ssh.Permissions{}, nil
@@ -146,7 +84,7 @@ func (s *Server) AuthKeyboardInteractive(conn ssh.ConnMetadata,
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
 
-	state := GetAuthState(conn)
+	state := GetState(conn)
 	s.updateUser(ctx, state)
 	if state.User != nil {
 		return nil, fmt.Errorf("user %s is already onboarded", state.Username)
@@ -192,7 +130,7 @@ func (s *Server) AuthKeyboardInteractive(conn ssh.ConnMetadata,
 }
 
 func (s *Server) checkAuthInteractiveResponse(ctx context.Context,
-	state *AuthState, _ []string) (*ssh.Permissions, error) {
+	state *State, _ []string) (*ssh.Permissions, error) {
 	onboardInfo := state.GetOnboardInfo()
 	if onboardInfo == nil {
 		return nil, fmt.Errorf("no onboard info available")
@@ -208,22 +146,13 @@ func (s *Server) checkAuthInteractiveResponse(ctx context.Context,
 	return nil, s.getAvailableAuthMethods(state)
 }
 
-func containsAuthMethod(auths []identity.AuthMethod, method string) bool {
-	for _, a := range auths {
-		if string(a) == method {
-			return true
-		}
-	}
-	return false
-}
-
 func (s *Server) authPublicKey(user *identity.User, pubKey ssh.PublicKey) bool {
 	pubKeyString := string(ssh.MarshalAuthorizedKey(pubKey))
 	pubKeyString = strings.TrimSuffix(pubKeyString, "\n")
 	pubKeyHash := ssh.FingerprintSHA256(pubKey)
 
 	s.log.Debug().Msgf("Authenticating user %s with public key: %s", user.Username, pubKeyHash)
-	authResponse, err := s.identity.AuthenticateUser(s.ctx, user.Username, pubKeyString)
+	authResponse, err := s.identity.AuthPublicKey(s.ctx, user.Username, pubKeyString)
 	if err != nil || authResponse == nil {
 		s.log.Error().Msgf("Failed to get authentication response for user %s: %v", user.Username, err)
 		return false
@@ -242,7 +171,7 @@ func (s *Server) authPassword(_ *identity.User) bool {
 }
 
 // updateUser fetches user information and updates auth state
-func (s *Server) updateUser(ctx context.Context, state *AuthState) {
+func (s *Server) updateUser(ctx context.Context, state *State) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
 
@@ -261,7 +190,7 @@ func (s *Server) updateUser(ctx context.Context, state *AuthState) {
 
 	if user == nil {
 		if state.OnboardCap == nil {
-			var onboardCap *identity.OnBoardCapability
+			var onboardCap *identity.OnboardCapability
 			onboardCap, err = s.identity.GetOnboardCapability(ctx, state.Username)
 			if err != nil {
 				s.log.Error().Msgf("Failed to get onboarding capability for user %s: %v", state.Username, err)
@@ -274,7 +203,7 @@ func (s *Server) updateUser(ctx context.Context, state *AuthState) {
 	}
 }
 
-func (s *Server) getAvailableAuthMethods(state *AuthState) *ssh.PartialSuccessError {
+func (s *Server) getAvailableAuthMethods(state *State) *ssh.PartialSuccessError {
 	if state.User == nil {
 		onboardCap := state.GetOnboardCap()
 		if onboardCap != nil && onboardCap.CanOnboard {

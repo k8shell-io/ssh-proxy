@@ -11,4 +11,8 @@ identity:
   APIKey: !file ${SECRET_FILES}/identity_key
   timeout: 1000 
 
+provisioner:
+  baseURL: http://10.42.2.150:9201
+  APIKey: !file ${SECRET_FILES}/provisioner_key
+  timeout: 30000
 

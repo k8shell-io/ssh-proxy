@@ -8,9 +8,9 @@ import (
 	"os/exec"
 	"sync"
 	"syscall"
-	"time"
 
 	identity "github.com/k8shell-io/identity/pkg/client"
+	provisioner "github.com/k8shell-io/provisioner/pkg/client"
 	"github.com/k8shell-io/ssh-proxy/internal/config"
 	"github.com/k8shell-io/ssh-proxy/internal/log"
 	"github.com/rs/zerolog"
@@ -24,16 +24,35 @@ var (
 )
 
 type Server struct {
-	Config     *config.Config
-	log        *zerolog.Logger
-	listener   net.Listener
-	sshConfig  *ssh.ServerConfig
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	identity   *identity.Client
-	useForking bool
-	configPath string
+	Config      *config.Config
+	log         *zerolog.Logger
+	listener    net.Listener
+	sshConfig   *ssh.ServerConfig
+	ctx         context.Context
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+	identity    *identity.Client
+	provisioner *provisioner.Client
+	useForking  bool
+	configPath  string
+}
+
+func NewClients(config *config.Config) (*identity.Client, *provisioner.Client) {
+	identityConfig := identity.Config{
+		BaseURL: config.Identity.BaseURL,
+		APIKey:  config.Identity.APIKey,
+		Timeout: config.Identity.Timeout,
+	}
+	identityClient := identity.NewClient(identityConfig)
+
+	provisionerConfig := provisioner.Config{
+		BaseURL: config.Provisioner.BaseURL,
+		APIKey:  config.Provisioner.APIKey,
+		Timeout: config.Provisioner.Timeout,
+	}
+	provisionerClient := provisioner.NewClient(provisionerConfig)
+
+	return identityClient, provisionerClient
 }
 
 func NewServer(configPath string, useForking bool) (*Server, error) {
@@ -59,12 +78,9 @@ func NewServer(configPath string, useForking bool) (*Server, error) {
 	}
 
 	if !useForking {
-		identityConfig := identity.Config{
-			BaseURL: config.Identity.BaseURL,
-			APIKey:  config.Identity.APIKey,
-			Timeout: time.Duration(config.Identity.Timeout) * time.Millisecond,
-		}
-		server.identity = identity.New(identityConfig)
+		identityClient, provisionerClient := NewClients(config)
+		server.identity = identityClient
+		server.provisioner = provisionerClient
 	}
 
 	return server, nil
@@ -122,12 +138,9 @@ func HandleConnectionFileDescriptor(fd int, configPath string) error {
 		configPath: configPath,
 	}
 
-	identityConfig := identity.Config{
-		BaseURL: config.Identity.BaseURL,
-		APIKey:  config.Identity.APIKey,
-		Timeout: time.Duration(config.Identity.Timeout) * time.Millisecond,
-	}
-	server.identity = identity.New(identityConfig)
+	identityClient, provisionerClient := NewClients(config)
+	server.identity = identityClient
+	server.provisioner = provisionerClient
 
 	if err := server.initSSHConfig(); err != nil {
 		return fmt.Errorf("failed to initialize SSH config: %w", err)
@@ -156,7 +169,7 @@ func (s *Server) handleConnectionDirect(netConn net.Conn) {
 	)
 
 	go s.handleGlobalRequests(requests)
-	s.handleChannels(channels)
+	s.handleChannels(sshConn, channels)
 }
 
 // Start begins listening for SSH connections on the configured port
@@ -286,7 +299,7 @@ func (s *Server) handleConnection(netConn net.Conn) {
 	s.log.Info().Msgf("SSH handshake completed for user %s", sshConn.User())
 
 	go s.handleGlobalRequests(requests)
-	s.handleChannels(channels)
+	s.handleChannels(sshConn, channels)
 }
 
 // handleGlobalRequests processes SSH global requests
@@ -301,14 +314,42 @@ func (s *Server) handleGlobalRequests(requests <-chan *ssh.Request) {
 	}
 }
 
-// handleChannels processes SSH channel requests
-func (s *Server) handleChannels(channels <-chan ssh.NewChannel) {
+// Update handleChannels to accept sshConn and pass it down
+func (s *Server) handleChannels(sshConn *ssh.ServerConn, channels <-chan ssh.NewChannel) {
 	for newChannel := range channels {
 		s.log.Debug().Msgf("Received channel request: type=%s", newChannel.ChannelType())
 
-		// For now, reject all channel requests
-		// In a full SSH proxy implementation, you would forward these to the target server
-		newChannel.Reject(ssh.UnknownChannelType, "channel type not supported")
+		found := false
+		state := GetState(sshConn)
+		if state.User == nil {
+			s.log.Error().Msgf("User not found for connection %s, rejecting channel request", sshConn.User())
+			newChannel.Reject(ssh.UnknownChannelType, "user not found")
+			continue
+		}
+
+		for _, channel := range state.User.Channels {
+			// TODO: add session to channels in identity
+			if newChannel.ChannelType() == "session" || newChannel.ChannelType() == string(channel) {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			s.log.Info().Msgf("User %s is not allowed to use channel type: %s", state.User.Username, newChannel.ChannelType())
+			newChannel.Reject(ssh.UnknownChannelType, "channel type not allowed")
+			continue
+		}
+
+		switch newChannel.ChannelType() {
+		case "session":
+			go s.handleSessionChannel(sshConn, state, newChannel)
+		case "direct-tcpip":
+			// Handle direct TCP/IP channel
+		default:
+			s.log.Warn().Msgf("Unsupported channel type: %s", newChannel.ChannelType())
+			newChannel.Reject(ssh.UnknownChannelType, "channel type not supported")
+		}
 	}
 }
 
