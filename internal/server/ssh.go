@@ -23,6 +23,7 @@ var (
 	SERVER_VERSION   = fmt.Sprintf("SSH-2.0-ssh-proxy_%s/%s k8shell.io", SSHPROXY_VERSION, SSHPROXY_COMMIT)
 )
 
+// Server represents the SSH server that handles incoming connections and authentication.
 type Server struct {
 	Config      *config.Config
 	log         *zerolog.Logger
@@ -37,6 +38,7 @@ type Server struct {
 	configPath  string
 }
 
+// NewClients creates new instances of the identity and provisioner clients.
 func NewClients(config *config.Config) (*identity.Client, *provisioner.Client) {
 	identityConfig := identity.Config{
 		BaseURL: config.Identity.BaseURL,
@@ -55,6 +57,7 @@ func NewClients(config *config.Config) (*identity.Client, *provisioner.Client) {
 	return identityClient, provisionerClient
 }
 
+// NewServer creates a new SSH server instance.
 func NewServer(configPath string, useForking bool) (*Server, error) {
 	log := log.NewLogger("ssh-server")
 
@@ -86,6 +89,7 @@ func NewServer(configPath string, useForking bool) (*Server, error) {
 	return server, nil
 }
 
+// initSSHConfig initializes the SSH server configuration with callbacks and host key.
 func (s *Server) initSSHConfig() error {
 	s.sshConfig = &ssh.ServerConfig{
 		// SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10
@@ -107,7 +111,8 @@ func (s *Server) initSSHConfig() error {
 	return nil
 }
 
-// HandleConnectionFileDescriptor handles a connection from a file descriptor (subprocess mode)
+// HandleConnectionFileDescriptor handles a connection from a file descriptor
+// It is called when a new connection is accepted and processed in a subprocess when forking is enabled.
 func HandleConnectionFileDescriptor(fd int, configPath string) error {
 	// get the connection from file descriptor
 	file := os.NewFile(uintptr(fd), "connection")
@@ -152,6 +157,7 @@ func HandleConnectionFileDescriptor(fd int, configPath string) error {
 }
 
 // handleConnectionDirect processes a single SSH connection without wait group management
+// This is used when forking is disabled
 func (s *Server) handleConnectionDirect(netConn net.Conn) {
 	defer netConn.Close()
 
@@ -198,6 +204,8 @@ func (s *Server) Start() error {
 	return nil
 }
 
+// acceptConnections listens for incoming SSH connections and handles them.
+// When forking is enabled, it spawns a new process for each connection.
 func (s *Server) acceptConnections() {
 	defer s.wg.Done()
 
@@ -230,7 +238,7 @@ func (s *Server) acceptConnections() {
 	}
 }
 
-// handleConnectionSubProcess spawns a new process to handle the SSH connection
+// handleConnectionSubProcess spawns a new process to handle the SSH connection in a subprocess
 func (s *Server) handleConnectionSubProcess(netConn net.Conn) {
 	defer s.wg.Done()
 	defer netConn.Close()
@@ -314,7 +322,7 @@ func (s *Server) handleGlobalRequests(requests <-chan *ssh.Request) {
 	}
 }
 
-// Update handleChannels to accept sshConn and pass it down
+// handleChannels handles SSH channel requests.
 func (s *Server) handleChannels(sshConn *ssh.ServerConn, channels <-chan ssh.NewChannel) {
 	for newChannel := range channels {
 		s.log.Debug().Msgf("Received channel request: type=%s", newChannel.ChannelType())
