@@ -54,7 +54,7 @@ func (s *Server) handleSessionChannel(conn *ssh.ServerConn, state *State, newCha
 		s.log.Error().Msgf("Failed to get k8shelld version for user %s: %v", session.Username, err)
 		return
 	}
-	channel.Write([]byte(fmt.Sprintf("Connected to k8shelld (version: %s, commit: %s)\r\n",
+	channel.Write([]byte(fmt.Sprintf("Connected to k8shelld (version: %s-%s)\r\n",
 		version.Version, version.Commit)))
 
 	<-session.ShellReady
