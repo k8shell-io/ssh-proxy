@@ -31,14 +31,14 @@ func (s *Server) handleSessionChannel(_ *ssh.ServerConn, state *State, newChanne
 
 	go s.handleSessionRequests(requests, session, channel)
 
-	address, err := s.getWorkspaceAddress(state, channel)
+	status, err := s.ensureWorkspace(state, channel)
 	if err != nil {
-		s.log.Error().Msgf("Failed to get workspace address for user %s: %v", session.Username, err)
+		s.log.Error().Msgf("Failed to ensure workspace for user %s: %v", state.User.Username, err)
 		return
 	}
-	channel.Write([]byte(fmt.Sprintf("Connecting to the workspace at %s...\r\n", address)))
+	channel.Write([]byte(fmt.Sprintf("Connecting to the workspace at %s...\r\n", status.Host)))
 
-	session.k8shelld, err = k8shelld.NewClient(address, 2822, "e9d60a584e90e426934ec26820cbf69b")
+	session.k8shelld, err = k8shelld.NewClient(status.Host, 2822, status.AccessKey, status.TLSCert)
 	if err != nil {
 		s.log.Error().Msgf("Failed to create k8shelld client for user %s: %v", session.Username, err)
 		return
@@ -183,39 +183,44 @@ func (s *Server) hasTermEnv(envVars []string) bool {
 	return false
 }
 
-func (s *Server) getWorkspaceAddress(state *State, channel ssh.Channel) (string, error) {
+func (s *Server) ensureWorkspace(state *State, channel ssh.Channel) (*provisionerModels.WorkspaceStatus, error) {
 	workspaces, err := s.provisioner.GetWorkspaces(s.ctx, state.User.Username, "dev")
 	if err != nil {
-		return "", fmt.Errorf("failed to get workspace status for user %s: %w", state.User.Username, err)
+		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", state.User.Username, err)
 	}
 
-	var address string
 	if len(workspaces) > 0 {
 		status, err := s.provisioner.GetWorkspaceStatus(s.ctx, workspaces[0].Name)
 		if err != nil {
-			return "", fmt.Errorf("failed to get workspace status for user %s: %w", state.User.Username, err)
+			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", state.User.Username, err)
 		}
 		if status.Status == "Running" {
-			return status.Host, nil
+			return status, nil
 		}
 	}
 
-	address, err = s.provisionWorkspace(channel, state, true)
+	name, err := s.provisionWorkspace(channel, state, true)
 	if err != nil {
-		return "", fmt.Errorf("failed to provision workspace for user %s: %w", state.User.Username, err)
+		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", state.User.Username, err)
 	}
-	if address == "" {
-		return "", fmt.Errorf("failed to provision workspace for user %s: no workspace address available",
-			state.User.Username)
+
+	status, err := s.provisioner.GetWorkspaceStatus(s.ctx, name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", state.User.Username, err)
 	}
-	return address, nil
+	if status.Status == "Running" {
+		return status, nil
+	}
+
+	return nil, fmt.Errorf("failed to ensure workspace for user %s: workspace status is %q",
+		state.User.Username, status.Status)
 }
 
 func (s *Server) provisionWorkspace(channel ssh.Channel, state *State, sendEvents bool) (string, error) {
 	events := make(chan provisionerModels.StreamEvent, 100)
 	channel.Write([]byte("Provisioning workspace...\r\n"))
 
-	var address string
+	var name string
 	var err error
 
 	go func() {
@@ -242,7 +247,7 @@ func (s *Server) provisionWorkspace(channel ssh.Channel, state *State, sendEvent
 			}
 
 			if event.Status == "Running" {
-				address = event.Host
+				name = event.ObjectName
 			}
 
 			if event.Status == "Error" {
@@ -252,5 +257,5 @@ func (s *Server) provisionWorkspace(channel ssh.Channel, state *State, sendEvent
 	}()
 
 	<-provisioningDone
-	return address, err
+	return name, err
 }

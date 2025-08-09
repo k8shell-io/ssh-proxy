@@ -3,6 +3,7 @@ package k8shelld
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"io"
 	"time"
@@ -23,13 +24,28 @@ type Client struct {
 	AccessKey    string
 }
 
-func NewClient(address string, port int, accessKey string) (*Client, error) {
-	config := &tls.Config{
-		ServerName:         address,
-		InsecureSkipVerify: true,
-	}
+func NewClient(address string, port int, accessKey string, tlsCert string) (*Client, error) {
+	var creds credentials.TransportCredentials
 
-	creds := credentials.NewTLS(config)
+	if tlsCert != "" {
+		certPool := x509.NewCertPool()
+		if !certPool.AppendCertsFromPEM([]byte(tlsCert)) {
+			return nil, fmt.Errorf("failed to append TLS certificate to pool")
+		}
+
+		config := &tls.Config{
+			ServerName: address,
+			RootCAs:    certPool,
+		}
+		creds = credentials.NewTLS(config)
+	} else {
+		// fallback
+		config := &tls.Config{
+			ServerName:         address,
+			InsecureSkipVerify: true,
+		}
+		creds = credentials.NewTLS(config)
+	}
 
 	opts := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
