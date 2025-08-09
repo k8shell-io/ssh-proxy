@@ -327,25 +327,10 @@ func (s *Server) handleChannels(sshConn *ssh.ServerConn, channels <-chan ssh.New
 	for newChannel := range channels {
 		s.log.Debug().Msgf("Received channel request: type=%s", newChannel.ChannelType())
 
-		found := false
 		state := GetState(sshConn)
 		if state.User == nil {
 			s.log.Error().Msgf("User not found for connection %s, rejecting channel request", sshConn.User())
 			newChannel.Reject(ssh.UnknownChannelType, "user not found")
-			continue
-		}
-
-		for _, channel := range state.User.Channels {
-			// TODO: add session to channels in identity
-			if newChannel.ChannelType() == "session" || newChannel.ChannelType() == string(channel) {
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			s.log.Info().Msgf("User %s is not allowed to use channel type: %s", state.User.Username, newChannel.ChannelType())
-			newChannel.Reject(ssh.UnknownChannelType, "channel type not allowed")
 			continue
 		}
 

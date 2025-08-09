@@ -11,20 +11,23 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// SessionInfo holds information about a user's SSH session
 type SessionInfo struct {
-	State        *State
-	Username     string
-	TermType     string
-	TermWidth    uint32
-	TermHeight   uint32
-	TermWidthPx  uint32
-	TermHeightPx uint32
-	Env          []string
-	Command      string
-	HasPTY       bool
-	k8shelld     *k8shelld.Client
-	ShellReady   chan struct{}
-	SessionId    string
+	k8shelld     *k8shelld.Client // k8shelld client for interacting with the workspace k8shelld daemon
+	State        *State           // authentication state
+	Username     string           // username of the user
+	TermType     string           // terminal type
+	TermWidth    uint32           // terminal width
+	TermHeight   uint32           // terminal height
+	TermWidthPx  uint32           // terminal width in pixels
+	TermHeightPx uint32           // terminal height in pixels
+	Env          []string         // environment variables
+	Command      string           // command to execute
+	HasPTY       bool             // true when the session has a pseudo-terminal
+	SessionId    string           // unique session identifier
+	ShellReady   chan struct{}    // channel to signal when the shell is ready
+	HasAgent     bool             // true when the session has an SSH agent
+	AgentChannel ssh.Channel      // channel for the SSH agent
 }
 
 // State represents the authentication state for a connection

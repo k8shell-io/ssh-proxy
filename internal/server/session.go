@@ -9,9 +9,13 @@ import (
 	provisionerModels "github.com/k8shell-io/provisioner/pkg/models"
 	"github.com/k8shell-io/ssh-proxy/internal/k8shelld"
 	"golang.org/x/crypto/ssh"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
-func (s *Server) handleSessionChannel(_ *ssh.ServerConn, state *State, newChannel ssh.NewChannel) {
+var SSH_AUTH_SOCK = "/var/run/ssh-agent-12345.sock"
+
+func (s *Server) handleSessionChannel(conn *ssh.ServerConn, state *State, newChannel ssh.NewChannel) {
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
 		s.log.Error().Msgf("Failed to accept session channel for user %s: %v", state.User.Username, err)
@@ -38,7 +42,7 @@ func (s *Server) handleSessionChannel(_ *ssh.ServerConn, state *State, newChanne
 	}
 	channel.Write([]byte(fmt.Sprintf("Connecting to the workspace at %s...\r\n", status.Host)))
 
-	session.k8shelld, err = k8shelld.NewClient(status.Host, 2822, status.AccessKey, status.TLSCert)
+	session.k8shelld, err = k8shelld.NewClient(status.Host, status.Port, status.AccessKey, status.TLSCert)
 	if err != nil {
 		s.log.Error().Msgf("Failed to create k8shelld client for user %s: %v", session.Username, err)
 		return
@@ -53,8 +57,14 @@ func (s *Server) handleSessionChannel(_ *ssh.ServerConn, state *State, newChanne
 	channel.Write([]byte(fmt.Sprintf("Connected to k8shelld (version: %s, commit: %s)\r\n",
 		version.Version, version.Commit)))
 
-	// wait for shell request to be accepted
 	<-session.ShellReady
+
+	if session.HasAgent {
+		err := s.handleAgent(conn, session)
+		if err != nil {
+			s.log.Error().Msgf("Failed to create agent channel: %v", err)
+		}
+	}
 
 	if err := session.k8shelld.StartShell(s.ctx, channel, session.SessionId,
 		session.Env, session.TermWidth, session.TermHeight); err != nil {
@@ -163,6 +173,12 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *Se
 					session.Username)
 			}
 
+		case "auth-agent-req@openssh.com":
+			accepted = true
+			session.HasAgent = true
+			s.log.Debug().Msgf("SSH agent forwarding request accepted for user %s", session.Username)
+			session.Env = append(session.Env, fmt.Sprintf("SSH_AUTH_SOCK=%s", SSH_AUTH_SOCK))
+
 		default:
 			s.log.Warn().Msgf("Unsupported session request type: %s for user %s", req.Type, session.Username)
 		}
@@ -258,4 +274,34 @@ func (s *Server) provisionWorkspace(channel ssh.Channel, state *State, sendEvent
 
 	<-provisioningDone
 	return name, err
+}
+
+// createAgentChannel creates a server-initiated agent forwarding channel and
+// handles the communication between the SSH agent and the unix socket in the workspace
+func (s *Server) handleAgent(sshConn *ssh.ServerConn, session *SessionInfo) error {
+	s.log.Debug().Msgf("Creating agent channel for user %s", session.Username)
+	channel, reqs, err := sshConn.OpenChannel("auth-agent@openssh.com", nil)
+	if err != nil {
+		return fmt.Errorf("failed to open agent channel: %w", err)
+	}
+
+	go ssh.DiscardRequests(reqs)
+
+	s.log.Debug().Msgf("Agent channel created for user %s", session.Username)
+
+	// handle communication with the SSH agent and the unix socket
+	go func() {
+		defer channel.Close()
+
+		err := session.k8shelld.StartUnixSocketWithConnection(s.ctx, channel, session.SessionId, SSH_AUTH_SOCK)
+		if err != nil {
+			if statusErr, ok := status.FromError(err); ok && statusErr.Code() == codes.Canceled {
+				s.log.Debug().Msgf("Agent forwarding canceled for user %s", session.Username)
+			} else {
+				s.log.Error().Msgf("Agent forwarding deadline exceeded for user %s", session.Username)
+			}
+		}
+	}()
+
+	return nil
 }
