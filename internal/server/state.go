@@ -30,6 +30,7 @@ type SessionInfo struct {
 // State represents the authentication state for a connection
 type State struct {
 	Username        string
+	BpName          string
 	OnboardCap      *identity.OnboardCapability
 	OnboardInfo     *identity.OnboardUser
 	User            *identity.User
@@ -42,14 +43,30 @@ type State struct {
 var authStates = make(map[string]*State)
 var authStatesMutex sync.RWMutex
 
-func getConnectionID(conn ssh.ConnMetadata) (string, string) {
-	username := strings.Split(conn.User(), "~")[0]
+func getConnectionID(conn ssh.ConnMetadata) (string, string, string) {
+	var username, bpname string
+	parsed := strings.Split(conn.User(), "~")
+	if len(parsed) >= 2 {
+		username = parsed[0]
+		bpname = parsed[1]
+	}
+	if len(parsed) == 1 {
+		username = parsed[0]
+		bpname = "dev"
+	}
+
 	connID := fmt.Sprintf("12345-%s", username)
-	return username, connID
+	return username, bpname, connID
+}
+
+func RemoveState(state *State) {
+	authStatesMutex.Lock()
+	defer authStatesMutex.Unlock()
+	delete(authStates, fmt.Sprintf("12345-%s", state.Username))
 }
 
 func GetState(conn ssh.ConnMetadata) *State {
-	username, connID := getConnectionID(conn)
+	username, bpname, connID := getConnectionID(conn)
 
 	authStatesMutex.RLock()
 	defer authStatesMutex.RUnlock()
@@ -57,6 +74,7 @@ func GetState(conn ssh.ConnMetadata) *State {
 	if state == nil {
 		state = &State{
 			Username: username,
+			BpName:   bpname,
 		}
 		authStates[connID] = state
 	}

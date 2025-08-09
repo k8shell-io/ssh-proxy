@@ -184,7 +184,7 @@ func (s *Server) hasTermEnv(envVars []string) bool {
 }
 
 func (s *Server) ensureWorkspace(state *State, channel ssh.Channel) (*provisionerModels.WorkspaceStatus, error) {
-	workspaces, err := s.provisioner.GetWorkspaces(s.ctx, state.User.Username, "dev")
+	workspaces, err := s.provisioner.GetWorkspaces(s.ctx, state.User.Username, state.BpName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", state.User.Username, err)
 	}
@@ -226,7 +226,7 @@ func (s *Server) provisionWorkspace(channel ssh.Channel, state *State, sendEvent
 	go func() {
 		err = s.provisioner.ProvisionWorkspaceStream(s.ctx, &provisioner.ProvisionOptions{
 			Username:  state.User.Username,
-			Blueprint: "dev",
+			Blueprint: state.BpName,
 			Timeout:   30,
 			Stream:    true,
 		}, events)
