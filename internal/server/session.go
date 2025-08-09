@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/binary"
 	"fmt"
 	"slices"
 
@@ -83,26 +84,18 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *Se
 		case "pty-req":
 			if session.State.User.Channels == nil || slices.Contains(session.State.User.Channels, identity.ChannelPty) {
 				if len(req.Payload) >= 8 {
-					termLen := uint32(req.Payload[0])<<24 | uint32(req.Payload[1])<<16 |
-						uint32(req.Payload[2])<<8 | uint32(req.Payload[3])
+					termLen := binary.BigEndian.Uint32(req.Payload[0:4])
 
 					if len(req.Payload) >= int(4+termLen) {
 						termType := string(req.Payload[4 : 4+termLen])
-
 						termEnv := fmt.Sprintf("TERM=%s", termType)
 						session.Env = append(session.Env, termEnv)
 						s.log.Debug().Msgf("Terminal type: %s for user %s", termType, session.Username)
 
 						offset := 4 + int(termLen)
 						if len(req.Payload) >= offset+16 {
-							session.TermWidth = uint32(req.Payload[offset])<<24 |
-								uint32(req.Payload[offset+1])<<16 |
-								uint32(req.Payload[offset+2])<<8 |
-								uint32(req.Payload[offset+3])
-							session.TermHeight = uint32(req.Payload[offset+4])<<24 |
-								uint32(req.Payload[offset+5])<<16 |
-								uint32(req.Payload[offset+6])<<8 |
-								uint32(req.Payload[offset+7])
+							session.TermWidth = binary.BigEndian.Uint32(req.Payload[offset : offset+4])
+							session.TermHeight = binary.BigEndian.Uint32(req.Payload[offset+4 : offset+8])
 
 							s.log.Debug().Msgf("PTY size from request: %dx%d for user %s",
 								session.TermWidth, session.TermHeight, session.Username)
@@ -117,15 +110,12 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *Se
 
 		case "env":
 			if len(req.Payload) >= 8 {
-				nameLen := uint32(req.Payload[0])<<24 | uint32(req.Payload[1])<<16 |
-					uint32(req.Payload[2])<<8 | uint32(req.Payload[3])
+				nameLen := binary.BigEndian.Uint32(req.Payload[0:4])
 
 				if len(req.Payload) >= int(4+nameLen+4) {
 					name := string(req.Payload[4 : 4+nameLen])
 					valueOffset := 4 + nameLen
-					valueLen := uint32(req.Payload[valueOffset])<<24 | uint32(req.Payload[valueOffset+1])<<16 |
-						uint32(req.Payload[valueOffset+2])<<8 | uint32(req.Payload[valueOffset+3])
-
+					valueLen := binary.BigEndian.Uint32(req.Payload[valueOffset : valueOffset+4])
 					if len(req.Payload) >= int(8+nameLen+valueLen) {
 						value := string(req.Payload[8+nameLen : 8+nameLen+valueLen])
 						envVar := fmt.Sprintf("%s=%s", name, value)
@@ -154,15 +144,12 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *Se
 			accepted = true
 			if session.k8shelld != nil {
 				if len(req.Payload) >= 8 {
-					width := uint32(req.Payload[0])<<24 | uint32(req.Payload[1])<<16 |
-						uint32(req.Payload[2])<<8 | uint32(req.Payload[3])
-					height := uint32(req.Payload[4])<<24 | uint32(req.Payload[5])<<16 |
-						uint32(req.Payload[6])<<8 | uint32(req.Payload[7])
-
-					session.TermWidth = width
-					session.TermHeight = height
+					width := binary.BigEndian.Uint32(req.Payload[0:4])
+					height := binary.BigEndian.Uint32(req.Payload[4:8])
 
 					s.log.Debug().Msgf("Window change: %dx%d for user %s", width, height, session.Username)
+					session.TermWidth = width
+					session.TermHeight = height
 
 					if err := session.k8shelld.ResizeTerminal(s.ctx, session.SessionId, width, height); err != nil {
 						s.log.Error().Msgf("Failed to resize terminal: %v", err)
