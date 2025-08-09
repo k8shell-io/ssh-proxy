@@ -7,6 +7,7 @@ import (
 	"time"
 
 	identity "github.com/k8shell-io/identity/pkg/models"
+	"github.com/k8shell-io/ssh-proxy/internal/k8shelld"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -17,9 +18,12 @@ type SessionInfo struct {
 	TermHeight   uint32
 	TermWidthPx  uint32
 	TermHeightPx uint32
-	Environment  map[string]string
+	Environment  []string
 	Command      string
 	HasPTY       bool
+	k8shelld     *k8shelld.Client
+	ShellReady   chan struct{}
+	SessionId    string
 }
 
 // State represents the authentication state for a connection

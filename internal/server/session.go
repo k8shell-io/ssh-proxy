@@ -7,6 +7,7 @@ import (
 	identity "github.com/k8shell-io/identity/pkg/models"
 	provisioner "github.com/k8shell-io/provisioner/pkg/client"
 	provisionerModels "github.com/k8shell-io/provisioner/pkg/models"
+	"github.com/k8shell-io/ssh-proxy/internal/k8shelld"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -20,10 +21,15 @@ func (s *Server) handleSessionChannel(_ *ssh.ServerConn, state *State, newChanne
 
 	state.Session = &SessionInfo{
 		Username:    state.User.Username,
-		Environment: make(map[string]string),
+		Environment: []string{},
+		SessionId:   "sh-99999-0",
+		ShellReady:  make(chan struct{}),
+		TermWidth:   80,
+		TermHeight:  24,
 	}
 
-	go s.handleSessionRequests(requests, state)
+	// Start handling requests immediately
+	go s.handleSessionRequests(requests, state, channel)
 
 	address, err := s.getWorkspaceAddress(state, channel)
 	if err != nil {
@@ -31,44 +37,149 @@ func (s *Server) handleSessionChannel(_ *ssh.ServerConn, state *State, newChanne
 		return
 	}
 	channel.Write([]byte(fmt.Sprintf("Connecting to workspace at %s...\r\n", address)))
+
+	state.Session.k8shelld, err = k8shelld.NewClient(address, 2822, "e9d60a584e90e426934ec26820cbf69b")
+	if err != nil {
+		s.log.Error().Msgf("Failed to create k8shelld client for user %s: %v", state.User.Username, err)
+		return
+	}
+
+	version, err := state.Session.k8shelld.GetVersion(s.ctx)
+	if err != nil {
+		s.log.Error().Msgf("Failed to get k8shelld version for user %s: %v", state.User.Username, err)
+		return
+	}
+	channel.Write([]byte(fmt.Sprintf("Connected to k8shelld (version: %s, commit: %s)\r\n",
+		version.Version, version.Commit)))
+
+	<-state.Session.ShellReady
+
+	if err := state.Session.k8shelld.StartShell(s.ctx, channel, state.Session.SessionId,
+		state.Session.Environment, state.Session.TermWidth, state.Session.TermHeight); err != nil {
+		s.log.Error().Msgf("Shell session error: %v", err)
+	}
 }
 
-func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, state *State) {
+func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, state *State, _ ssh.Channel) {
 	for req := range requests {
-		s.log.Debug().Msgf("Received session request: type=%s, want_reply=%t", req.Type, req.WantReply)
+		s.log.Debug().Msgf("Received session request: type=%s, want_reply=%t, payload_len=%d",
+			req.Type, req.WantReply, len(req.Payload))
 
 		accepted := false
 
 		switch req.Type {
 		case "pty-req":
-			if state.User.Channels != nil || !slices.Contains(state.User.Channels, identity.ChannelPty) {
+			if state.User.Channels == nil || slices.Contains(state.User.Channels, identity.ChannelPty) {
+				if len(req.Payload) >= 8 {
+					termLen := uint32(req.Payload[0])<<24 | uint32(req.Payload[1])<<16 |
+						uint32(req.Payload[2])<<8 | uint32(req.Payload[3])
+
+					if len(req.Payload) >= int(4+termLen) {
+						termType := string(req.Payload[4 : 4+termLen])
+
+						termEnv := fmt.Sprintf("TERM=%s", termType)
+						state.Session.Environment = append(state.Session.Environment, termEnv)
+						s.log.Debug().Msgf("Terminal type: %s for user %s", termType, state.User.Username)
+
+						offset := 4 + int(termLen)
+						if len(req.Payload) >= offset+16 {
+							state.Session.TermWidth = uint32(req.Payload[offset])<<24 |
+								uint32(req.Payload[offset+1])<<16 |
+								uint32(req.Payload[offset+2])<<8 |
+								uint32(req.Payload[offset+3])
+							state.Session.TermHeight = uint32(req.Payload[offset+4])<<24 |
+								uint32(req.Payload[offset+5])<<16 |
+								uint32(req.Payload[offset+6])<<8 |
+								uint32(req.Payload[offset+7])
+
+							s.log.Debug().Msgf("PTY size from request: %dx%d for user %s",
+								state.Session.TermWidth, state.Session.TermHeight, state.User.Username)
+						}
+					}
+				}
+
 				state.Session.HasPTY = true
 				accepted = true
+				s.log.Debug().Msgf("PTY request accepted for user %s", state.User.Username)
 			}
 
-		// case "env":
-		// 	accepted = s.handleEnvRequest(req.Payload, state.Session)
+		case "env":
+			if len(req.Payload) >= 8 {
+				nameLen := uint32(req.Payload[0])<<24 | uint32(req.Payload[1])<<16 |
+					uint32(req.Payload[2])<<8 | uint32(req.Payload[3])
+
+				if len(req.Payload) >= int(4+nameLen+4) {
+					name := string(req.Payload[4 : 4+nameLen])
+					valueOffset := 4 + nameLen
+					valueLen := uint32(req.Payload[valueOffset])<<24 | uint32(req.Payload[valueOffset+1])<<16 |
+						uint32(req.Payload[valueOffset+2])<<8 | uint32(req.Payload[valueOffset+3])
+
+					if len(req.Payload) >= int(8+nameLen+valueLen) {
+						value := string(req.Payload[8+nameLen : 8+nameLen+valueLen])
+						envVar := fmt.Sprintf("%s=%s", name, value)
+						if name != "TERM" || !s.hasTermEnv(state.Session.Environment) {
+							state.Session.Environment = append(state.Session.Environment, envVar)
+						}
+
+						s.log.Debug().Msgf("Env: %s=%s for user %s", name, value, state.User.Username)
+						accepted = true
+					}
+				}
+			}
+
+			if !accepted {
+				s.log.Warn().Msgf("Failed to parse env request payload for user %s", state.User.Username)
+			}
 
 		case "shell":
-			if state.User.Channels != nil || !slices.Contains(state.User.Channels, identity.ChannelShell) {
+			if state.User.Channels == nil || slices.Contains(state.User.Channels, identity.ChannelShell) {
 				accepted = true
+				s.log.Debug().Msgf("Shell request accepted for user %s", state.User.Username)
 			}
-			s.log.Debug().Msgf("Shell request accepted for user %s, payload: %s", state.User.Username, req.Payload)
+			close(state.Session.ShellReady)
 
-		// case "exec":
-		// 	accepted = s.handleExecRequest(req.Payload, sessionInfo, channel)
+		case "window-change":
+			accepted = true
+			if state.Session.k8shelld != nil {
+				if len(req.Payload) >= 8 {
+					width := uint32(req.Payload[0])<<24 | uint32(req.Payload[1])<<16 |
+						uint32(req.Payload[2])<<8 | uint32(req.Payload[3])
+					height := uint32(req.Payload[4])<<24 | uint32(req.Payload[5])<<16 |
+						uint32(req.Payload[6])<<8 | uint32(req.Payload[7])
 
-		// case "window-change":
-		// 	accepted = s.handleWindowChangeRequest(req.Payload, sessionInfo)
+					state.Session.TermWidth = width
+					state.Session.TermHeight = height
+
+					s.log.Debug().Msgf("Window change: %dx%d for user %s", width, height, state.User.Username)
+
+					if err := state.Session.k8shelld.ResizeTerminal(s.ctx, state.Session.SessionId,
+						width, height); err != nil {
+						s.log.Error().Msgf("Failed to resize terminal: %v", err)
+					}
+				}
+			} else {
+				s.log.Warn().Msgf("Received window-change request for user %s, but k8shelld is not initialized",
+					state.User.Username)
+			}
 
 		default:
-			s.log.Warn().Msgf("Unsupported session request type: %s", req.Type)
+			s.log.Warn().Msgf("Unsupported session request type: %s for user %s", req.Type, state.User.Username)
 		}
 
 		if req.WantReply {
 			req.Reply(accepted, nil)
 		}
 	}
+}
+
+// Helper function to check if TERM is already set
+func (s *Server) hasTermEnv(envVars []string) bool {
+	for _, env := range envVars {
+		if len(env) >= 5 && env[:5] == "TERM=" {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Server) getWorkspaceAddress(state *State, channel ssh.Channel) (string, error) {
