@@ -12,13 +12,14 @@ import (
 )
 
 type SessionInfo struct {
+	State        *State
 	Username     string
 	TermType     string
 	TermWidth    uint32
 	TermHeight   uint32
 	TermWidthPx  uint32
 	TermHeightPx uint32
-	Environment  []string
+	Env          []string
 	Command      string
 	HasPTY       bool
 	k8shelld     *k8shelld.Client
@@ -35,7 +36,6 @@ type State struct {
 	AuthFailCount   int
 	AuthLastAttempt time.Time
 	mu              sync.RWMutex
-	Session         *SessionInfo
 }
 
 // Global state storage
