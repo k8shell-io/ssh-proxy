@@ -32,14 +32,14 @@ type SessionInfo struct {
 
 // Auth represents the authentication state for a connection
 type Auth struct {
-	Username        string
-	BpName          string
-	OnboardCap      *identity.OnboardCapability
-	OnboardInfo     *identity.OnboardUser
-	User            *identity.User
-	AuthFailCount   int
-	AuthLastAttempt time.Time
-	mu              sync.RWMutex
+	Username        string                      // username of the user
+	BlueprintName   string                      // name of the blueprint
+	OnboardCap      *identity.OnboardCapability // onboarding capabilities
+	OnboardInfo     *identity.OnboardUser       // onboarding information
+	User            *identity.User              // user information
+	AuthFailCount   int                         // number of failed authentication attempts
+	AuthLastAttempt time.Time                   // timestamp of the last authentication attempt
+	mu              sync.RWMutex                // mutex for synchronizing access
 }
 
 // Global state storage
@@ -69,15 +69,15 @@ func RemoveState(state *Auth) {
 }
 
 func GetAuth(conn ssh.ConnMetadata) *Auth {
-	username, bpname, connID := getConnectionID(conn)
+	username, blueprintName, connID := getConnectionID(conn)
 
 	authStatesMutex.RLock()
 	defer authStatesMutex.RUnlock()
 	auth := authStates[connID]
 	if auth == nil {
 		auth = &Auth{
-			Username: username,
-			BpName:   bpname,
+			Username:      username,
+			BlueprintName: blueprintName,
 		}
 		authStates[connID] = auth
 	}
