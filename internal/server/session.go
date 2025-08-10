@@ -16,17 +16,17 @@ import (
 
 var SSH_AUTH_SOCK = "/var/run/ssh-agent-12345.sock"
 
-func (s *Server) handleSessionChannel(conn *ssh.ServerConn, state *State, newChannel ssh.NewChannel) {
+func (s *Server) handleSessionChannel(conn *ssh.ServerConn, auth *Auth, newChannel ssh.NewChannel) {
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
-		s.log.Error().Msgf("Failed to accept session channel for user %s: %v", state.User.Username, err)
+		s.log.Error().Msgf("Failed to accept session channel for user %s: %v", auth.User.Username, err)
 		return
 	}
 	defer channel.Close()
 
 	session := &SessionInfo{
-		State:      state,
-		Username:   state.User.Username,
+		Auth:       auth,
+		Username:   auth.User.Username,
 		Env:        []string{},
 		SessionId:  "sh-99999-0",
 		ShellReady: make(chan struct{}),
@@ -36,9 +36,9 @@ func (s *Server) handleSessionChannel(conn *ssh.ServerConn, state *State, newCha
 
 	go s.handleSessionRequests(requests, session, channel)
 
-	status, err := s.ensureWorkspace(state, channel)
+	status, err := s.ensureWorkspace(auth, channel)
 	if err != nil {
-		s.log.Error().Msgf("Failed to ensure workspace for user %s: %v", state.User.Username, err)
+		s.log.Error().Msgf("Failed to ensure workspace for user %s: %v", auth.User.Username, err)
 		return
 	}
 	channel.Write([]byte(fmt.Sprintf("Connecting to the workspace at %s...\r\n", status.Host)))
@@ -82,7 +82,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *Se
 
 		switch req.Type {
 		case "pty-req":
-			if session.State.User.Channels == nil || slices.Contains(session.State.User.Channels, identity.ChannelPty) {
+			if session.Auth.User.Channels == nil || slices.Contains(session.Auth.User.Channels, identity.ChannelPty) {
 				if len(req.Payload) >= 8 {
 					termLen := binary.BigEndian.Uint32(req.Payload[0:4])
 
@@ -134,7 +134,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *Se
 			}
 
 		case "shell":
-			if session.State.User.Channels == nil || slices.Contains(session.State.User.Channels, identity.ChannelShell) {
+			if session.Auth.User.Channels == nil || slices.Contains(session.Auth.User.Channels, identity.ChannelShell) {
 				accepted = true
 				s.log.Debug().Msgf("Shell request accepted for user %s", session.Username)
 			}
@@ -186,40 +186,40 @@ func (s *Server) hasTermEnv(envVars []string) bool {
 	return false
 }
 
-func (s *Server) ensureWorkspace(state *State, channel ssh.Channel) (*provisionerModels.WorkspaceStatus, error) {
-	workspaces, err := s.provisioner.GetWorkspaces(s.ctx, state.User.Username, state.BpName)
+func (s *Server) ensureWorkspace(auth *Auth, channel ssh.Channel) (*provisionerModels.WorkspaceStatus, error) {
+	workspaces, err := s.provisioner.GetWorkspaces(s.ctx, auth.User.Username, auth.BpName)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", state.User.Username, err)
+		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", auth.User.Username, err)
 	}
 
 	if len(workspaces) > 0 {
 		status, err := s.provisioner.GetWorkspaceStatus(s.ctx, workspaces[0].Name)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", state.User.Username, err)
+			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", auth.User.Username, err)
 		}
 		if status.Status == "Running" {
 			return status, nil
 		}
 	}
 
-	name, err := s.provisionWorkspace(channel, state, true)
+	name, err := s.provisionWorkspace(channel, auth, true)
 	if err != nil {
-		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", state.User.Username, err)
+		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", auth.User.Username, err)
 	}
 
 	status, err := s.provisioner.GetWorkspaceStatus(s.ctx, name)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", state.User.Username, err)
+		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", auth.User.Username, err)
 	}
 	if status.Status == "Running" {
 		return status, nil
 	}
 
 	return nil, fmt.Errorf("failed to ensure workspace for user %s: workspace status is %q",
-		state.User.Username, status.Status)
+		auth.User.Username, status.Status)
 }
 
-func (s *Server) provisionWorkspace(channel ssh.Channel, state *State, sendEvents bool) (string, error) {
+func (s *Server) provisionWorkspace(channel ssh.Channel, auth *Auth, sendEvents bool) (string, error) {
 	events := make(chan provisionerModels.StreamEvent, 100)
 	channel.Write([]byte("Provisioning workspace...\r\n"))
 
@@ -228,8 +228,8 @@ func (s *Server) provisionWorkspace(channel ssh.Channel, state *State, sendEvent
 
 	go func() {
 		err = s.provisioner.ProvisionWorkspaceStream(s.ctx, &provisioner.ProvisionOptions{
-			Username:  state.User.Username,
-			Blueprint: state.BpName,
+			Username:  auth.User.Username,
+			Blueprint: auth.BpName,
 			Timeout:   30,
 			Stream:    true,
 		}, events)

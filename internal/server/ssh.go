@@ -178,6 +178,25 @@ func (s *Server) handleConnectionDirect(netConn net.Conn) {
 	s.handleChannels(sshConn, channels)
 }
 
+// handleConnection processes a single SSH connection
+func (s *Server) handleConnection(netConn net.Conn) {
+	defer s.wg.Done()
+	defer netConn.Close()
+
+	s.log.Info().Msgf("New SSH connection from %s", netConn.RemoteAddr().String())
+
+	sshConn, channels, requests, err := ssh.NewServerConn(netConn, s.sshConfig)
+	if err != nil {
+		s.log.Error().Msgf("Failed to perform SSH handshake: %v", err)
+		return
+	}
+	defer sshConn.Close()
+	s.log.Info().Msgf("SSH handshake completed for user %s", sshConn.User())
+
+	go s.handleGlobalRequests(requests)
+	s.handleChannels(sshConn, channels)
+}
+
 // Start begins listening for SSH connections on the configured port
 func (s *Server) Start() error {
 	address := fmt.Sprintf(":%d", s.Config.Ssh.Port)
@@ -289,61 +308,6 @@ func (s *Server) handleConnectionSubProcess(netConn net.Conn) {
 			s.log.Error().Msgf("Subprocess exited with error, pid: %d, error: %v", cmd.Process.Pid, err)
 		}
 	}()
-}
-
-// handleConnection processes a single SSH connection
-func (s *Server) handleConnection(netConn net.Conn) {
-	defer s.wg.Done()
-	defer netConn.Close()
-
-	s.log.Info().Msgf("New SSH connection from %s", netConn.RemoteAddr().String())
-
-	sshConn, channels, requests, err := ssh.NewServerConn(netConn, s.sshConfig)
-	if err != nil {
-		s.log.Error().Msgf("Failed to perform SSH handshake: %v", err)
-		return
-	}
-	defer sshConn.Close()
-	s.log.Info().Msgf("SSH handshake completed for user %s", sshConn.User())
-
-	go s.handleGlobalRequests(requests)
-	s.handleChannels(sshConn, channels)
-}
-
-// handleGlobalRequests processes SSH global requests
-func (s *Server) handleGlobalRequests(requests <-chan *ssh.Request) {
-	for req := range requests {
-		s.log.Debug().Msgf("Received global request: type=%s, want_reply=%t", req.Type, req.WantReply)
-
-		// Reject all global requests for now
-		if req.WantReply {
-			req.Reply(false, nil)
-		}
-	}
-}
-
-// handleChannels handles SSH channel requests.
-func (s *Server) handleChannels(sshConn *ssh.ServerConn, channels <-chan ssh.NewChannel) {
-	for newChannel := range channels {
-		s.log.Debug().Msgf("Received channel request: type=%s", newChannel.ChannelType())
-
-		state := GetState(sshConn)
-		if state.User == nil {
-			s.log.Error().Msgf("User not found for connection %s, rejecting channel request", sshConn.User())
-			newChannel.Reject(ssh.UnknownChannelType, "user not found")
-			continue
-		}
-
-		switch newChannel.ChannelType() {
-		case "session":
-			go s.handleSessionChannel(sshConn, state, newChannel)
-		case "direct-tcpip":
-			// Handle direct TCP/IP channel
-		default:
-			s.log.Warn().Msgf("Unsupported channel type: %s", newChannel.ChannelType())
-			newChannel.Reject(ssh.UnknownChannelType, "channel type not supported")
-		}
-	}
 }
 
 // Stop gracefully shuts down the SSH server

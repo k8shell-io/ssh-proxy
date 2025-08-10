@@ -14,7 +14,7 @@ import (
 // SessionInfo holds information about a user's SSH session
 type SessionInfo struct {
 	k8shelld     *k8shelld.Client // k8shelld client for interacting with the workspace k8shelld daemon
-	State        *State           // authentication state
+	Auth         *Auth            // authentication state
 	Username     string           // username of the user
 	TermType     string           // terminal type
 	TermWidth    uint32           // terminal width
@@ -30,8 +30,8 @@ type SessionInfo struct {
 	AgentChannel ssh.Channel      // channel for the SSH agent
 }
 
-// State represents the authentication state for a connection
-type State struct {
+// Auth represents the authentication state for a connection
+type Auth struct {
 	Username        string
 	BpName          string
 	OnboardCap      *identity.OnboardCapability
@@ -43,7 +43,7 @@ type State struct {
 }
 
 // Global state storage
-var authStates = make(map[string]*State)
+var authStates = make(map[string]*Auth)
 var authStatesMutex sync.RWMutex
 
 func getConnectionID(conn ssh.ConnMetadata) (string, string, string) {
@@ -58,51 +58,51 @@ func getConnectionID(conn ssh.ConnMetadata) (string, string, string) {
 		bpname = "dev"
 	}
 
-	connID := fmt.Sprintf("12345-%s", username)
+	connID := fmt.Sprintf("%s-%s", conn.RemoteAddr(), username)
 	return username, bpname, connID
 }
 
-func RemoveState(state *State) {
+func RemoveState(state *Auth) {
 	authStatesMutex.Lock()
 	defer authStatesMutex.Unlock()
 	delete(authStates, fmt.Sprintf("12345-%s", state.Username))
 }
 
-func GetState(conn ssh.ConnMetadata) *State {
+func GetAuth(conn ssh.ConnMetadata) *Auth {
 	username, bpname, connID := getConnectionID(conn)
 
 	authStatesMutex.RLock()
 	defer authStatesMutex.RUnlock()
-	state := authStates[connID]
-	if state == nil {
-		state = &State{
+	auth := authStates[connID]
+	if auth == nil {
+		auth = &Auth{
 			Username: username,
 			BpName:   bpname,
 		}
-		authStates[connID] = state
+		authStates[connID] = auth
 	}
-	return state
+	return auth
 }
 
-func (s *State) SetOnboardInfo(onboardInfo *identity.OnboardUser) {
+func (s *Auth) SetOnboardInfo(onboardInfo *identity.OnboardUser) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.OnboardInfo = onboardInfo
 }
 
-func (s *State) GetOnboardInfo() *identity.OnboardUser {
+func (s *Auth) GetOnboardInfo() *identity.OnboardUser {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.OnboardInfo
 }
 
-func (s *State) SetOnboardCap(onboardCap *identity.OnboardCapability) {
+func (s *Auth) SetOnboardCap(onboardCap *identity.OnboardCapability) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.OnboardCap = onboardCap
 }
 
-func (s *State) GetOnboardCap() *identity.OnboardCapability {
+func (s *Auth) GetOnboardCap() *identity.OnboardCapability {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.OnboardCap
