@@ -157,7 +157,7 @@ func HandleConnectionFileDescriptor(fd int, configPath string) error {
 }
 
 // handleConnectionDirect processes a single SSH connection without wait group management
-// This is used when forking is disabled
+// This is used when forking is disabled and it runs in a subprocess
 func (s *Server) handleConnectionDirect(netConn net.Conn) {
 	defer netConn.Close()
 
@@ -179,6 +179,7 @@ func (s *Server) handleConnectionDirect(netConn net.Conn) {
 }
 
 // handleConnection processes a single SSH connection
+// This is used when forking is enabled, and it manages the connection in a goroutine.
 func (s *Server) handleConnection(netConn net.Conn) {
 	defer s.wg.Done()
 	defer netConn.Close()

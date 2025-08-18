@@ -13,25 +13,25 @@ import (
 
 // SessionInfo holds information about a user's SSH session
 type SessionInfo struct {
-	k8shelld     *k8shelld.Client // k8shelld client for interacting with the workspace k8shelld daemon
-	Auth         *Auth            // authentication state
-	Username     string           // username of the user
-	TermType     string           // terminal type
-	TermWidth    uint32           // terminal width
-	TermHeight   uint32           // terminal height
-	TermWidthPx  uint32           // terminal width in pixels
-	TermHeightPx uint32           // terminal height in pixels
-	Env          []string         // environment variables
-	Command      string           // command to execute
-	HasPTY       bool             // true when the session has a pseudo-terminal
-	SessionId    string           // unique session identifier
-	ShellReady   chan struct{}    // channel to signal when the shell is ready
-	HasAgent     bool             // true when the session has an SSH agent
-	AgentChannel ssh.Channel      // channel for the SSH agent
+	ConnInfo     *ConnectionInfo // connection information
+	Username     string          // username of the user
+	TermType     string          // terminal type
+	TermWidth    uint32          // terminal width
+	TermHeight   uint32          // terminal height
+	TermWidthPx  uint32          // terminal width in pixels
+	TermHeightPx uint32          // terminal height in pixels
+	Env          []string        // environment variables
+	Command      string          // command to execute
+	HasPTY       bool            // true when the session has a pseudo-terminal
+	SessionId    string          // unique session identifier
+	ShellReady   chan struct{}   // channel to signal when the shell is ready
+	HasAgent     bool            // true when the session has an SSH agent
+	AgentChannel ssh.Channel     // channel for the SSH agent
 }
 
-// Auth represents the authentication state for a connection
-type Auth struct {
+// ConnectionInfo represents the connection information for a user
+type ConnectionInfo struct {
+	k8shelld        *k8shelld.Client            // k8shelld client for interacting with the workspace k8shelld daemon
 	Username        string                      // username of the user
 	BlueprintName   string                      // name of the blueprint
 	OnboardCap      *identity.OnboardCapability // onboarding capabilities
@@ -43,8 +43,8 @@ type Auth struct {
 }
 
 // Global state storage
-var authStates = make(map[string]*Auth)
-var authStatesMutex sync.RWMutex
+var connStates = make(map[string]*ConnectionInfo)
+var connStatesMutex sync.RWMutex
 
 func getConnectionID(conn ssh.ConnMetadata) (string, string, string) {
 	var username, bpname string
@@ -62,47 +62,56 @@ func getConnectionID(conn ssh.ConnMetadata) (string, string, string) {
 	return username, bpname, connID
 }
 
-func RemoveState(state *Auth) {
-	authStatesMutex.Lock()
-	defer authStatesMutex.Unlock()
-	delete(authStates, fmt.Sprintf("12345-%s", state.Username))
+func RemoveState(state *ConnectionInfo) {
+	connStatesMutex.Lock()
+	defer connStatesMutex.Unlock()
+	delete(connStates, fmt.Sprintf("12345-%s", state.Username))
 }
 
-func GetAuth(conn ssh.ConnMetadata) *Auth {
+func GetConnInfo(conn ssh.ConnMetadata) *ConnectionInfo {
 	username, blueprintName, connID := getConnectionID(conn)
 
-	authStatesMutex.RLock()
-	defer authStatesMutex.RUnlock()
-	auth := authStates[connID]
-	if auth == nil {
-		auth = &Auth{
+	connStatesMutex.RLock()
+	defer connStatesMutex.RUnlock()
+	connInfo := connStates[connID]
+	if connInfo == nil {
+		connInfo = &ConnectionInfo{
 			Username:      username,
 			BlueprintName: blueprintName,
 		}
-		authStates[connID] = auth
+		connStates[connID] = connInfo
 	}
-	return auth
+	return connInfo
 }
 
-func (s *Auth) SetOnboardInfo(onboardInfo *identity.OnboardUser) {
+func (s *ConnectionInfo) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.k8shelld != nil {
+		s.k8shelld.Close()
+		s.k8shelld = nil
+	}
+}
+
+func (s *ConnectionInfo) SetOnboardInfo(onboardInfo *identity.OnboardUser) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.OnboardInfo = onboardInfo
 }
 
-func (s *Auth) GetOnboardInfo() *identity.OnboardUser {
+func (s *ConnectionInfo) GetOnboardInfo() *identity.OnboardUser {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.OnboardInfo
 }
 
-func (s *Auth) SetOnboardCap(onboardCap *identity.OnboardCapability) {
+func (s *ConnectionInfo) SetOnboardCap(onboardCap *identity.OnboardCapability) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.OnboardCap = onboardCap
 }
 
-func (s *Auth) GetOnboardCap() *identity.OnboardCapability {
+func (s *ConnectionInfo) GetOnboardCap() *identity.OnboardCapability {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.OnboardCap

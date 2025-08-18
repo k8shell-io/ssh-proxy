@@ -15,7 +15,7 @@ import (
 
 // AllowedAuthsCallback returns the available authentication methods for the user.
 func (s *Server) AllowedAuthsCallback(conn ssh.ConnMetadata) ssh.ServerAuthCallbacks {
-	auth := GetAuth(conn)
+	auth := GetConnInfo(conn)
 	s.updateUser(s.ctx, auth)
 	return s.getAvailableAuthMethods(auth).Next
 }
@@ -25,7 +25,7 @@ func (s *Server) AuthPublicKey(conn ssh.ConnMetadata, pubKey ssh.PublicKey) (*ss
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
 
-	auth := GetAuth(conn)
+	auth := GetConnInfo(conn)
 	s.updateUser(ctx, auth)
 	if auth.User != nil {
 		if slices.Contains(auth.User.Auths, "publickey") {
@@ -56,7 +56,7 @@ func (s *Server) AuthPassword(conn ssh.ConnMetadata, password []byte) (*ssh.Perm
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
 
-	auth := GetAuth(conn)
+	auth := GetConnInfo(conn)
 	s.updateUser(ctx, auth)
 	if auth.User != nil {
 		if slices.Contains(auth.User.Auths, "password") {
@@ -88,7 +88,7 @@ func (s *Server) AuthKeyboardInteractive(conn ssh.ConnMetadata,
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
 
-	auth := GetAuth(conn)
+	auth := GetConnInfo(conn)
 	s.updateUser(ctx, auth)
 	if auth.User != nil {
 		return nil, fmt.Errorf("user %s is already onboarded", auth.Username)
@@ -135,7 +135,7 @@ func (s *Server) AuthKeyboardInteractive(conn ssh.ConnMetadata,
 
 // checkAuthInteractiveResponse verifies the response from a keyboard-interactive authentication challenge.
 func (s *Server) checkAuthInteractiveResponse(ctx context.Context,
-	auth *Auth, _ []string) (*ssh.Permissions, error) {
+	auth *ConnectionInfo, _ []string) (*ssh.Permissions, error) {
 	onboardInfo := auth.GetOnboardInfo()
 	if onboardInfo == nil {
 		return nil, fmt.Errorf("no onboard info available")
@@ -179,41 +179,41 @@ func (s *Server) authPassword(_ *identity.User) bool {
 
 // updateUser fetches user from the identity service and updates user auth
 // When the user is not found, it retrieves the user onboarding capability.
-func (s *Server) updateUser(ctx context.Context, auth *Auth) {
-	auth.mu.Lock()
-	defer auth.mu.Unlock()
+func (s *Server) updateUser(ctx context.Context, connInfo *ConnectionInfo) {
+	connInfo.mu.Lock()
+	defer connInfo.mu.Unlock()
 
-	if auth.User != nil {
+	if connInfo.User != nil {
 		return // User already loaded
 	}
 
-	user, err := s.identity.GetUser(ctx, auth.Username)
+	user, err := s.identity.GetUser(ctx, connInfo.Username)
 	if err != nil {
 		var eresp identityClient.ErrorResponse
 		if errors.As(err, &eresp) && eresp.Status != 404 {
-			s.log.Error().Msgf("Failed to get user %s: %v", auth.Username, err)
+			s.log.Error().Msgf("Failed to get user %s: %v", connInfo.Username, err)
 			return
 		}
 	}
 
 	if user == nil {
-		if auth.OnboardCap == nil {
+		if connInfo.OnboardCap == nil {
 			var onboardCap *identity.OnboardCapability
-			onboardCap, err = s.identity.GetOnboardCapability(ctx, auth.Username)
+			onboardCap, err = s.identity.GetOnboardCapability(ctx, connInfo.Username)
 			if err != nil {
-				s.log.Error().Msgf("Failed to get onboarding capability for user %s: %v", auth.Username, err)
+				s.log.Error().Msgf("Failed to get onboarding capability for user %s: %v", connInfo.Username, err)
 				return
 			}
-			auth.OnboardCap = onboardCap
+			connInfo.OnboardCap = onboardCap
 		}
 	} else {
-		auth.User = user
+		connInfo.User = user
 	}
 }
 
 // getAvailableAuthMethods returns the available authentication methods for the user.
 // It returns callbacks for the SSH server authentication process.
-func (s *Server) getAvailableAuthMethods(auth *Auth) *ssh.PartialSuccessError {
+func (s *Server) getAvailableAuthMethods(auth *ConnectionInfo) *ssh.PartialSuccessError {
 	if auth.User == nil {
 		onboardCap := auth.GetOnboardCap()
 		if onboardCap != nil && onboardCap.CanOnboard {

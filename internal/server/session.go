@@ -2,14 +2,10 @@ package server
 
 import (
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"slices"
 
 	identity "github.com/k8shell-io/identity/pkg/models"
-	provisioner "github.com/k8shell-io/provisioner/pkg/client"
-	provisionerModels "github.com/k8shell-io/provisioner/pkg/models"
-	"github.com/k8shell-io/ssh-proxy/internal/k8shelld"
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -17,17 +13,17 @@ import (
 
 var SSH_AUTH_SOCK = "/var/run/ssh-agent-12345.sock"
 
-func (s *Server) handleSessionChannel(conn *ssh.ServerConn, auth *Auth, newChannel ssh.NewChannel) {
+func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, newChannel ssh.NewChannel) {
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
-		s.log.Error().Msgf("Failed to accept session channel for user %s: %v", auth.User.Username, err)
+		s.log.Error().Msgf("Failed to accept session channel for user %s: %v", connInfo.User.Username, err)
 		return
 	}
 	defer channel.Close()
 
 	session := &SessionInfo{
-		Auth:       auth,
-		Username:   auth.User.Username,
+		ConnInfo:   connInfo,
+		Username:   connInfo.User.Username,
 		Env:        []string{},
 		SessionId:  "sh-99999-0",
 		ShellReady: make(chan struct{}),
@@ -37,38 +33,23 @@ func (s *Server) handleSessionChannel(conn *ssh.ServerConn, auth *Auth, newChann
 
 	go s.handleSessionRequests(requests, session, channel)
 
-	status, err := s.ensureWorkspace(auth, channel)
+	k8shelld, err := s.getK8shelld(connInfo, channel)
 	if err != nil {
-		s.log.Error().Msgf("Failed to ensure workspace for user %s: %v", auth.User.Username, err)
+		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", session.Username, err)
 		return
 	}
-	channel.Write([]byte(fmt.Sprintf("Connecting to the workspace at %s...\r\n", status.Host)))
-
-	session.k8shelld, err = k8shelld.NewClient(status.Host, status.Port, status.AccessKey, status.TLSCert)
-	if err != nil {
-		s.log.Error().Msgf("Failed to create k8shelld client for user %s: %v", session.Username, err)
-		return
-	}
-	defer session.k8shelld.Close()
-
-	version, err := session.k8shelld.GetVersion(s.ctx)
-	if err != nil {
-		s.log.Error().Msgf("Failed to get k8shelld version for user %s: %v", session.Username, err)
-		return
-	}
-	channel.Write([]byte(fmt.Sprintf("Connected to k8shelld (version: %s-%s)\r\n",
-		version.Version, version.Commit)))
+	//defer k8shelld.Close()
 
 	<-session.ShellReady
 
 	if session.HasAgent {
-		err := s.handleAgent(conn, session)
+		err := s.handleAgent(sshConn, session)
 		if err != nil {
 			s.log.Error().Msgf("Failed to create agent channel: %v", err)
 		}
 	}
 
-	if err := session.k8shelld.StartShell(s.ctx, channel, session.SessionId,
+	if err := k8shelld.StartShell(s.ctx, channel, session.SessionId,
 		session.Env, session.TermWidth, session.TermHeight); err != nil {
 		s.log.Error().Msgf("Shell session error: %v", err)
 	}
@@ -80,10 +61,11 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *Se
 			req.Type, req.WantReply, len(req.Payload))
 
 		accepted := false
+		connInfo := session.ConnInfo
 
 		switch req.Type {
 		case "pty-req":
-			if session.Auth.User.Channels == nil || slices.Contains(session.Auth.User.Channels, identity.ChannelPty) {
+			if connInfo.User.Channels == nil || slices.Contains(connInfo.User.Channels, identity.ChannelPty) {
 				if len(req.Payload) >= 8 {
 					termLen := binary.BigEndian.Uint32(req.Payload[0:4])
 
@@ -135,7 +117,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *Se
 			}
 
 		case "shell":
-			if session.Auth.User.Channels == nil || slices.Contains(session.Auth.User.Channels, identity.ChannelShell) {
+			if connInfo.User.Channels == nil || slices.Contains(connInfo.User.Channels, identity.ChannelShell) {
 				accepted = true
 				s.log.Debug().Msgf("Shell request accepted for user %s", session.Username)
 			}
@@ -143,7 +125,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *Se
 
 		case "window-change":
 			accepted = true
-			if session.k8shelld != nil {
+			if connInfo.k8shelld != nil {
 				if len(req.Payload) >= 8 {
 					width := binary.BigEndian.Uint32(req.Payload[0:4])
 					height := binary.BigEndian.Uint32(req.Payload[4:8])
@@ -152,7 +134,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *Se
 					session.TermWidth = width
 					session.TermHeight = height
 
-					if err := session.k8shelld.ResizeTerminal(s.ctx, session.SessionId, width, height); err != nil {
+					if err := connInfo.k8shelld.ResizeTerminal(s.ctx, session.SessionId, width, height); err != nil {
 						s.log.Error().Msgf("Failed to resize terminal: %v", err)
 					}
 				}
@@ -187,89 +169,6 @@ func (s *Server) hasTermEnv(envVars []string) bool {
 	return false
 }
 
-func (s *Server) ensureWorkspace(auth *Auth, channel ssh.Channel) (*provisionerModels.WorkspaceStatus, error) {
-	workspaces, err := s.provisioner.GetWorkspaces(s.ctx, auth.User.Username, auth.BlueprintName)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", auth.User.Username, err)
-	}
-
-	if len(workspaces) > 0 {
-		status, err := s.provisioner.GetWorkspaceStatus(s.ctx, workspaces[0].Name)
-		if err != nil {
-			if errors.Is(err, provisionerModels.ErrWorkspaceNotFound) {
-				s.log.Warn().Msgf("Workspace %s not found for user %s, provisioning new workspace", workspaces[0].Name,
-					auth.User.Username)
-			} else {
-				return nil, fmt.Errorf("failed to get workspace status for user %s: %w", auth.User.Username, err)
-			}
-		} else {
-			if status.Status == "Running" {
-				return status, nil
-			}
-		}
-	}
-
-	name, err := s.provisionWorkspace(channel, auth, true)
-	if err != nil {
-		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", auth.User.Username, err)
-	}
-
-	status, err := s.provisioner.GetWorkspaceStatus(s.ctx, name)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", auth.User.Username, err)
-	}
-	if status.Status == "Running" {
-		return status, nil
-	}
-
-	return nil, fmt.Errorf("failed to ensure workspace for user %s: workspace status is %q",
-		auth.User.Username, status.Status)
-}
-
-func (s *Server) provisionWorkspace(channel ssh.Channel, auth *Auth, sendEvents bool) (string, error) {
-	events := make(chan provisionerModels.StreamEvent, 100)
-	channel.Write([]byte("Provisioning workspace...\r\n"))
-
-	var name string
-	var err error
-
-	go func() {
-		err = s.provisioner.ProvisionWorkspaceStream(s.ctx, &provisioner.ProvisionOptions{
-			Username:  auth.User.Username,
-			Blueprint: auth.BlueprintName,
-			Timeout:   30,
-			Stream:    true,
-		}, events)
-		if err != nil {
-			s.log.Error().Msgf("Provisioning error: %v", err)
-		}
-	}()
-
-	provisioningDone := make(chan bool, 1)
-
-	go func() {
-		defer func() { provisioningDone <- true }()
-
-		for event := range events {
-			s.log.Debug().Msgf("Event: %+v", event)
-			if sendEvents {
-				channel.Write([]byte(fmt.Sprintf("%s\r\n", event.String())))
-			}
-
-			if event.Status == "Running" {
-				name = event.ObjectName
-			}
-
-			if event.Status == "Error" {
-				err = fmt.Errorf("provisioning error: %s", event.Message)
-			}
-		}
-	}()
-
-	<-provisioningDone
-	return name, err
-}
-
 // createAgentChannel creates a server-initiated agent forwarding channel and
 // handles the communication between the SSH agent and the unix socket in the workspace
 func (s *Server) handleAgent(sshConn *ssh.ServerConn, session *SessionInfo) error {
@@ -282,12 +181,13 @@ func (s *Server) handleAgent(sshConn *ssh.ServerConn, session *SessionInfo) erro
 	go ssh.DiscardRequests(reqs)
 
 	s.log.Debug().Msgf("Agent channel created for user %s", session.Username)
+	connInfo := session.ConnInfo
 
 	// handle communication with the SSH agent and the unix socket
 	go func() {
 		defer channel.Close()
 
-		err := session.k8shelld.StartUnixSocketWithConnection(s.ctx, channel, session.SessionId, SSH_AUTH_SOCK)
+		err := connInfo.k8shelld.StartUnixSocketWithConnection(s.ctx, channel, session.SessionId, SSH_AUTH_SOCK)
 		if err != nil {
 			if statusErr, ok := status.FromError(err); ok && statusErr.Code() == codes.Canceled {
 				s.log.Debug().Msgf("Agent forwarding canceled for user %s", session.Username)
