@@ -38,15 +38,15 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", session.Username, err)
 		return
 	}
-	defer k8shelld.Close()
 
 	<-session.ShellReady
 
 	if session.HasAgent {
-		err := s.handleAgent(sshConn, session)
+		agentChannel, err := s.handleAgent(sshConn, session)
 		if err != nil {
 			s.log.Error().Msgf("Failed to create agent channel: %v", err)
 		}
+		defer agentChannel.Close()
 	}
 
 	if err := k8shelld.StartShell(s.ctx, channel, session.SessionId,
@@ -124,9 +124,14 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *Se
 			close(session.ShellReady)
 
 		case "window-change":
-			accepted = true
-			if connInfo.k8shelld != nil {
+			k8shelld, err := s.getK8shelld(connInfo, nil)
+			if err != nil {
+				s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", session.Username, err)
+			}
+
+			if k8shelld != nil {
 				if len(req.Payload) >= 8 {
+					accepted = true
 					width := binary.BigEndian.Uint32(req.Payload[0:4])
 					height := binary.BigEndian.Uint32(req.Payload[4:8])
 
@@ -134,12 +139,15 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *Se
 					session.TermWidth = width
 					session.TermHeight = height
 
-					if err := connInfo.k8shelld.ResizeTerminal(s.ctx, session.SessionId, width, height); err != nil {
+					if err := k8shelld.ResizeTerminal(s.ctx, session.SessionId, width, height); err != nil {
 						s.log.Error().Msgf("Failed to resize terminal: %v", err)
 					}
+				} else {
+					s.log.Warn().Msgf("Received window-change request for user %s, but payload is too short",
+						session.Username)
 				}
 			} else {
-				s.log.Warn().Msgf("Received window-change request for user %s, but k8shelld is not initialized",
+				s.log.Warn().Msgf("Received window-change request for user %s, but k8shelld is not available",
 					session.Username)
 			}
 
@@ -171,23 +179,27 @@ func (s *Server) hasTermEnv(envVars []string) bool {
 
 // createAgentChannel creates a server-initiated agent forwarding channel and
 // handles the communication between the SSH agent and the unix socket in the workspace
-func (s *Server) handleAgent(sshConn *ssh.ServerConn, session *SessionInfo) error {
+func (s *Server) handleAgent(sshConn *ssh.ServerConn, session *SessionInfo) (ssh.Channel, error) {
 	s.log.Debug().Msgf("Creating agent channel for user %s", session.Username)
 	channel, reqs, err := sshConn.OpenChannel("auth-agent@openssh.com", nil)
 	if err != nil {
-		return fmt.Errorf("failed to open agent channel: %w", err)
+		return nil, fmt.Errorf("failed to open agent channel: %w", err)
 	}
 
 	go ssh.DiscardRequests(reqs)
 
 	s.log.Debug().Msgf("Agent channel created for user %s", session.Username)
-	connInfo := session.ConnInfo
+
+	k8shelld, err := s.getK8shelld(session.ConnInfo, nil)
+	if err != nil {
+		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", session.Username, err)
+		return nil, err
+	}
 
 	// handle communication with the SSH agent and the unix socket
 	go func() {
-		defer channel.Close()
-
-		err := connInfo.k8shelld.StartUnixSocketWithConnection(s.ctx, channel, session.SessionId, SSH_AUTH_SOCK)
+		s.log.Debug().Msgf("Starting agent forwarding for user %s", session.Username)
+		err := k8shelld.StartUnixSocketWithConnection(s.ctx, channel, session.SessionId, SSH_AUTH_SOCK)
 		if err != nil {
 			if statusErr, ok := status.FromError(err); ok && statusErr.Code() == codes.Canceled {
 				s.log.Debug().Msgf("Agent forwarding canceled for user %s", session.Username)
@@ -195,7 +207,8 @@ func (s *Server) handleAgent(sshConn *ssh.ServerConn, session *SessionInfo) erro
 				s.log.Error().Msgf("Agent forwarding deadline exceeded for user %s", session.Username)
 			}
 		}
+		s.log.Debug().Msgf("Agent channel closed for user %s", session.Username)
 	}()
 
-	return nil
+	return channel, nil
 }
