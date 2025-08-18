@@ -38,7 +38,7 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", session.Username, err)
 		return
 	}
-	//defer k8shelld.Close()
+	defer k8shelld.Close()
 
 	<-session.ShellReady
 
