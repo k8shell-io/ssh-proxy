@@ -12,15 +12,16 @@ import (
 
 // handleChannels handles SSH channel requests.
 func (s *Server) handleChannels(sshConn *ssh.ServerConn, channels <-chan ssh.NewChannel) {
+	connInfo := GetConnInfo(sshConn)
+	if connInfo.User == nil {
+		s.log.Error().Msgf("There is no user identity associated with username %s. Cannot handle channels.",
+			sshConn.User())
+		return
+	}
+	defer connInfo.Close()
+
 	for newChannel := range channels {
 		s.log.Debug().Msgf("Received channel request: type=%s", newChannel.ChannelType())
-
-		connInfo := GetConnInfo(sshConn)
-		if connInfo.User == nil {
-			s.log.Error().Msgf("User not found for connection %s, rejecting channel request", sshConn.User())
-			newChannel.Reject(ssh.UnknownChannelType, "user not found")
-			continue
-		}
 
 		switch newChannel.ChannelType() {
 		case "session":
