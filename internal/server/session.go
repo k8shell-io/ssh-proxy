@@ -197,7 +197,8 @@ func (s *Server) ensureWorkspace(auth *Auth, channel ssh.Channel) (*provisionerM
 		status, err := s.provisioner.GetWorkspaceStatus(s.ctx, workspaces[0].Name)
 		if err != nil {
 			if errors.Is(err, provisionerModels.ErrWorkspaceNotFound) {
-				s.log.Warn().Msgf("Workspace %s not found for user %s, provisioning new workspace", workspaces[0].Name, auth.User.Username)
+				s.log.Warn().Msgf("Workspace %s not found for user %s, provisioning new workspace", workspaces[0].Name,
+					auth.User.Username)
 			} else {
 				return nil, fmt.Errorf("failed to get workspace status for user %s: %w", auth.User.Username, err)
 			}
