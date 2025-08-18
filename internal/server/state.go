@@ -11,6 +11,19 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// ConnectionInfo represents the connection information for a user
+type ConnectionInfo struct {
+	k8shelld        *k8shelld.Client            // k8shelld client for interacting with the workspace k8shelld daemon
+	Username        string                      // username of the user
+	BlueprintName   string                      // name of the blueprint
+	OnboardCap      *identity.OnboardCapability // onboarding capabilities
+	OnboardInfo     *identity.OnboardUser       // onboarding information
+	User            *identity.User              // user information
+	AuthFailCount   int                         // number of failed authentication attempts
+	AuthLastAttempt time.Time                   // timestamp of the last authentication attempt
+	mu              sync.RWMutex                // mutex for synchronizing access
+}
+
 // SessionInfo holds information about a user's SSH session
 type SessionInfo struct {
 	ConnInfo     *ConnectionInfo // connection information
@@ -27,19 +40,6 @@ type SessionInfo struct {
 	ShellReady   chan struct{}   // channel to signal when the shell is ready
 	HasAgent     bool            // true when the session has an SSH agent
 	AgentChannel ssh.Channel     // channel for the SSH agent
-}
-
-// ConnectionInfo represents the connection information for a user
-type ConnectionInfo struct {
-	k8shelld        *k8shelld.Client            // k8shelld client for interacting with the workspace k8shelld daemon
-	Username        string                      // username of the user
-	BlueprintName   string                      // name of the blueprint
-	OnboardCap      *identity.OnboardCapability // onboarding capabilities
-	OnboardInfo     *identity.OnboardUser       // onboarding information
-	User            *identity.User              // user information
-	AuthFailCount   int                         // number of failed authentication attempts
-	AuthLastAttempt time.Time                   // timestamp of the last authentication attempt
-	mu              sync.RWMutex                // mutex for synchronizing access
 }
 
 // Global state storage
