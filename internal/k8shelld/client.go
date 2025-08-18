@@ -172,7 +172,8 @@ func (c *Client) StartShell(ctx context.Context, channel ssh.Channel, sessionId 
 	}()
 
 	// Wait for either goroutine to finish or error
-	return <-errChan
+	er := <-errChan
+	return er
 }
 
 // ResizeTerminal resizes the terminal
