@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -195,10 +196,15 @@ func (s *Server) ensureWorkspace(auth *Auth, channel ssh.Channel) (*provisionerM
 	if len(workspaces) > 0 {
 		status, err := s.provisioner.GetWorkspaceStatus(s.ctx, workspaces[0].Name)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", auth.User.Username, err)
-		}
-		if status.Status == "Running" {
-			return status, nil
+			if errors.Is(err, provisionerModels.ErrWorkspaceNotFound) {
+				s.log.Warn().Msgf("Workspace %s not found for user %s, provisioning new workspace", workspaces[0].Name, auth.User.Username)
+			} else {
+				return nil, fmt.Errorf("failed to get workspace status for user %s: %w", auth.User.Username, err)
+			}
+		} else {
+			if status.Status == "Running" {
+				return status, nil
+			}
 		}
 	}
 
