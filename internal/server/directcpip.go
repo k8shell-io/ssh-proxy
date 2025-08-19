@@ -8,7 +8,7 @@ import (
 )
 
 // Maximum number of direct TCP/IP connections allowed (per ssh connection)
-const MAX_DIRECT_TCPIP_CONNECTIONS = 12
+const MAX_DIRECT_TCPIP_CONNECTIONS = 15
 
 // handleDirectTCPIPChannel handles a new direct TCP/IP channel request
 func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *ConnectionInfo, newChannel ssh.NewChannel) {
