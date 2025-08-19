@@ -16,6 +16,7 @@ import (
 
 // ConnectionInfo represents the connection information for a user
 type ConnectionInfo struct {
+	proxyID         string                      // unique identifier of the proxy where connection is established
 	k8shelld        *workspace.K8shelld         // k8shelld client for interacting with the workspace k8shelld daemon
 	Username        string                      // username of the user
 	BlueprintName   string                      // name of the blueprint
@@ -43,6 +44,8 @@ type SessionInfo struct {
 	ShellReady   chan struct{}   // channel to signal when the shell is ready
 	HasAgent     bool            // true when the session has an SSH agent
 	AgentChannel ssh.Channel     // channel for the SSH agent
+	AgentUnixID  string          // unique identifier for the agent Unix socket
+	SSHAuthSock  string          // value of SSH_AUTH_SOCK env variable
 }
 
 // Global state storage
@@ -79,6 +82,7 @@ func GetConnInfo(conn ssh.ConnMetadata) *ConnectionInfo {
 	connInfo := connStates[connID]
 	if connInfo == nil {
 		connInfo = &ConnectionInfo{
+			proxyID:       GetProxyID(),
 			Username:      username,
 			BlueprintName: blueprintName,
 		}

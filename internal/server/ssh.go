@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -322,4 +323,52 @@ func (s *Server) Stop() {
 
 	s.wg.Wait()
 	s.log.Info().Msg("SSH server stopped")
+}
+
+// GetProxyID generates a unique proxy identifier based on hostname and process ID
+// Returns format: <proxy-id>-<process-id>. If hostname matches Kubernetes deployment pod pattern,
+// uses the pod hash as proxy-id. Otherwise uses "local" as proxy-id
+func GetProxyID() string {
+	var proxyID string
+
+	hostname, err := os.Hostname()
+	if err != nil {
+		proxyID = "local"
+	} else {
+		if podHash := extractPodHash(hostname); podHash != "" {
+			proxyID = podHash
+		} else {
+			proxyID = "local"
+		}
+	}
+
+	processID := os.Getpid()
+
+	return fmt.Sprintf("%s-%d", proxyID, processID)
+}
+
+// extractPodHash extracts the pod hash from a Kubernetes deployment pod hostname
+// Returns empty string if the hostname doesn't match the expected pattern
+func extractPodHash(hostname string) string {
+	parts := strings.Split(hostname, "-")
+
+	if len(parts) < 3 {
+		return ""
+	}
+
+	podHash := parts[len(parts)-1]
+	if len(podHash) == 5 && isValidPodHash(podHash) {
+		return podHash
+	}
+
+	return ""
+}
+
+func isValidPodHash(hash string) bool {
+	for _, char := range hash {
+		if !((char >= 'a' && char <= 'z') || (char >= '0' && char <= '9')) {
+			return false
+		}
+	}
+	return true
 }

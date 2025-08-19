@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var SSH_AUTH_SOCK = "/var/run/ssh-agent-12345.sock"
+var SSH_AUTH_SOCK_TEMP = "/var/run/ssh-agent-%s.sock"
 
 func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, newChannel ssh.NewChannel) {
 	channel, requests, err := newChannel.Accept()
@@ -25,7 +25,7 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 		ConnInfo:   connInfo,
 		Username:   connInfo.User.Username,
 		Env:        []string{},
-		SessionId:  "sh-99999-0",
+		SessionId:  fmt.Sprintf("sh-%s-%d", connInfo.proxyID, channel.LocalID()),
 		ShellReady: make(chan struct{}),
 		TermWidth:  80,
 		TermHeight: 24,
@@ -55,7 +55,7 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 	}
 }
 
-func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *SessionInfo, _ ssh.Channel) {
+func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *SessionInfo, channel ssh.Channel) {
 	for req := range requests {
 		s.log.Debug().Msgf("Received session request: type=%s, want_reply=%t, payload_len=%d",
 			req.Type, req.WantReply, len(req.Payload))
@@ -150,8 +150,11 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *Se
 		case "auth-agent-req@openssh.com":
 			accepted = true
 			session.HasAgent = true
+			session.AgentUnixID = fmt.Sprintf("ux-%s-%d", connInfo.proxyID, channel.LocalID())
+			session.SSHAuthSock = fmt.Sprintf(SSH_AUTH_SOCK_TEMP, session.AgentUnixID)
 			s.log.Debug().Msgf("SSH agent forwarding request accepted for user %s", session.Username)
-			session.Env = append(session.Env, fmt.Sprintf("SSH_AUTH_SOCK=%s", SSH_AUTH_SOCK))
+			session.Env = append(session.Env, fmt.Sprintf("SSH_AUTH_SOCK=%s",
+				session.SSHAuthSock))
 
 		default:
 			s.log.Warn().Msgf("Unsupported session request type: %s for user %s", req.Type, session.Username)
@@ -193,8 +196,9 @@ func (s *Server) handleAgent(sshConn *ssh.ServerConn, session *SessionInfo) (ssh
 
 	// handle communication with the SSH agent and the unix socket
 	go func() {
-		s.log.Debug().Msgf("Starting agent forwarding for user %s", session.Username)
-		err := k8shelld.StartUnixSocketWithConnection(s.ctx, channel, session.SessionId, SSH_AUTH_SOCK)
+		s.log.Debug().Msgf("Starting agent forwarding for user %s, unix socket id: %s", session.Username,
+			session.AgentUnixID)
+		err := k8shelld.StartUnixSocket(s.ctx, channel, session.AgentUnixID, session.SSHAuthSock)
 		if err != nil {
 			if statusErr, ok := status.FromError(err); ok && statusErr.Code() == codes.Canceled {
 				s.log.Debug().Msgf("Agent forwarding canceled for user %s", session.Username)
