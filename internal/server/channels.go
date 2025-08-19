@@ -21,7 +21,7 @@ func (s *Server) handleChannels(sshConn *ssh.ServerConn, channels <-chan ssh.New
 		case "session":
 			go s.handleSessionChannel(sshConn, connInfo, newChannel)
 		case "direct-tcpip":
-			// Handle direct TCP/IP channel
+			go s.handleDirectTCPIPChannel(sshConn, connInfo, newChannel)
 		default:
 			s.log.Warn().Msgf("Unsupported channel type: %s", newChannel.ChannelType())
 			newChannel.Reject(ssh.UnknownChannelType, "channel type not supported")

@@ -48,6 +48,16 @@ type SessionInfo struct {
 	SSHAuthSock  string          // value of SSH_AUTH_SOCK env variable
 }
 
+type DirectTCPIPInfo struct {
+	ConnInfo      *ConnectionInfo // connection information
+	Username      string          // username of the user
+	DirectTCPIPId string          // unique identifier for the direct TCP/IP connection
+	DestHost      string          // destination host
+	DestPort      uint32          // destination port
+	OriginHost    string          // origin host
+	OriginPort    uint32          // origin port
+}
+
 // Global state storage
 var connStates = make(map[string]*ConnectionInfo)
 var connStatesMutex sync.RWMutex

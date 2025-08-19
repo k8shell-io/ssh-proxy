@@ -29,6 +29,7 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 		ShellReady: make(chan struct{}),
 		TermWidth:  80,
 		TermHeight: 24,
+		HasPTY:     false,
 	}
 
 	go s.handleSessionRequests(requests, session, channel)
@@ -49,9 +50,13 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 		defer agentChannel.Close()
 	}
 
+	s.log.Debug().Msgf("Starting shell session for user %s, session ID: %s", session.Username, session.SessionId)
+
 	if err := k8shelld.StartShell(s.ctx, channel, session.SessionId,
-		session.Env, session.TermWidth, session.TermHeight); err != nil {
+		session.Env, session.TermWidth, session.TermHeight, session.HasPTY); err != nil {
 		s.log.Error().Msgf("Shell session error: %v", err)
+	} else {
+		s.log.Debug().Msgf("Shell session %s completed for user %s", session.SessionId, session.Username)
 	}
 }
 

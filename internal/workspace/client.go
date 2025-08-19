@@ -84,11 +84,17 @@ func (c *K8shelld) GetVersion(ctx context.Context) (*pb.VersionResponse, error) 
 	return c.infoClient.Version(ctx, req)
 }
 
-// StartShell creates a shell session and bridges it with the SSH channel
+// StartShell creates a PTY shell session over gRPC and bridges it with the SSH channel.
 func (c *K8shelld) StartShell(ctx context.Context, channel ssh.Channel, sessionId string, envVars []string,
-	width, height uint32) error {
-	md := metadata.Pairs("authorization", c.AccessKey, "session-id", sessionId)
+	width, height uint32, usePty bool) error {
+	md := metadata.Pairs(
+		"authorization", c.AccessKey,
+		"session-id", sessionId,
+	)
 	ctx = metadata.NewOutgoingContext(ctx, md)
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	stream, err := c.remoteClient.Shell(ctx)
 	if err != nil {
@@ -100,80 +106,86 @@ func (c *K8shelld) StartShell(ctx context.Context, channel ssh.Channel, sessionI
 			StartRequest: &pb.ShellStartRequest{
 				CmdShell:   "/bin/sh",
 				SetEnvVars: envVars,
-				UsePty:     true,
+				UsePty:     usePty,
 				Width:      width,
 				Height:     height,
 			},
 		},
 	}
-
 	if err := stream.Send(startReq); err != nil {
 		return fmt.Errorf("failed to send start request: %w", err)
 	}
 
-	// Start goroutines to handle bidirectional communication
-	errChan := make(chan error, 2)
+	errCh := make(chan error, 2)
 
-	// Goroutine to read from SSH channel and send to gRPC stream
+	// writer goroutine (SSH -> gRPC)
 	go func() {
-		defer stream.CloseSend()
+		defer func() { _ = stream.CloseSend() }()
 
-		buffer := make([]byte, 1024)
+		buf := make([]byte, 32*1024)
 		for {
-			n, err := channel.Read(buffer)
-			if err != nil {
-				if err == io.EOF {
-					errChan <- nil
-					return
+			n, rerr := channel.Read(buf)
+			if rerr != nil {
+				if rerr == io.EOF {
+					errCh <- nil
+				} else {
+					errCh <- fmt.Errorf("ssh read: %w", rerr)
 				}
-				errChan <- fmt.Errorf("failed to read from SSH channel: %w", err)
 				return
 			}
-
-			req := &pb.ShellRequest{
-				Request: &pb.ShellRequest_Data{
-					Data: buffer[:n],
-				},
+			if n == 0 {
+				continue
 			}
-
-			if err := stream.Send(req); err != nil {
-				errChan <- fmt.Errorf("failed to send data to stream: %w", err)
+			if serr := stream.Send(&pb.ShellRequest{
+				Request: &pb.ShellRequest_Data{
+					Data: buf[:n],
+				},
+			}); serr != nil {
+				errCh <- fmt.Errorf("grpc send: %w", serr)
 				return
 			}
 		}
 	}()
 
-	// Goroutine to read from gRPC stream and send to SSH channel
+	// reader goroutine (gRPC -> SSH)
 	go func() {
 		for {
-			resp, err := stream.Recv()
-			if err != nil {
-				if err == io.EOF {
-					errChan <- nil
-					return
+			resp, rerr := stream.Recv()
+			if rerr != nil {
+				if rerr == io.EOF {
+					errCh <- nil
+				} else {
+					errCh <- fmt.Errorf("grpc recv: %w", rerr)
 				}
-				errChan <- fmt.Errorf("failed to receive from stream: %w", err)
 				return
 			}
 
 			switch r := resp.Response.(type) {
 			case *pb.ShellResponse_Data:
-				if _, err := channel.Write(r.Data); err != nil {
-					errChan <- fmt.Errorf("failed to write to SSH channel: %w", err)
+				if _, werr := channel.Write(r.Data); werr != nil {
+					errCh <- fmt.Errorf("ssh write: %w", werr)
 					return
 				}
 			case *pb.ShellResponse_Terminate:
 				if r.Terminate {
-					errChan <- nil
+					errCh <- nil
 					return
 				}
 			}
 		}
 	}()
 
-	// Wait for either goroutine to finish or error
-	er := <-errChan
-	return er
+	err = <-errCh
+	cancel()
+	_ = channel.Close()
+
+	// Drain the second result
+	select {
+	case <-errCh:
+	default:
+	}
+
+	return err
 }
 
 // ResizeTerminal resizes the terminal
@@ -190,22 +202,22 @@ func (c *K8shelld) ResizeTerminal(ctx context.Context, sessionId string, width, 
 	return err
 }
 
-// StartUnixSocketWithConnection uses an existing SSH channel for Unix socket forwarding
-func (c *K8shelld) StartUnixSocket(ctx context.Context, sshChannel ssh.Channel, agentUnixID string, socketPath string) error {
-	// Add authorization and session-id metadata
+func (c *K8shelld) StartUnixSocket(ctx context.Context, channel ssh.Channel, agentUnixID, socketPath string) error {
 	md := metadata.Pairs(
 		"authorization", c.AccessKey,
 		"unixsocket-id", agentUnixID,
 	)
 	ctx = metadata.NewOutgoingContext(ctx, md)
 
-	// Create the Unix socket stream
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	stream, err := c.remoteClient.UnixSocket(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to create Unix socket stream: %w", err)
+		return fmt.Errorf("failed to create UnixSocket stream: %w", err)
 	}
 
-	// Send initial Unix socket start request
+	// send initial start request
 	startReq := &pb.UnixSocketRequest{
 		Request: &pb.UnixSocketRequest_StartRequest{
 			StartRequest: &pb.UnixSocketStartRequest{
@@ -213,71 +225,182 @@ func (c *K8shelld) StartUnixSocket(ctx context.Context, sshChannel ssh.Channel, 
 			},
 		},
 	}
-
 	if err := stream.Send(startReq); err != nil {
-		return fmt.Errorf("failed to send Unix socket start request: %w", err)
+		return fmt.Errorf("failed to send UnixSocket start request: %w", err)
 	}
 
-	// Start goroutines to handle bidirectional communication
-	errChan := make(chan error, 2)
+	errCh := make(chan error, 2)
 
-	// Goroutine to read from SSH channel and send to gRPC stream
+	// writer goroutine (SSH -> gRPC)
 	go func() {
-		defer stream.CloseSend()
+		defer func() { _ = stream.CloseSend() }()
 
-		buffer := make([]byte, 1024)
+		buf := make([]byte, 32*1024)
 		for {
-			n, err := sshChannel.Read(buffer)
-			if err != nil {
-				if err == io.EOF {
-					errChan <- nil
-					return
+			n, rerr := channel.Read(buf)
+			if rerr != nil {
+				if rerr == io.EOF {
+					errCh <- nil
+				} else {
+					errCh <- fmt.Errorf("ssh read: %w", rerr)
 				}
-				errChan <- fmt.Errorf("failed to read from SSH channel: %w", err)
 				return
 			}
-
-			req := &pb.UnixSocketRequest{
-				Request: &pb.UnixSocketRequest_Data{
-					Data: buffer[:n],
-				},
+			if n == 0 {
+				continue
 			}
-
-			if err := stream.Send(req); err != nil {
-				errChan <- fmt.Errorf("failed to send data to Unix socket stream: %w", err)
+			if serr := stream.Send(&pb.UnixSocketRequest{
+				Request: &pb.UnixSocketRequest_Data{
+					Data: buf[:n],
+				},
+			}); serr != nil {
+				errCh <- fmt.Errorf("grpc send: %w", serr)
 				return
 			}
 		}
 	}()
 
-	// Goroutine to read from gRPC stream and send to SSH channel
+	// reader goroutine (gRPC -> SSH)
 	go func() {
 		for {
-			resp, err := stream.Recv()
-			if err != nil {
-				if err == io.EOF {
-					errChan <- nil
-					return
+			resp, rerr := stream.Recv()
+			if rerr != nil {
+				if rerr == io.EOF {
+					errCh <- nil
+				} else {
+					errCh <- fmt.Errorf("grpc recv: %w", rerr)
 				}
-				errChan <- fmt.Errorf("failed to receive from Unix socket stream: %w", err)
 				return
 			}
-
 			switch r := resp.Response.(type) {
 			case *pb.UnixSocketResponse_Data:
-				if _, err := sshChannel.Write(r.Data); err != nil {
-					errChan <- fmt.Errorf("failed to write to SSH channel: %w", err)
+				if _, werr := channel.Write(r.Data); werr != nil {
+					errCh <- fmt.Errorf("ssh write: %w", werr)
 					return
 				}
 			case *pb.UnixSocketResponse_Terminate:
 				if r.Terminate {
-					errChan <- nil
+					errCh <- nil
 					return
 				}
 			}
 		}
 	}()
 
-	// Wait for either goroutine to finish or error
-	return <-errChan
+	err = <-errCh
+	cancel()
+	_ = channel.Close()
+
+	// drain possible second result
+	select {
+	case <-errCh:
+	default:
+	}
+
+	return err
+}
+
+func (c *K8shelld) StartPortForward(ctx context.Context, channel ssh.Channel, portForwardID, destinationIP string, destinationPort uint32) error {
+	if destinationIP == "" {
+		destinationIP = "localhost"
+	}
+
+	md := metadata.Pairs(
+		"authorization", c.AccessKey,
+		"portforward-id", portForwardID,
+	)
+	ctx = metadata.NewOutgoingContext(ctx, md)
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	stream, err := c.remoteClient.PortForward(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create PortForward stream: %w", err)
+	}
+
+	startReq := &pb.PortForwardRequest{
+		Request: &pb.PortForwardRequest_Destination{
+			Destination: &pb.Destination{
+				Ip:   destinationIP,
+				Port: destinationPort,
+			},
+		},
+	}
+	if err := stream.Send(startReq); err != nil {
+		return fmt.Errorf("failed to send PortForward destination: %w", err)
+	}
+
+	errCh := make(chan error, 2)
+
+	// writer goroutine (SSH -> gRPC)
+	go func() {
+		defer func() { _ = stream.CloseSend() }()
+
+		buf := make([]byte, 32*1024)
+		for {
+			n, rerr := channel.Read(buf)
+			if rerr != nil {
+				if rerr == io.EOF {
+					errCh <- nil
+				} else {
+					errCh <- fmt.Errorf("ssh read: %w", rerr)
+				}
+				return
+			}
+			if n == 0 {
+				continue
+			}
+			if serr := stream.Send(&pb.PortForwardRequest{
+				Request: &pb.PortForwardRequest_Data{
+					Data: buf[:n],
+				},
+			}); serr != nil {
+				errCh <- fmt.Errorf("grpc send: %w", serr)
+				return
+			}
+		}
+	}()
+
+	// reader goroutine (gRPC -> SSH)
+	go func() {
+		for {
+			resp, rerr := stream.Recv()
+			if rerr != nil {
+				if rerr == io.EOF {
+					errCh <- nil
+				} else {
+					errCh <- fmt.Errorf("grpc recv: %w", rerr)
+				}
+				return
+			}
+			switch r := resp.Response.(type) {
+			case *pb.PortForwardResponse_Data:
+				if _, werr := channel.Write(r.Data); werr != nil {
+					errCh <- fmt.Errorf("ssh write: %w", werr)
+					return
+				}
+			case *pb.PortForwardResponse_Terminate:
+				if r.Terminate {
+					errCh <- nil
+					return
+				}
+			default:
+				// unknown response type — treat as error to avoid hanging
+				errCh <- fmt.Errorf("unknown PortForward response type")
+				return
+			}
+		}
+	}()
+
+	err = <-errCh
+	cancel()
+	_ = channel.Close()
+
+	// drain possible second result
+	select {
+	case <-errCh:
+	default:
+	}
+	return err
 }
