@@ -182,8 +182,6 @@ func (c *K8shelld) StartShell(ctx context.Context, channel ssh.Channel, sessionI
 	}()
 
 	err = <-errCh
-	cancel()
-	channel.Close()
 
 	// Drain the second result
 	select {
@@ -294,8 +292,6 @@ func (c *K8shelld) StartUnixSocket(ctx context.Context, channel ssh.Channel, age
 	}()
 
 	err = <-errCh
-	cancel()
-	channel.Close()
 
 	// drain the second result
 	select {
@@ -400,8 +396,6 @@ func (c *K8shelld) StartPortForward(ctx context.Context, channel ssh.Channel, po
 	}()
 
 	err = <-errCh
-	cancel()
-	channel.Close()
 
 	// drain the second result
 	select {
@@ -409,4 +403,130 @@ func (c *K8shelld) StartPortForward(ctx context.Context, channel ssh.Channel, po
 	default:
 	}
 	return err
+}
+
+// StartExec executes a command in a remote shell over gRPC.
+func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID string,
+	command string, shellBinary string, envVars []string) (int32, error) {
+
+	md := metadata.Pairs("authorization", c.AccessKey, "exec-id", execID)
+	ctx = metadata.NewOutgoingContext(ctx, md)
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	stream, err := c.remoteClient.Exec(ctx)
+	if err != nil {
+		return 1, fmt.Errorf("failed to create exec stream: %w", err)
+	}
+
+	startReq := &pb.ExecRequest{
+		Request: &pb.ExecRequest_CommandDetails{
+			CommandDetails: &pb.CommandDetails{
+				Command:     command,
+				ShellBinary: shellBinary,
+				SetEnvVars:  envVars,
+			},
+		},
+	}
+	if err := stream.Send(startReq); err != nil {
+		return 1, fmt.Errorf("failed to send exec command: %w", err)
+	}
+
+	errCh := make(chan error, 2)
+	exitCodeCh := make(chan int32, 1)
+
+	// writer goroutine (SSH -> gRPC)
+	go func() {
+		defer func() {
+			// Send TERM signal when input stream ends
+			termReq := &pb.ExecRequest{
+				Request: &pb.ExecRequest_Signal{
+					Signal: "TERM",
+				},
+			}
+			stream.Send(termReq)
+			stream.CloseSend()
+		}()
+
+		buf := make([]byte, 32*1024)
+		for {
+			n, rerr := channel.Read(buf)
+			if rerr != nil {
+				if rerr == io.EOF {
+					errCh <- nil
+				} else {
+					errCh <- fmt.Errorf("ssh read: %w", rerr)
+				}
+				return
+			}
+			if n == 0 {
+				continue
+			}
+			if serr := stream.Send(&pb.ExecRequest{
+				Request: &pb.ExecRequest_Input{
+					Input: buf[:n],
+				},
+			}); serr != nil {
+				errCh <- fmt.Errorf("grpc send: %w", serr)
+				return
+			}
+		}
+	}()
+
+	// reader goroutine (gRPC -> SSH)
+	go func() {
+		for {
+			resp, rerr := stream.Recv()
+			if rerr != nil {
+				if rerr == io.EOF {
+					errCh <- nil
+				} else {
+					errCh <- fmt.Errorf("grpc recv: %w", rerr)
+				}
+				return
+			}
+			switch r := resp.Response.(type) {
+			case *pb.ExecResponse_Stdout:
+				if _, err := channel.Write(r.Stdout); err != nil {
+					errCh <- fmt.Errorf("ssh write: %w", err)
+					return
+				}
+			case *pb.ExecResponse_Stderr:
+				if _, err := channel.Write(r.Stderr); err != nil {
+					errCh <- fmt.Errorf("ssh write: %w", err)
+					return
+				}
+			case *pb.ExecResponse_ExitCode:
+				exitCodeCh <- r.ExitCode
+				errCh <- nil
+				return
+			default:
+				// unknown response type — treat as error to avoid hanging
+				errCh <- fmt.Errorf("unknown exec response type")
+				return
+			}
+		}
+	}()
+
+	err = <-errCh
+
+	// Get exit code if available
+	var exitCode int32 = 0
+	select {
+	case exitCode = <-exitCodeCh:
+	default:
+		// No exit code received, default to 0 if no error, 1 if error
+		if err != nil {
+			exitCode = 1
+		}
+	}
+
+	// drain the second result
+	select {
+	case <-errCh:
+	default:
+	}
+
+	return exitCode, err
 }
