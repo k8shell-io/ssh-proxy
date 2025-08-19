@@ -177,7 +177,7 @@ func (c *K8shelld) StartShell(ctx context.Context, channel ssh.Channel, sessionI
 
 	err = <-errCh
 	cancel()
-	_ = channel.Close()
+	channel.Close()
 
 	// Drain the second result
 	select {
@@ -289,9 +289,9 @@ func (c *K8shelld) StartUnixSocket(ctx context.Context, channel ssh.Channel, age
 
 	err = <-errCh
 	cancel()
-	_ = channel.Close()
+	channel.Close()
 
-	// drain possible second result
+	// drain the second result
 	select {
 	case <-errCh:
 	default:
@@ -395,9 +395,9 @@ func (c *K8shelld) StartPortForward(ctx context.Context, channel ssh.Channel, po
 
 	err = <-errCh
 	cancel()
-	_ = channel.Close()
+	channel.Close()
 
-	// drain possible second result
+	// drain the second result
 	select {
 	case <-errCh:
 	default:
