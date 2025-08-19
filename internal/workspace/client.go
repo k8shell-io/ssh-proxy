@@ -50,10 +50,11 @@ func NewK8shelld(address string, port int, accessKey string, tlsCert string) (*K
 	opts := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                30 * time.Second,
-			Timeout:             10 * time.Second,
-			PermitWithoutStream: true,
+			Time:                60 * time.Second,
+			Timeout:             20 * time.Second,
+			PermitWithoutStream: false,
 		}),
+		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(4 * 1024 * 1024)), // 4MB
 	}
 
 	conn, err := grpc.Dial(fmt.Sprintf("%s:%d", address, port), opts...)
