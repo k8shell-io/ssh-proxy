@@ -7,29 +7,55 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// Maximum number of direct TCP/IP connections allowed (per ssh connection)
+const MAX_DIRECT_TCPIP_CONNECTIONS = 12
+
+// handleDirectTCPIPChannel handles a new direct TCP/IP channel request
 func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *ConnectionInfo, newChannel ssh.NewChannel) {
+	if !connInfo.IncrementDirectTCPIPCount(MAX_DIRECT_TCPIP_CONNECTIONS) {
+		s.log.Warn().Msgf("User %s exceeded max direct-tcpip connections (limit: %d)",
+			connInfo.User.Username, MAX_DIRECT_TCPIP_CONNECTIONS)
+		newChannel.Reject(ssh.ResourceShortage,
+			fmt.Sprintf("maximum direct-tcpip connections exceeded (%d)", MAX_DIRECT_TCPIP_CONNECTIONS))
+		return
+	}
+
 	tcpipInfo, err := parseDirectTCPIPPayload(newChannel.ExtraData())
 	if err != nil {
 		s.log.Error().Msgf("Failed to parse direct-tcpip payload: %v", err)
 		newChannel.Reject(ssh.UnknownChannelType, "invalid payload")
+		connInfo.DecrementDirectTCPIPCount()
 		return
 	}
 
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
 		s.log.Error().Msgf("Failed to accept direct-tcpip channel: %v", err)
+		connInfo.DecrementDirectTCPIPCount()
 		return
 	}
-	defer channel.Close()
 
-	tcpipInfo.ConnInfo = connInfo
 	tcpipInfo.Username = connInfo.User.Username
 	tcpipInfo.DirectTCPIPId = fmt.Sprintf("pf-%s-%d", connInfo.proxyID, channel.LocalID())
+
+	connInfo.DirectTCPIP.Store(tcpipInfo.DirectTCPIPId, tcpipInfo)
+	s.log.Debug().Msgf("Stored port forward %s in storage (count: %d)",
+		tcpipInfo.DirectTCPIPId, connInfo.GetDirectTCPIPCount())
 
 	s.log.Debug().Msgf("Direct TCP/IP request: %s:%d -> %s:%d for user %s",
 		tcpipInfo.OriginHost, tcpipInfo.OriginPort,
 		tcpipInfo.DestHost, tcpipInfo.DestPort,
 		connInfo.User.Username)
+
+	defer func() {
+		channel.Close()
+		if tcpipInfo.DirectTCPIPId != "" {
+			connInfo.DirectTCPIP.Delete(tcpipInfo.DirectTCPIPId)
+			connInfo.DecrementDirectTCPIPCount()
+			s.log.Debug().Msgf("Removed port forward %s from storage (count: %d)",
+				tcpipInfo.DirectTCPIPId, connInfo.GetDirectTCPIPCount())
+		}
+	}()
 
 	go ssh.DiscardRequests(requests)
 

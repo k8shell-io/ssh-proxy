@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	identity "github.com/k8shell-io/identity/pkg/models"
@@ -16,46 +17,47 @@ import (
 
 // ConnectionInfo represents the connection information for a user
 type ConnectionInfo struct {
-	proxyID         string                      // unique identifier of the proxy where connection is established
-	k8shelld        *workspace.K8shelld         // k8shelld client for interacting with the workspace k8shelld daemon
-	Username        string                      // username of the user
-	BlueprintName   string                      // name of the blueprint
-	OnboardCap      *identity.OnboardCapability // onboarding capabilities
-	OnboardInfo     *identity.OnboardUser       // onboarding information
-	User            *identity.User              // user information
-	AuthFailCount   int                         // number of failed authentication attempts
-	AuthLastAttempt time.Time                   // timestamp of the last authentication attempt
-	mu              sync.RWMutex                // mutex for synchronizing access
+	proxyID          string                      // unique identifier of the proxy where connection is established
+	k8shelld         *workspace.K8shelld         // k8shelld client for interacting with the workspace k8shelld daemon
+	Username         string                      // username of the user
+	BlueprintName    string                      // name of the blueprint
+	OnboardCap       *identity.OnboardCapability // onboarding capabilities
+	OnboardInfo      *identity.OnboardUser       // onboarding information
+	User             *identity.User              // user information
+	AuthFailCount    int                         // number of failed authentication attempts
+	AuthLastAttempt  time.Time                   // timestamp of the last authentication attempt
+	mu               sync.RWMutex                // mutex for synchronizing access
+	Session          *SessionInfo                // SSH session information
+	DirectTCPIP      *sync.Map                   // direct TCP/IP connection information
+	DirectTCPIPCount int64                       // current count of direct TCP/IP connections
 }
 
 // SessionInfo holds information about a user's SSH session
 type SessionInfo struct {
-	ConnInfo     *ConnectionInfo // connection information
-	Username     string          // username of the user
-	TermType     string          // terminal type
-	TermWidth    uint32          // terminal width
-	TermHeight   uint32          // terminal height
-	TermWidthPx  uint32          // terminal width in pixels
-	TermHeightPx uint32          // terminal height in pixels
-	Env          []string        // environment variables
-	Command      string          // command to execute
-	HasPTY       bool            // true when the session has a pseudo-terminal
-	SessionId    string          // unique session identifier
-	ShellReady   chan struct{}   // channel to signal when the shell is ready
-	HasAgent     bool            // true when the session has an SSH agent
-	AgentChannel ssh.Channel     // channel for the SSH agent
-	AgentUnixID  string          // unique identifier for the agent Unix socket
-	SSHAuthSock  string          // value of SSH_AUTH_SOCK env variable
+	Username     string        // username of the user
+	TermType     string        // terminal type
+	TermWidth    uint32        // terminal width
+	TermHeight   uint32        // terminal height
+	TermWidthPx  uint32        // terminal width in pixels
+	TermHeightPx uint32        // terminal height in pixels
+	Env          []string      // environment variables
+	Command      string        // command to execute
+	HasPTY       bool          // true when the session has a pseudo-terminal
+	SessionId    string        // unique session identifier
+	ShellReady   chan struct{} // channel to signal when the shell is ready
+	HasAgent     bool          // true when the session has an SSH agent
+	AgentChannel ssh.Channel   // channel for the SSH agent
+	AgentUnixID  string        // unique identifier for the agent Unix socket
+	SSHAuthSock  string        // value of SSH_AUTH_SOCK env variable
 }
 
 type DirectTCPIPInfo struct {
-	ConnInfo      *ConnectionInfo // connection information
-	Username      string          // username of the user
-	DirectTCPIPId string          // unique identifier for the direct TCP/IP connection
-	DestHost      string          // destination host
-	DestPort      uint32          // destination port
-	OriginHost    string          // origin host
-	OriginPort    uint32          // origin port
+	Username      string // username of the user
+	DirectTCPIPId string // unique identifier for the direct TCP/IP connection
+	DestHost      string // destination host
+	DestPort      uint32 // destination port
+	OriginHost    string // origin host
+	OriginPort    uint32 // origin port
 }
 
 // Global state storage
@@ -95,6 +97,7 @@ func GetConnInfo(conn ssh.ConnMetadata) *ConnectionInfo {
 			proxyID:       GetProxyID(),
 			Username:      username,
 			BlueprintName: blueprintName,
+			DirectTCPIP:   &sync.Map{},
 		}
 		connStates[connID] = connInfo
 	}
@@ -167,4 +170,37 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 	c.k8shelld = k8shelld
 
 	return c.k8shelld, nil
+}
+
+// IncrementDirectTCPIPCount atomically increments the direct TCP/IP count
+func (c *ConnectionInfo) IncrementDirectTCPIPCount(maxLimit int) bool {
+	for {
+		current := atomic.LoadInt64(&c.DirectTCPIPCount)
+		if current >= int64(maxLimit) {
+			return false
+		}
+
+		if atomic.CompareAndSwapInt64(&c.DirectTCPIPCount, current, current+1) {
+			return true
+		}
+	}
+}
+
+// DecrementDirectTCPIPCount atomically decrements the direct TCP/IP count
+func (c *ConnectionInfo) DecrementDirectTCPIPCount() {
+	for {
+		current := atomic.LoadInt64(&c.DirectTCPIPCount)
+		if current <= 0 {
+			return
+		}
+
+		if atomic.CompareAndSwapInt64(&c.DirectTCPIPCount, current, current-1) {
+			return
+		}
+	}
+}
+
+// GetDirectTCPIPCount returns the current direct TCP/IP count
+func (c *ConnectionInfo) GetDirectTCPIPCount() int {
+	return int(atomic.LoadInt64(&c.DirectTCPIPCount))
 }

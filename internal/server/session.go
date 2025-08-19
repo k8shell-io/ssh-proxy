@@ -22,7 +22,6 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 	defer channel.Close()
 
 	session := &SessionInfo{
-		ConnInfo:   connInfo,
 		Username:   connInfo.User.Username,
 		Env:        []string{},
 		SessionId:  fmt.Sprintf("sh-%s-%d", connInfo.proxyID, channel.LocalID()),
@@ -31,19 +30,20 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 		TermHeight: 24,
 		HasPTY:     false,
 	}
+	connInfo.Session = session
 
-	go s.handleSessionRequests(requests, session, channel)
+	go s.handleSessionRequests(requests, connInfo, channel)
 
 	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, channel, s.provisioner)
 	if err != nil {
-		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", session.Username, err)
+		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", connInfo.Username, err)
 		return
 	}
 
 	<-session.ShellReady
 
-	if session.HasAgent {
-		agentChannel, err := s.handleAgent(sshConn, session)
+	if connInfo.Session.HasAgent {
+		agentChannel, err := s.handleAgent(sshConn, connInfo)
 		if err != nil {
 			s.log.Error().Msgf("Failed to create agent channel: %v", err)
 		}
@@ -60,13 +60,13 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 	}
 }
 
-func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *SessionInfo, channel ssh.Channel) {
+func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *ConnectionInfo, channel ssh.Channel) {
 	for req := range requests {
 		s.log.Debug().Msgf("Received session request: type=%s, want_reply=%t, payload_len=%d",
 			req.Type, req.WantReply, len(req.Payload))
 
 		accepted := false
-		connInfo := session.ConnInfo
+		session := connInfo.Session
 
 		switch req.Type {
 		case "pty-req":
@@ -129,7 +129,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *Se
 			close(session.ShellReady)
 
 		case "window-change":
-			k8shelld := session.ConnInfo.k8shelld
+			k8shelld := connInfo.k8shelld
 			if k8shelld != nil {
 				if len(req.Payload) >= 8 {
 					accepted = true
@@ -183,12 +183,12 @@ func (s *Server) hasTermEnv(envVars []string) bool {
 
 // createAgentChannel creates a server-initiated agent forwarding channel and
 // handles the communication between the SSH agent and the unix socket in the workspace
-func (s *Server) handleAgent(sshConn *ssh.ServerConn, session *SessionInfo) (ssh.Channel, error) {
-	s.log.Debug().Msgf("Creating agent channel for user %s", session.Username)
+func (s *Server) handleAgent(sshConn *ssh.ServerConn, connInfo *ConnectionInfo) (ssh.Channel, error) {
+	s.log.Debug().Msgf("Creating agent channel for user %s", connInfo.Username)
 
-	k8shelld := session.ConnInfo.k8shelld
+	k8shelld := connInfo.k8shelld
 	if k8shelld == nil {
-		return nil, fmt.Errorf("k8shelld client does not exist for user %s", session.Username)
+		return nil, fmt.Errorf("k8shelld client does not exist for user %s", connInfo.Username)
 	}
 
 	channel, reqs, err := sshConn.OpenChannel("auth-agent@openssh.com", nil)
@@ -197,21 +197,21 @@ func (s *Server) handleAgent(sshConn *ssh.ServerConn, session *SessionInfo) (ssh
 	}
 	go ssh.DiscardRequests(reqs)
 
-	s.log.Debug().Msgf("Agent channel created for user %s", session.Username)
+	s.log.Debug().Msgf("Agent channel created for user %s", connInfo.Username)
 
 	// handle communication with the SSH agent and the unix socket
 	go func() {
-		s.log.Debug().Msgf("Starting agent forwarding for user %s, unix socket id: %s", session.Username,
-			session.AgentUnixID)
-		err := k8shelld.StartUnixSocket(s.ctx, channel, session.AgentUnixID, session.SSHAuthSock)
+		s.log.Debug().Msgf("Starting agent forwarding for user %s, unix socket id: %s", connInfo.Username,
+			connInfo.Session.AgentUnixID)
+		err := k8shelld.StartUnixSocket(s.ctx, channel, connInfo.Session.AgentUnixID, connInfo.Session.SSHAuthSock)
 		if err != nil {
 			if statusErr, ok := status.FromError(err); ok && statusErr.Code() == codes.Canceled {
-				s.log.Debug().Msgf("Agent forwarding canceled for user %s", session.Username)
+				s.log.Debug().Msgf("Agent forwarding canceled for user %s", connInfo.Username)
 			} else {
-				s.log.Error().Msgf("Agent forwarding deadline exceeded for user %s", session.Username)
+				s.log.Error().Msgf("Agent forwarding deadline exceeded for user %s", connInfo.Username)
 			}
 		}
-		s.log.Debug().Msgf("Agent channel closed for user %s", session.Username)
+		s.log.Debug().Msgf("Agent channel closed for user %s", connInfo.Username)
 	}()
 
 	return channel, nil

@@ -24,6 +24,12 @@ type K8shelld struct {
 	AccessKey    string
 }
 
+// KEEPALIVE_TIME defines the time for keepalive pings.
+var KEEPALIVE_TIME = 5 * time.Minute
+
+// KEEPALIVE_TIMEOUT defines the timeout for keepalive pings.
+var KEEPALIVE_TIMEOUT = 20 * time.Second
+
 func NewK8shelld(address string, port int, accessKey string, tlsCert string) (*K8shelld, error) {
 	var creds credentials.TransportCredentials
 
@@ -50,14 +56,13 @@ func NewK8shelld(address string, port int, accessKey string, tlsCert string) (*K
 	opts := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
-			Time:                60 * time.Second,
-			Timeout:             20 * time.Second,
+			Time:                KEEPALIVE_TIME,
+			Timeout:             KEEPALIVE_TIMEOUT,
 			PermitWithoutStream: false,
 		}),
-		grpc.WithDefaultCallOptions(grpc.MaxCallRecvMsgSize(4 * 1024 * 1024)), // 4MB
 	}
 
-	conn, err := grpc.Dial(fmt.Sprintf("%s:%d", address, port), opts...)
+	conn, err := grpc.NewClient(fmt.Sprintf("%s:%d", address, port), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to gRPC server: %w", err)
 	}
