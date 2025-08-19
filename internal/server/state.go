@@ -1,19 +1,22 @@
 package server
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"time"
 
 	identity "github.com/k8shell-io/identity/pkg/models"
-	"github.com/k8shell-io/ssh-proxy/internal/k8shelld"
+	provisionerClient "github.com/k8shell-io/provisioner/pkg/client"
+	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"golang.org/x/crypto/ssh"
 )
 
 // ConnectionInfo represents the connection information for a user
 type ConnectionInfo struct {
-	k8shelld        *k8shelld.Client            // k8shelld client for interacting with the workspace k8shelld daemon
+	k8shelld        *workspace.K8shelld         // k8shelld client for interacting with the workspace k8shelld daemon
 	Username        string                      // username of the user
 	BlueprintName   string                      // name of the blueprint
 	OnboardCap      *identity.OnboardCapability // onboarding capabilities
@@ -115,4 +118,39 @@ func (s *ConnectionInfo) GetOnboardCap() *identity.OnboardCapability {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.OnboardCap
+}
+
+func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Writer,
+	provisioner *provisionerClient.Client) (*workspace.K8shelld, error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	if c.k8shelld != nil {
+		return c.k8shelld, nil
+	}
+
+	status, err := workspace.EnsureWorkspace(ctx, c.User.Username, c.BlueprintName, writer, provisioner)
+	if err != nil {
+		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.User.Username, err)
+	}
+	if writer != nil {
+		writer.Write([]byte(fmt.Sprintf("Connecting to the workspace at %s...\r\n", status.Host)))
+	}
+
+	k8shelld, err := workspace.NewK8shelld(status.Host, status.Port, status.AccessKey, status.TLSCert)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.User.Username, err)
+	}
+
+	version, err := k8shelld.GetVersion(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get k8shelld version for user %s: %w", c.User.Username, err)
+	}
+	if writer != nil {
+		writer.Write([]byte(fmt.Sprintf("Connected to k8shelld (version: %s-%s)\r\n",
+			version.Version, version.Commit)))
+	}
+	c.k8shelld = k8shelld
+
+	return c.k8shelld, nil
 }

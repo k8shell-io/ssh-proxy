@@ -1,4 +1,4 @@
-package k8shelld
+package workspace
 
 import (
 	"context"
@@ -17,14 +17,14 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
-type Client struct {
+type K8shelld struct {
 	conn         *grpc.ClientConn
 	infoClient   pb.InfoServiceClient
 	remoteClient pb.RemoteOSServiceClient
 	AccessKey    string
 }
 
-func NewClient(address string, port int, accessKey string, tlsCert string) (*Client, error) {
+func NewK8shelld(address string, port int, accessKey string, tlsCert string) (*K8shelld, error) {
 	var creds credentials.TransportCredentials
 
 	if tlsCert != "" {
@@ -61,7 +61,7 @@ func NewClient(address string, port int, accessKey string, tlsCert string) (*Cli
 		return nil, fmt.Errorf("failed to connect to gRPC server: %w", err)
 	}
 
-	return &Client{
+	return &K8shelld{
 		conn:         conn,
 		infoClient:   pb.NewInfoServiceClient(conn),
 		remoteClient: pb.NewRemoteOSServiceClient(conn),
@@ -69,11 +69,11 @@ func NewClient(address string, port int, accessKey string, tlsCert string) (*Cli
 	}, nil
 }
 
-func (c *Client) Close() error {
+func (c *K8shelld) Close() error {
 	return c.conn.Close()
 }
 
-func (c *Client) GetVersion(ctx context.Context) (*pb.VersionResponse, error) {
+func (c *K8shelld) GetVersion(ctx context.Context) (*pb.VersionResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -85,7 +85,7 @@ func (c *Client) GetVersion(ctx context.Context) (*pb.VersionResponse, error) {
 }
 
 // StartShell creates a shell session and bridges it with the SSH channel
-func (c *Client) StartShell(ctx context.Context, channel ssh.Channel, sessionId string, envVars []string,
+func (c *K8shelld) StartShell(ctx context.Context, channel ssh.Channel, sessionId string, envVars []string,
 	width, height uint32) error {
 	md := metadata.Pairs("authorization", c.AccessKey, "session-id", sessionId)
 	ctx = metadata.NewOutgoingContext(ctx, md)
@@ -177,7 +177,7 @@ func (c *Client) StartShell(ctx context.Context, channel ssh.Channel, sessionId 
 }
 
 // ResizeTerminal resizes the terminal
-func (c *Client) ResizeTerminal(ctx context.Context, sessionId string, width, height uint32) error {
+func (c *K8shelld) ResizeTerminal(ctx context.Context, sessionId string, width, height uint32) error {
 	md := metadata.Pairs("authorization", c.AccessKey, "session-id", sessionId)
 	ctx = metadata.NewOutgoingContext(ctx, md)
 
@@ -191,7 +191,7 @@ func (c *Client) ResizeTerminal(ctx context.Context, sessionId string, width, he
 }
 
 // StartUnixSocket creates a Unix socket session and bridges it with the SSH channel
-func (c *Client) StartUnixSocket(ctx context.Context, channel ssh.Channel, sessionID string, socketPath string) error {
+func (c *K8shelld) StartUnixSocket(ctx context.Context, channel ssh.Channel, sessionID string, socketPath string) error {
 	md := metadata.Pairs(
 		"authorization", c.AccessKey,
 		"session-id", sessionID,
@@ -278,7 +278,7 @@ func (c *Client) StartUnixSocket(ctx context.Context, channel ssh.Channel, sessi
 }
 
 // StartUnixSocketWithConnection uses an existing SSH channel for Unix socket forwarding
-func (c *Client) StartUnixSocketWithConnection(ctx context.Context, sshChannel ssh.Channel, sessionID string, socketPath string) error {
+func (c *K8shelld) StartUnixSocketWithConnection(ctx context.Context, sshChannel ssh.Channel, sessionID string, socketPath string) error {
 	// Add authorization and session-id metadata
 	md := metadata.Pairs(
 		"authorization", c.AccessKey,

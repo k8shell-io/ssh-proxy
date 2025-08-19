@@ -33,7 +33,7 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 
 	go s.handleSessionRequests(requests, session, channel)
 
-	k8shelld, err := s.getK8shelld(connInfo, channel)
+	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, channel, s.provisioner)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", session.Username, err)
 		return
@@ -124,11 +124,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, session *Se
 			close(session.ShellReady)
 
 		case "window-change":
-			k8shelld, err := s.getK8shelld(connInfo, nil)
-			if err != nil {
-				s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", session.Username, err)
-			}
-
+			k8shelld := session.ConnInfo.k8shelld
 			if k8shelld != nil {
 				if len(req.Payload) >= 8 {
 					accepted = true
@@ -181,20 +177,19 @@ func (s *Server) hasTermEnv(envVars []string) bool {
 // handles the communication between the SSH agent and the unix socket in the workspace
 func (s *Server) handleAgent(sshConn *ssh.ServerConn, session *SessionInfo) (ssh.Channel, error) {
 	s.log.Debug().Msgf("Creating agent channel for user %s", session.Username)
+
+	k8shelld := session.ConnInfo.k8shelld
+	if k8shelld == nil {
+		return nil, fmt.Errorf("k8shelld client does not exist for user %s", session.Username)
+	}
+
 	channel, reqs, err := sshConn.OpenChannel("auth-agent@openssh.com", nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open agent channel: %w", err)
 	}
-
 	go ssh.DiscardRequests(reqs)
 
 	s.log.Debug().Msgf("Agent channel created for user %s", session.Username)
-
-	k8shelld, err := s.getK8shelld(session.ConnInfo, nil)
-	if err != nil {
-		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", session.Username, err)
-		return nil, err
-	}
 
 	// handle communication with the SSH agent and the unix socket
 	go func() {
