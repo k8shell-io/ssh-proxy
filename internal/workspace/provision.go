@@ -10,6 +10,7 @@ import (
 	provisionerModels "github.com/k8shell-io/provisioner/pkg/models"
 )
 
+// EnsureWorkspace checks if a workspace exists for the user and provisions it if not.
 func EnsureWorkspace(ctx context.Context, username string, blueprint string, writer io.Writer,
 	provisioner *provisionerClient.Client) (*provisionerModels.WorkspaceStatus, error) {
 
@@ -48,6 +49,7 @@ func EnsureWorkspace(ctx context.Context, username string, blueprint string, wri
 		username, status.Status)
 }
 
+// provisionWorkspace provisions a new workspace for the user.
 func provisionWorkspace(ctx context.Context, username string, blueprint string, writer io.Writer,
 	provisioner *provisionerClient.Client) (string, error) {
 	events := make(chan provisionerModels.StreamEvent, 100)
