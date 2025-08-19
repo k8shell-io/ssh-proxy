@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	provisionerClient "github.com/k8shell-io/provisioner/pkg/client"
 	provisionerModels "github.com/k8shell-io/provisioner/pkg/models"
@@ -56,23 +57,29 @@ func provisionWorkspace(ctx context.Context, username string, blueprint string, 
 	if writer != nil {
 		writer.Write([]byte("Provisioning workspace...\r\n"))
 	}
+
 	var name string
-	var err error
+	var provisionErr error
+	var eventErr error
 
-	provisioningDone := make(chan bool, 1)
+	var wg sync.WaitGroup
 
+	wg.Add(1)
 	go func() {
-		err = provisioner.ProvisionWorkspaceStream(ctx, &provisionerClient.ProvisionOptions{
+		defer wg.Done()
+		defer close(events)
+
+		provisionErr = provisioner.ProvisionWorkspaceStream(ctx, &provisionerClient.ProvisionOptions{
 			Username:  username,
 			Blueprint: blueprint,
 			Timeout:   30,
 			Stream:    true,
 		}, events)
-		provisioningDone <- true
 	}()
 
+	wg.Add(1)
 	go func() {
-		defer func() { provisioningDone <- true }()
+		defer wg.Done()
 
 		for event := range events {
 			if writer != nil {
@@ -84,11 +91,22 @@ func provisionWorkspace(ctx context.Context, username string, blueprint string, 
 			}
 
 			if event.Status == "Error" {
-				err = fmt.Errorf("provisioning error: %s", event.Message)
+				eventErr = fmt.Errorf("provisioning error: %s", event.Message)
 			}
 		}
 	}()
 
-	<-provisioningDone
-	return name, err
+	wg.Wait()
+
+	if eventErr != nil {
+		return "", eventErr
+	}
+	if provisionErr != nil {
+		return "", provisionErr
+	}
+	if name == "" {
+		return "", fmt.Errorf("provisioning completed but no running workspace name received")
+	}
+
+	return name, nil
 }
