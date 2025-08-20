@@ -49,6 +49,7 @@ type SessionInfo struct {
 	AgentChannel ssh.Channel   // channel for the SSH agent
 	AgentUnixID  string        // unique identifier for the agent Unix socket
 	SSHAuthSock  string        // value of SSH_AUTH_SOCK env variable
+	SignalChan   chan string   `json:"-"`
 }
 
 type DirectTCPIPInfo struct {

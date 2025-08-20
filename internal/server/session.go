@@ -157,6 +157,35 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 				sessionTypeSent = true
 			}
 
+		case "signal":
+			if len(req.Payload) < 4 {
+				req.Reply(false, nil)
+				continue
+			}
+
+			nameLen := binary.BigEndian.Uint32(req.Payload[0:4])
+			if len(req.Payload) < int(4+nameLen) {
+				req.Reply(false, nil)
+				continue
+			}
+
+			signalName := string(req.Payload[4 : 4+nameLen])
+			s.log.Debug().Msgf("Signal request: %s", signalName)
+
+			if session.SignalChan != nil {
+				select {
+				case session.SignalChan <- signalName:
+					accepted = true
+					s.log.Debug().Msgf("Signal %s sent to active exec process for user %s", signalName, session.Username)
+				default:
+					s.log.Warn().Msgf("Signal channel full, couldn't send signal %s for user %s", signalName, session.Username)
+					accepted = false
+				}
+			} else {
+				s.log.Warn().Msgf("No active exec session to send signal %s for user %s", signalName, session.Username)
+				accepted = false
+			}
+
 		case "window-change":
 			k8shelld := connInfo.k8shelld
 			if k8shelld != nil {
@@ -247,11 +276,22 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *ConnectionInfo
 		return
 	}
 
+	if session.SignalChan != nil {
+		s.log.Error().Msgf("Signal channel already exists for user %s, cannot start exec", session.Username)
+		return
+	}
+
+	session.SignalChan = make(chan string, 10)
+	defer func() {
+		close(session.SignalChan)
+		session.SignalChan = nil
+	}()
+
 	execID := fmt.Sprintf("sf-%s-%d-%d", connInfo.proxyID, channel.LocalID(), connInfo.ExecSeqNumber())
 	s.log.Debug().Msgf("Starting sftp for user %s, exec ID: %s, command: %s",
 		session.Username, execID, SFTP_BINARY)
 
-	_, err = k8shelld.StartExec(s.ctx, channel, execID, SFTP_BINARY, "", []string{})
+	_, err = k8shelld.StartExec(s.ctx, channel, execID, SFTP_BINARY, "", []string{}, session.SignalChan)
 	if err != nil {
 		s.log.Error().Msgf("Sftp exec failed for command '%s': %v", SFTP_BINARY, err)
 	} else {
@@ -273,11 +313,23 @@ func (s *Server) handleExecRequest(connInfo *ConnectionInfo, channel ssh.Channel
 		return
 	}
 
+	if session.SignalChan != nil {
+		s.log.Error().Msgf("Signal channel already exists for user %s, cannot start exec", session.Username)
+		return
+	}
+
+	session.SignalChan = make(chan string, 10)
+	defer func() {
+		close(session.SignalChan)
+		session.SignalChan = nil
+	}()
+
 	execID := fmt.Sprintf("ex-%s-%d-%d", connInfo.proxyID, channel.LocalID(), connInfo.ExecSeqNumber())
 	s.log.Debug().Msgf("Starting exec for user %s, exec ID: %s, command: %s",
 		session.Username, execID, session.Command)
 
-	exitCode, err := k8shelld.StartExec(s.ctx, channel, execID, session.Command, "/bin/sh", session.Env)
+	exitCode, err := k8shelld.StartExec(s.ctx, channel, execID, session.Command, "/bin/sh",
+		session.Env, session.SignalChan)
 	if err != nil {
 		s.log.Error().Msgf("Exec failed for command '%s': %v", session.Command, err)
 	}

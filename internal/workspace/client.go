@@ -10,6 +10,8 @@ import (
 	"time"
 
 	pb "github.com/k8shell-io/ssh-proxy/grpc/generated-go/k8shelldpb"
+	"github.com/k8shell-io/ssh-proxy/internal/log"
+	"github.com/rs/zerolog"
 
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/grpc"
@@ -20,6 +22,7 @@ import (
 
 type K8shelld struct {
 	conn         *grpc.ClientConn
+	log          *zerolog.Logger
 	infoClient   pb.InfoServiceClient
 	remoteClient pb.RemoteOSServiceClient
 	AccessKey    string
@@ -70,6 +73,7 @@ func NewK8shelld(address string, port int, accessKey string, tlsCert string) (*K
 
 	return &K8shelld{
 		conn:         conn,
+		log:          log.NewLogger("k8shelld"),
 		infoClient:   pb.NewInfoServiceClient(conn),
 		remoteClient: pb.NewRemoteOSServiceClient(conn),
 		AccessKey:    accessKey,
@@ -408,7 +412,7 @@ func (c *K8shelld) StartPortForward(ctx context.Context, channel ssh.Channel, po
 
 // StartExec executes a command in a remote shell over gRPC.
 func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID string,
-	command string, shellBinary string, envVars []string) (int32, error) {
+	command string, shellBinary string, envVars []string, signalChan <-chan string) (int32, error) {
 
 	md := metadata.Pairs("authorization", c.AccessKey, "exec-id", execID)
 	ctx = metadata.NewOutgoingContext(ctx, md)
@@ -439,6 +443,20 @@ func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID st
 	var writerErr, readerErr error
 	exitCodeCh := make(chan int32, 1)
 
+	// helper to send signals
+	sendSignal := func(signalName string) {
+		signalReq := &pb.ExecRequest{
+			Request: &pb.ExecRequest_Signal{
+				Signal: signalName,
+			},
+		}
+		if err := stream.Send(signalReq); err != nil {
+			c.log.Error().Err(err).Msgf("Failed to send signal %s to exec process %s", signalName, execID)
+		} else {
+			c.log.Debug().Msgf("Successfully sent signal %s to exec process %s", signalName, execID)
+		}
+	}
+
 	// writer goroutine (SSH -> gRPC)
 	wg.Add(1)
 	go func() {
@@ -450,6 +468,8 @@ func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID st
 			select {
 			case <-ctx.Done():
 				return
+			case signalName := <-signalChan:
+				sendSignal(signalName)
 			default:
 			}
 
@@ -486,6 +506,8 @@ func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID st
 				select {
 				case <-ctx.Done():
 					return
+				case signalName := <-signalChan:
+					sendSignal(signalName)
 				case <-time.After(10 * time.Millisecond):
 					// Continue checking
 				}
@@ -510,6 +532,7 @@ func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID st
 				readerErr = fmt.Errorf("grpc recv: %w", rerr)
 				return
 			}
+
 			switch r := resp.Response.(type) {
 			case *pb.ExecResponse_Stdout:
 				if _, err := channel.Write(r.Stdout); err != nil {
