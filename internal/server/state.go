@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	identity "github.com/k8shell-io/identity/pkg/models"
+	"github.com/k8shell-io/identity/pkg/userstr"
 	provisionerClient "github.com/k8shell-io/provisioner/pkg/client"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"golang.org/x/crypto/ssh"
@@ -19,8 +19,7 @@ import (
 type ConnectionInfo struct {
 	proxyID          string                      // unique identifier of the proxy where connection is established
 	k8shelld         *workspace.K8shelld         // k8shelld client for interacting with the workspace k8shelld daemon
-	Username         string                      // username of the user
-	BlueprintName    string                      // name of the blueprint
+	UserStr          *userstr.UserStr            // user string information
 	OnboardCap       *identity.OnboardCapability // onboarding capabilities
 	OnboardInfo      *identity.OnboardUser       // onboarding information
 	User             *identity.User              // user information
@@ -66,44 +65,37 @@ var connStates = make(map[string]*ConnectionInfo)
 var connStatesMutex sync.RWMutex
 var execSeqNumber int64 // sequence number for exec commands
 
-func getConnectionID(conn ssh.ConnMetadata) (string, string, string) {
-	var username, bpname string
-	parsed := strings.Split(conn.User(), "~")
-	if len(parsed) >= 2 {
-		username = parsed[0]
-		bpname = parsed[1]
-	}
-	if len(parsed) == 1 {
-		username = parsed[0]
-		bpname = "dev"
-	}
-
-	connID := fmt.Sprintf("%s-%s", conn.RemoteAddr(), username)
-	return username, bpname, connID
+func getConnectionID(conn ssh.ConnMetadata, userStr *userstr.UserStr) string {
+	connID := fmt.Sprintf("%s-%s", conn.RemoteAddr(), userStr.User)
+	return connID
 }
 
 func RemoveState(state *ConnectionInfo) {
 	connStatesMutex.Lock()
 	defer connStatesMutex.Unlock()
-	delete(connStates, fmt.Sprintf("12345-%s", state.Username))
+	delete(connStates, fmt.Sprintf("12345-%s", state.UserStr.User))
 }
 
-func GetConnInfo(conn ssh.ConnMetadata) *ConnectionInfo {
-	username, blueprintName, connID := getConnectionID(conn)
+func GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
+	userStr, err := userstr.Parse(conn.User())
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse user string: %w", err)
+	}
+
+	connID := getConnectionID(conn, userStr)
 
 	connStatesMutex.RLock()
 	defer connStatesMutex.RUnlock()
 	connInfo := connStates[connID]
 	if connInfo == nil {
 		connInfo = &ConnectionInfo{
-			proxyID:       GetProxyID(),
-			Username:      username,
-			BlueprintName: blueprintName,
-			DirectTCPIP:   &sync.Map{},
+			proxyID:     GetProxyID(),
+			UserStr:     userStr,
+			DirectTCPIP: &sync.Map{},
 		}
 		connStates[connID] = connInfo
 	}
-	return connInfo
+	return connInfo, nil
 }
 
 func (s *ConnectionInfo) Close() {
@@ -148,9 +140,9 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 		return c.k8shelld, nil
 	}
 
-	status, err := workspace.EnsureWorkspace(ctx, c.User.Username, c.BlueprintName, writer, provisioner)
+	status, err := workspace.EnsureWorkspace(ctx, c.UserStr, writer, provisioner)
 	if err != nil {
-		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.User.Username, err)
+		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.UserStr.User, err)
 	}
 	if writer != nil {
 		writer.Write([]byte(fmt.Sprintf("Connecting to the workspace at %s...\r\n", status.Host)))

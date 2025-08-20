@@ -26,6 +26,10 @@ github.com/k8shell-io/crypto v0.41.1-ssh-proxy h1:8+q6Ofc2ky23Oc9iNyiq8aeiQBIP+y
 github.com/k8shell-io/crypto v0.41.1-ssh-proxy/go.mod h1:RVZeOJCpqtogniULztSXQESKJCfcI8WCxsS0FagMA8U=
 github.com/k8shell-io/identity v0.11.5 h1:eUdtBgIpLeMVdesDwdywuhbBL+DlI4Tn1c6lecUNT6Y=
 github.com/k8shell-io/identity v0.11.5/go.mod h1:nnRu7Y5OUYdER6T0w54plfrRjWE9YAfWgjEZOGkgt88=
+github.com/k8shell-io/identity v0.11.6 h1:VRNnJQDJCUQZ+TFVwTrk3scFZFE5VroZ0xuFB6tihJI=
+github.com/k8shell-io/identity v0.11.6/go.mod h1:nnRu7Y5OUYdER6T0w54plfrRjWE9YAfWgjEZOGkgt88=
+github.com/k8shell-io/identity v0.11.7 h1:CDoYhL2EhzlYbVe/Fhkhq3Dc/rZ++OhModdhX31gNrE=
+github.com/k8shell-io/identity v0.11.7/go.mod h1:nnRu7Y5OUYdER6T0w54plfrRjWE9YAfWgjEZOGkgt88=
 github.com/k8shell-io/provisioner v0.11.12 h1:gMXqzbEnUM9ngw1kUZontzp32tbMrja4FmWBIozcG+8=
 github.com/k8shell-io/provisioner v0.11.12/go.mod h1:RoqWSxKxLxggg06AnmKn5c7ZnemZfnLR6ge12XTswP8=
 github.com/k8shell-io/yaml-config v0.1.1 h1:k4Yx4elOAWGdxmka/fLo3N+dwCaJla0nEcX1qL/SMHk=

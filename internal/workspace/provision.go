@@ -7,24 +7,25 @@ import (
 	"io"
 	"sync"
 
+	"github.com/k8shell-io/identity/pkg/userstr"
 	provisionerClient "github.com/k8shell-io/provisioner/pkg/client"
 	provisionerModels "github.com/k8shell-io/provisioner/pkg/models"
 )
 
 // EnsureWorkspace checks if a workspace exists for the user and provisions it if not.
-func EnsureWorkspace(ctx context.Context, username string, blueprint string, writer io.Writer,
+func EnsureWorkspace(ctx context.Context, userStr *userstr.UserStr, writer io.Writer,
 	provisioner *provisionerClient.Client) (*provisionerModels.WorkspaceStatus, error) {
 
-	workspaces, err := provisioner.GetWorkspaces(ctx, username, blueprint)
+	workspaces, err := provisioner.GetWorkspaces(ctx, userStr.User, userStr.Blueprint)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", username, err)
+		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.User, err)
 	}
 
 	if len(workspaces) > 0 {
 		status, err := provisioner.GetWorkspaceStatus(ctx, workspaces[0].Name)
 		if err != nil {
 			if !errors.Is(err, provisionerModels.ErrWorkspaceNotFound) {
-				return nil, fmt.Errorf("failed to get workspace status for user %s: %w", username, err)
+				return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.User, err)
 			}
 		} else {
 			if status.Status == "Running" {
@@ -33,25 +34,25 @@ func EnsureWorkspace(ctx context.Context, username string, blueprint string, wri
 		}
 	}
 
-	name, err := provisionWorkspace(ctx, username, blueprint, writer, provisioner)
+	name, err := provisionWorkspace(ctx, userStr, writer, provisioner)
 	if err != nil {
-		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", username, err)
+		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.User, err)
 	}
 
 	status, err := provisioner.GetWorkspaceStatus(ctx, name)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", username, err)
+		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.User, err)
 	}
 	if status.Status == "Running" {
 		return status, nil
 	}
 
 	return nil, fmt.Errorf("failed to ensure workspace for user %s: workspace status is %q",
-		username, status.Status)
+		userStr.User, status.Status)
 }
 
 // provisionWorkspace provisions a new workspace for the user.
-func provisionWorkspace(ctx context.Context, username string, blueprint string, writer io.Writer,
+func provisionWorkspace(ctx context.Context, userStr *userstr.UserStr, writer io.Writer,
 	provisioner *provisionerClient.Client) (string, error) {
 	events := make(chan provisionerModels.StreamEvent, 100)
 	if writer != nil {
@@ -70,8 +71,8 @@ func provisionWorkspace(ctx context.Context, username string, blueprint string, 
 		defer close(events)
 
 		provisionErr = provisioner.ProvisionWorkspaceStream(ctx, &provisionerClient.ProvisionOptions{
-			Username:  username,
-			Blueprint: blueprint,
+			Username:  userStr.User,
+			Blueprint: userStr.Blueprint,
 			Timeout:   30,
 			Stream:    true,
 		}, events)

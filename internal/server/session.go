@@ -359,11 +359,11 @@ func (s *Server) sendExitStatus(channel ssh.Channel, exitCode int32) {
 // createAgentChannel creates a server-initiated agent forwarding channel and
 // handles the communication between the SSH agent and the unix socket in the workspace
 func (s *Server) handleAgent(sshConn *ssh.ServerConn, connInfo *ConnectionInfo) (ssh.Channel, error) {
-	s.log.Debug().Msgf("Creating agent channel for user %s", connInfo.Username)
+	s.log.Debug().Msgf("Creating agent channel for user %s", connInfo.UserStr.User)
 
 	k8shelld := connInfo.k8shelld
 	if k8shelld == nil {
-		return nil, fmt.Errorf("k8shelld client does not exist for user %s", connInfo.Username)
+		return nil, fmt.Errorf("k8shelld client does not exist for user %s", connInfo.UserStr.User)
 	}
 
 	channel, reqs, err := sshConn.OpenChannel("auth-agent@openssh.com", nil)
@@ -372,21 +372,21 @@ func (s *Server) handleAgent(sshConn *ssh.ServerConn, connInfo *ConnectionInfo) 
 	}
 	go ssh.DiscardRequests(reqs)
 
-	s.log.Debug().Msgf("Agent channel created for user %s", connInfo.Username)
+	s.log.Debug().Msgf("Agent channel created for user %s", connInfo.UserStr.User)
 
 	// handle communication with the SSH agent and the unix socket
 	go func() {
-		s.log.Debug().Msgf("Starting agent forwarding for user %s, unix socket id: %s", connInfo.Username,
+		s.log.Debug().Msgf("Starting agent forwarding for user %s, unix socket id: %s", connInfo.UserStr.User,
 			connInfo.Session.AgentUnixID)
 		err := k8shelld.StartUnixSocket(s.ctx, channel, connInfo.Session.AgentUnixID, connInfo.Session.SSHAuthSock)
 		if err != nil {
 			if statusErr, ok := status.FromError(err); ok && statusErr.Code() == codes.Canceled {
-				s.log.Debug().Msgf("Agent forwarding canceled for user %s", connInfo.Username)
+				s.log.Debug().Msgf("Agent forwarding canceled for user %s", connInfo.UserStr.User)
 			} else {
-				s.log.Error().Msgf("Agent forwarding deadline exceeded for user %s", connInfo.Username)
+				s.log.Error().Msgf("Agent forwarding deadline exceeded for user %s", connInfo.UserStr.User)
 			}
 		}
-		s.log.Debug().Msgf("Agent channel closed for user %s", connInfo.Username)
+		s.log.Debug().Msgf("Agent channel closed for user %s", connInfo.UserStr.User)
 	}()
 
 	return channel, nil

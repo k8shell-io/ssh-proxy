@@ -3,7 +3,7 @@ module github.com/k8shell-io/ssh-proxy
 go 1.24.5
 
 require (
-	github.com/k8shell-io/identity v0.11.5
+	github.com/k8shell-io/identity v0.11.7
 	github.com/k8shell-io/provisioner v0.11.12
 	github.com/k8shell-io/yaml-config v0.1.1
 	github.com/rs/zerolog v1.34.0
