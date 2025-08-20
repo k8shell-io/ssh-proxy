@@ -12,6 +12,7 @@ import (
 )
 
 var SSH_AUTH_SOCK_TEMP = "/var/run/ssh-agent-%s.sock"
+var SFTP_BINARY = "/usr/local/bin/sftp"
 
 func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, newChannel ssh.NewChannel) {
 	channel, requests, err := newChannel.Accept()
@@ -40,6 +41,9 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 	case "shell":
 		s.handleShellRequest(sshConn, connInfo, channel)
 
+	case "sftp":
+		s.handleSFTPSubsystem(sshConn, connInfo, channel)
+
 	case "exec":
 		s.handleExecRequest(connInfo, channel)
 
@@ -59,6 +63,30 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 
 		accepted := false
 		switch req.Type {
+		case "subsystem":
+			if len(req.Payload) < 4 {
+				req.Reply(false, nil)
+				continue
+			}
+
+			nameLen := uint32(req.Payload[0])<<24 | uint32(req.Payload[1])<<16 |
+				uint32(req.Payload[2])<<8 | uint32(req.Payload[3])
+			if len(req.Payload) < int(4+nameLen) {
+				req.Reply(false, nil)
+				continue
+			}
+
+			subsystemName := string(req.Payload[4 : 4+nameLen])
+			s.log.Debug().Msgf("Subsystem request: %s", subsystemName)
+
+			if subsystemName == "sftp" {
+				req.Reply(true, nil)
+				sessionType <- "sftp"
+				sessionTypeSent = true
+			} else {
+				s.log.Warn().Msgf("Unsupported subsystem: %s", subsystemName)
+				req.Reply(false, nil)
+			}
 		case "pty-req":
 			if connInfo.User.Channels == nil || slices.Contains(connInfo.User.Channels, identity.ChannelPty) {
 				if len(req.Payload) >= 8 {
@@ -176,6 +204,8 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 	}
 }
 
+// ** SSH Shell
+
 // handleShellRequest handles a shell request for a user
 func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, channel ssh.Channel) {
 	session := connInfo.Session
@@ -204,6 +234,32 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 		s.log.Debug().Msgf("Shell session %s completed for user %s", session.SessionId, session.Username)
 	}
 }
+
+// ** SFTP
+
+func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *ConnectionInfo, channel ssh.Channel) {
+	session := connInfo.Session
+	s.log.Info().Msgf("Handling sftp subsystem in channel for user %s, command: %s", session.Username, session.Command)
+
+	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, nil, s.provisioner)
+	if err != nil {
+		s.log.Error().Msgf("Failed to get k8shelld client for sftp exec: %v", err)
+		return
+	}
+
+	execID := fmt.Sprintf("sf-%s-%d-%d", connInfo.proxyID, channel.LocalID(), connInfo.ExecSeqNumber())
+	s.log.Debug().Msgf("Starting sftp for user %s, exec ID: %s, command: %s",
+		session.Username, execID, SFTP_BINARY)
+
+	_, err = k8shelld.StartExec(s.ctx, channel, execID, SFTP_BINARY, "", []string{})
+	if err != nil {
+		s.log.Error().Msgf("Sftp exec failed for command '%s': %v", SFTP_BINARY, err)
+	} else {
+		s.log.Debug().Msgf("Sftp exec completed for user %s, exec ID: %s", session.Username, execID)
+	}
+}
+
+// ** SSH Exec
 
 // handleExecRequest handles an exec request for a user
 func (s *Server) handleExecRequest(connInfo *ConnectionInfo, channel ssh.Channel) {
@@ -246,6 +302,8 @@ func (s *Server) sendExitStatus(channel ssh.Channel, exitCode int32) {
 	channel.SendRequest("exit-status", false, exitStatus)
 }
 
+// ** SSH Agent forwarding
+
 // createAgentChannel creates a server-initiated agent forwarding channel and
 // handles the communication between the SSH agent and the unix socket in the workspace
 func (s *Server) handleAgent(sshConn *ssh.ServerConn, connInfo *ConnectionInfo) (ssh.Channel, error) {
@@ -281,6 +339,8 @@ func (s *Server) handleAgent(sshConn *ssh.ServerConn, connInfo *ConnectionInfo) 
 
 	return channel, nil
 }
+
+// *** Helper functions
 
 // Parse exec request payload
 func (s *Server) parseExecRequest(payload []byte) (string, error) {
