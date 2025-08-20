@@ -30,6 +30,7 @@ type ConnectionInfo struct {
 	Session          *SessionInfo                // SSH session information
 	DirectTCPIP      *sync.Map                   // direct TCP/IP connection information
 	DirectTCPIPCount int64                       // current count of direct TCP/IP connections
+	execSeqNumber    int64                       // sequence number for exec commands
 }
 
 // SessionInfo holds information about a user's SSH session
@@ -203,4 +204,8 @@ func (c *ConnectionInfo) DecrementDirectTCPIPCount() {
 // GetDirectTCPIPCount returns the current direct TCP/IP count
 func (c *ConnectionInfo) GetDirectTCPIPCount() int {
 	return int(atomic.LoadInt64(&c.DirectTCPIPCount))
+}
+
+func (c *ConnectionInfo) ExecSeqNumber() int64 {
+	return atomic.AddInt64(&c.execSeqNumber, 1)
 }

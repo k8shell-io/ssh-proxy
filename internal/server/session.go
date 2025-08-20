@@ -217,7 +217,7 @@ func (s *Server) handleExecRequest(connInfo *ConnectionInfo, channel ssh.Channel
 		return
 	}
 
-	execID := fmt.Sprintf("ex-%s-%d", connInfo.proxyID, channel.LocalID())
+	execID := fmt.Sprintf("ex-%s-%d-%d", connInfo.proxyID, channel.LocalID(), connInfo.ExecSeqNumber())
 	s.log.Debug().Msgf("Starting exec for user %s, exec ID: %s, command: %s",
 		session.Username, execID, session.Command)
 

@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	pb "github.com/k8shell-io/ssh-proxy/grpc/generated-go/k8shelldpb"
@@ -412,9 +413,6 @@ func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID st
 	md := metadata.Pairs("authorization", c.AccessKey, "exec-id", execID)
 	ctx = metadata.NewOutgoingContext(ctx, md)
 
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	stream, err := c.remoteClient.Exec(ctx)
 	if err != nil {
 		return 1, fmt.Errorf("failed to create exec stream: %w", err)
@@ -433,31 +431,24 @@ func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID st
 		return 1, fmt.Errorf("failed to send exec command: %w", err)
 	}
 
-	errCh := make(chan error, 2)
+	var wg sync.WaitGroup
+	var writerErr, readerErr error
 	exitCodeCh := make(chan int32, 1)
 
 	// writer goroutine (SSH -> gRPC)
+	wg.Add(1)
 	go func() {
-		defer func() {
-			// Send TERM signal when input stream ends
-			termReq := &pb.ExecRequest{
-				Request: &pb.ExecRequest_Signal{
-					Signal: "TERM",
-				},
-			}
-			stream.Send(termReq)
-			stream.CloseSend()
-		}()
+		defer wg.Done()
+		defer stream.CloseSend()
 
 		buf := make([]byte, 32*1024)
 		for {
 			n, rerr := channel.Read(buf)
 			if rerr != nil {
 				if rerr == io.EOF {
-					errCh <- nil
-				} else {
-					errCh <- fmt.Errorf("ssh read: %w", rerr)
+					return
 				}
+				writerErr = fmt.Errorf("ssh read: %w", rerr)
 				return
 			}
 			if n == 0 {
@@ -468,65 +459,65 @@ func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID st
 					Input: buf[:n],
 				},
 			}); serr != nil {
-				errCh <- fmt.Errorf("grpc send: %w", serr)
+				writerErr = fmt.Errorf("grpc send: %w", serr)
 				return
 			}
 		}
 	}()
 
 	// reader goroutine (gRPC -> SSH)
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+		defer channel.Close()
+
 		for {
 			resp, rerr := stream.Recv()
 			if rerr != nil {
 				if rerr == io.EOF {
-					errCh <- nil
-				} else {
-					errCh <- fmt.Errorf("grpc recv: %w", rerr)
+					return
 				}
+				readerErr = fmt.Errorf("grpc recv: %w", rerr)
 				return
 			}
 			switch r := resp.Response.(type) {
 			case *pb.ExecResponse_Stdout:
 				if _, err := channel.Write(r.Stdout); err != nil {
-					errCh <- fmt.Errorf("ssh write: %w", err)
+					readerErr = fmt.Errorf("ssh write: %w", err)
 					return
 				}
 			case *pb.ExecResponse_Stderr:
 				if _, err := channel.Write(r.Stderr); err != nil {
-					errCh <- fmt.Errorf("ssh write: %w", err)
+					readerErr = fmt.Errorf("ssh write: %w", err)
 					return
 				}
 			case *pb.ExecResponse_ExitCode:
 				exitCodeCh <- r.ExitCode
-				errCh <- nil
 				return
 			default:
-				// unknown response type — treat as error to avoid hanging
-				errCh <- fmt.Errorf("unknown exec response type")
+				readerErr = fmt.Errorf("unknown exec response type")
 				return
 			}
 		}
 	}()
 
-	err = <-errCh
+	wg.Wait()
 
-	// Get exit code if available
 	var exitCode int32 = 0
 	select {
 	case exitCode = <-exitCodeCh:
 	default:
-		// No exit code received, default to 0 if no error, 1 if error
-		if err != nil {
+		if writerErr != nil || readerErr != nil {
 			exitCode = 1
 		}
 	}
 
-	// drain the second result
-	select {
-	case <-errCh:
-	default:
+	if writerErr != nil {
+		return exitCode, writerErr
+	}
+	if readerErr != nil {
+		return exitCode, readerErr
 	}
 
-	return exitCode, err
+	return exitCode, nil
 }
