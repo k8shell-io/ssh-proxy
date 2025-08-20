@@ -30,7 +30,6 @@ type ConnectionInfo struct {
 	Session          *SessionInfo                // SSH session information
 	DirectTCPIP      *sync.Map                   // direct TCP/IP connection information
 	DirectTCPIPCount int64                       // current count of direct TCP/IP connections
-	execSeqNumber    int64                       // sequence number for exec commands
 }
 
 // SessionInfo holds information about a user's SSH session
@@ -64,6 +63,7 @@ type DirectTCPIPInfo struct {
 // Global state storage
 var connStates = make(map[string]*ConnectionInfo)
 var connStatesMutex sync.RWMutex
+var execSeqNumber int64 // sequence number for exec commands
 
 func getConnectionID(conn ssh.ConnMetadata) (string, string, string) {
 	var username, bpname string
@@ -207,5 +207,5 @@ func (c *ConnectionInfo) GetDirectTCPIPCount() int {
 }
 
 func (c *ConnectionInfo) ExecSeqNumber() int64 {
-	return atomic.AddInt64(&c.execSeqNumber, 1)
+	return atomic.AddInt64(&execSeqNumber, 1)
 }
