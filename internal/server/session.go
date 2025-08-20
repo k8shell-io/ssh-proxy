@@ -226,12 +226,6 @@ func (s *Server) handleExecRequest(connInfo *ConnectionInfo, channel ssh.Channel
 		s.log.Error().Msgf("Exec failed for command '%s': %v", session.Command, err)
 	}
 
-	// Handle special cases for exit codes
-	if exitCode == 143 {
-		exitCode = 0
-		s.log.Debug().Msgf("The command was terminated by SIGTERM/SIGKILL (exit-status 143) but sending exit status 0")
-	}
-
 	if exitCode < 0 {
 		s.log.Warn().Msgf("The command exit code is -1 which is incorrect. Setting it to 1")
 		exitCode = 1

@@ -413,6 +413,10 @@ func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID st
 	md := metadata.Pairs("authorization", c.AccessKey, "exec-id", execID)
 	ctx = metadata.NewOutgoingContext(ctx, md)
 
+	// Create cancellable context
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	stream, err := c.remoteClient.Exec(ctx)
 	if err != nil {
 		return 1, fmt.Errorf("failed to create exec stream: %w", err)
@@ -443,24 +447,48 @@ func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID st
 
 		buf := make([]byte, 32*1024)
 		for {
-			n, rerr := channel.Read(buf)
-			if rerr != nil {
-				if rerr == io.EOF {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
+			size, err := channel.ReadBufferSize()
+			if err != nil {
+				if err == io.EOF {
 					return
 				}
-				writerErr = fmt.Errorf("ssh read: %w", rerr)
+				writerErr = fmt.Errorf("ssh buffer check: %w", err)
 				return
 			}
-			if n == 0 {
-				continue
-			}
-			if serr := stream.Send(&pb.ExecRequest{
-				Request: &pb.ExecRequest_Input{
-					Input: buf[:n],
-				},
-			}); serr != nil {
-				writerErr = fmt.Errorf("grpc send: %w", serr)
-				return
+
+			if size > 0 {
+				n, rerr := channel.Read(buf)
+				if rerr != nil {
+					if rerr == io.EOF {
+						return
+					}
+					writerErr = fmt.Errorf("ssh read: %w", rerr)
+					return
+				}
+				if n == 0 {
+					continue
+				}
+				if serr := stream.Send(&pb.ExecRequest{
+					Request: &pb.ExecRequest_Input{
+						Input: buf[:n],
+					},
+				}); serr != nil {
+					writerErr = fmt.Errorf("grpc send: %w", serr)
+					return
+				}
+			} else {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(10 * time.Millisecond):
+					// Continue checking
+				}
 			}
 		}
 	}()
@@ -469,7 +497,9 @@ func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID st
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		defer channel.Close()
+		defer cancel()
+
+		stderr := channel.Stderr()
 
 		for {
 			resp, rerr := stream.Recv()
@@ -487,7 +517,7 @@ func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID st
 					return
 				}
 			case *pb.ExecResponse_Stderr:
-				if _, err := channel.Write(r.Stderr); err != nil {
+				if _, err := stderr.Write(r.Stderr); err != nil {
 					readerErr = fmt.Errorf("ssh write: %w", err)
 					return
 				}
