@@ -147,7 +147,7 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 		writer.Write([]byte(fmt.Sprintf("Connecting to the workspace at %s...\r\n", status.Host)))
 	}
 
-	k8shelld, err := workspace.NewK8shelld(status.Host, status.Port, status.AccessKey, status.TLSCert)
+	k8shelld, err := workspace.NewK8shelld(status.Host, status.PodIP, status.Port, status.AccessKey, status.TLSCert)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.User.Username, err)
 	}

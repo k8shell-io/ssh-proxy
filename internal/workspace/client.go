@@ -10,7 +10,6 @@ import (
 	"time"
 
 	pb "github.com/k8shell-io/ssh-proxy/grpc/generated-go/k8shelldpb"
-	"github.com/k8shell-io/ssh-proxy/internal/log"
 	"github.com/rs/zerolog"
 
 	"golang.org/x/crypto/ssh"
@@ -34,27 +33,24 @@ var KEEPALIVE_TIME = 5 * time.Minute
 // KEEPALIVE_TIMEOUT defines the timeout for keepalive pings.
 var KEEPALIVE_TIMEOUT = 20 * time.Second
 
-func NewK8shelld(address string, port int, accessKey string, tlsCert string) (*K8shelld, error) {
+func NewK8shelld(host string, address string, port int, accessKey string, tlsCert string) (*K8shelld, error) {
 	var creds credentials.TransportCredentials
-
 	if tlsCert != "" {
-		certPool := x509.NewCertPool()
-		if !certPool.AppendCertsFromPEM([]byte(tlsCert)) {
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM([]byte(tlsCert)) {
 			return nil, fmt.Errorf("failed to append TLS certificate to pool")
 		}
-
-		config := &tls.Config{
-			ServerName: address,
-			RootCAs:    certPool,
-		}
-		creds = credentials.NewTLS(config)
+		creds = credentials.NewTLS(&tls.Config{
+			ServerName: host,
+			RootCAs:    pool,
+			MinVersion: tls.VersionTLS12,
+		})
 	} else {
-		// fallback
-		config := &tls.Config{
-			ServerName:         address,
+		creds = credentials.NewTLS(&tls.Config{
+			ServerName:         host,
 			InsecureSkipVerify: true,
-		}
-		creds = credentials.NewTLS(config)
+			MinVersion:         tls.VersionTLS12,
+		})
 	}
 
 	opts := []grpc.DialOption{
@@ -62,18 +58,19 @@ func NewK8shelld(address string, port int, accessKey string, tlsCert string) (*K
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                KEEPALIVE_TIME,
 			Timeout:             KEEPALIVE_TIMEOUT,
-			PermitWithoutStream: false,
+			PermitWithoutStream: true,
 		}),
+		grpc.WithAuthority(host),
 	}
 
-	conn, err := grpc.NewClient(fmt.Sprintf("%s:%d", address, port), opts...)
+	target := fmt.Sprintf("%s:%d", address, port)
+	conn, err := grpc.NewClient(target, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to gRPC server: %w", err)
 	}
 
 	return &K8shelld{
 		conn:         conn,
-		log:          log.NewLogger("k8shelld"),
 		infoClient:   pb.NewInfoServiceClient(conn),
 		remoteClient: pb.NewRemoteOSServiceClient(conn),
 		AccessKey:    accessKey,
