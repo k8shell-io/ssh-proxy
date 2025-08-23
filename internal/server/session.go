@@ -3,9 +3,7 @@ package server
 import (
 	"encoding/binary"
 	"fmt"
-	"slices"
 
-	identity "github.com/k8shell-io/identity/pkg/models"
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -88,31 +86,29 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 				req.Reply(false, nil)
 			}
 		case "pty-req":
-			if connInfo.User.Channels == nil || slices.Contains(connInfo.User.Channels, identity.ChannelPty) {
-				if len(req.Payload) >= 8 {
-					termLen := binary.BigEndian.Uint32(req.Payload[0:4])
+			if len(req.Payload) >= 8 {
+				termLen := binary.BigEndian.Uint32(req.Payload[0:4])
 
-					if len(req.Payload) >= int(4+termLen) {
-						termType := string(req.Payload[4 : 4+termLen])
-						termEnv := fmt.Sprintf("TERM=%s", termType)
-						session.Env = append(session.Env, termEnv)
-						s.log.Debug().Msgf("Terminal type: %s for user %s", termType, session.Username)
+				if len(req.Payload) >= int(4+termLen) {
+					termType := string(req.Payload[4 : 4+termLen])
+					termEnv := fmt.Sprintf("TERM=%s", termType)
+					session.Env = append(session.Env, termEnv)
+					s.log.Debug().Msgf("Terminal type: %s for user %s", termType, session.Username)
 
-						offset := 4 + int(termLen)
-						if len(req.Payload) >= offset+16 {
-							session.TermWidth = binary.BigEndian.Uint32(req.Payload[offset : offset+4])
-							session.TermHeight = binary.BigEndian.Uint32(req.Payload[offset+4 : offset+8])
+					offset := 4 + int(termLen)
+					if len(req.Payload) >= offset+16 {
+						session.TermWidth = binary.BigEndian.Uint32(req.Payload[offset : offset+4])
+						session.TermHeight = binary.BigEndian.Uint32(req.Payload[offset+4 : offset+8])
 
-							s.log.Debug().Msgf("PTY size from request: %dx%d for user %s",
-								session.TermWidth, session.TermHeight, session.Username)
-						}
+						s.log.Debug().Msgf("PTY size from request: %dx%d for user %s",
+							session.TermWidth, session.TermHeight, session.Username)
 					}
 				}
-
-				session.HasPTY = true
-				accepted = true
-				s.log.Debug().Msgf("PTY request accepted for user %s", session.Username)
 			}
+
+			session.HasPTY = true
+			accepted = true
+			s.log.Debug().Msgf("PTY request accepted for user %s", session.Username)
 
 		case "env":
 			if len(req.Payload) >= 8 {

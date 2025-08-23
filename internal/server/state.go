@@ -8,27 +8,26 @@ import (
 	"sync/atomic"
 	"time"
 
-	identity "github.com/k8shell-io/identity/pkg/models"
-	"github.com/k8shell-io/identity/pkg/userstr"
-	provisionerClient "github.com/k8shell-io/provisioner/pkg/client"
+	"github.com/k8shell-io/common/models"
+	provisioner "github.com/k8shell-io/provisioner/pkg/client"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"golang.org/x/crypto/ssh"
 )
 
 // ConnectionInfo represents the connection information for a user
 type ConnectionInfo struct {
-	proxyID          string                      // unique identifier of the proxy where connection is established
-	k8shelld         *workspace.K8shelld         // k8shelld client for interacting with the workspace k8shelld daemon
-	UserStr          *userstr.UserStr            // user string information
-	OnboardCap       *identity.OnboardCapability // onboarding capabilities
-	OnboardInfo      *identity.OnboardUser       // onboarding information
-	User             *identity.User              // user information
-	AuthFailCount    int                         // number of failed authentication attempts
-	AuthLastAttempt  time.Time                   // timestamp of the last authentication attempt
-	mu               sync.RWMutex                // mutex for synchronizing access
-	Session          *SessionInfo                // SSH session information
-	DirectTCPIP      *sync.Map                   // direct TCP/IP connection information
-	DirectTCPIPCount int64                       // current count of direct TCP/IP connections
+	proxyID          string                    // unique identifier of the proxy where connection is established
+	k8shelld         *workspace.K8shelld       // k8shelld client for interacting with the workspace k8shelld daemon
+	UserStr          *models.UserStr           // user string information
+	OnboardCap       *models.OnboardCapability // onboarding capabilities
+	OnboardInfo      *models.OnboardUser       // onboarding information
+	User             *models.User              // user information
+	AuthFailCount    int                       // number of failed authentication attempts
+	AuthLastAttempt  time.Time                 // timestamp of the last authentication attempt
+	mu               sync.RWMutex              // mutex for synchronizing access
+	Session          *SessionInfo              // SSH session information
+	DirectTCPIP      *sync.Map                 // direct TCP/IP connection information
+	DirectTCPIPCount int64                     // current count of direct TCP/IP connections
 }
 
 // SessionInfo holds information about a user's SSH session
@@ -65,7 +64,7 @@ var connStates = make(map[string]*ConnectionInfo)
 var connStatesMutex sync.RWMutex
 var execSeqNumber int64 // sequence number for exec commands
 
-func getConnectionID(conn ssh.ConnMetadata, userStr *userstr.UserStr) string {
+func getConnectionID(conn ssh.ConnMetadata, userStr *models.UserStr) string {
 	connID := fmt.Sprintf("%s-%s", conn.RemoteAddr(), userStr.User)
 	return connID
 }
@@ -77,7 +76,7 @@ func RemoveState(state *ConnectionInfo) {
 }
 
 func GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
-	userStr, err := userstr.Parse(conn.User())
+	userStr, err := models.Parse(conn.User())
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse user string: %w", err)
 	}
@@ -107,32 +106,32 @@ func (s *ConnectionInfo) Close() {
 	}
 }
 
-func (s *ConnectionInfo) SetOnboardInfo(onboardInfo *identity.OnboardUser) {
+func (s *ConnectionInfo) SetOnboardInfo(onboardInfo *models.OnboardUser) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.OnboardInfo = onboardInfo
 }
 
-func (s *ConnectionInfo) GetOnboardInfo() *identity.OnboardUser {
+func (s *ConnectionInfo) GetOnboardInfo() *models.OnboardUser {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.OnboardInfo
 }
 
-func (s *ConnectionInfo) SetOnboardCap(onboardCap *identity.OnboardCapability) {
+func (s *ConnectionInfo) SetOnboardCap(onboardCap *models.OnboardCapability) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.OnboardCap = onboardCap
 }
 
-func (s *ConnectionInfo) GetOnboardCap() *identity.OnboardCapability {
+func (s *ConnectionInfo) GetOnboardCap() *models.OnboardCapability {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.OnboardCap
 }
 
 func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Writer,
-	provisioner *provisionerClient.Client) (*workspace.K8shelld, error) {
+	client *provisioner.Client) (*workspace.K8shelld, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -140,7 +139,7 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 		return c.k8shelld, nil
 	}
 
-	status, err := workspace.EnsureWorkspace(ctx, c.UserStr, writer, provisioner)
+	status, err := workspace.EnsureWorkspace(ctx, c.UserStr, writer, client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.UserStr.User, err)
 	}

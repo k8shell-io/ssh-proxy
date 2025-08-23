@@ -7,22 +7,22 @@ import (
 	"io"
 	"sync"
 
-	"github.com/k8shell-io/identity/pkg/userstr"
+	"github.com/k8shell-io/common/models"
 	provisioner "github.com/k8shell-io/provisioner/pkg/client"
 	provModels "github.com/k8shell-io/provisioner/pkg/models"
 )
 
 // EnsureWorkspace checks if a workspace exists for the user and provisions it if not.
-func EnsureWorkspace(ctx context.Context, userStr *userstr.UserStr, writer io.Writer,
-	provisioner *provisioner.Client) (*provModels.WorkspaceStatus, error) {
+func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Writer,
+	client *provisioner.Client) (*provModels.WorkspaceStatus, error) {
 
-	workspaces, err := provisioner.GetWorkspaces(ctx, userStr.User, userStr.Blueprint)
+	workspaces, err := client.GetWorkspaces(ctx, userStr.User, userStr.Blueprint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.User, err)
 	}
 
 	if len(workspaces) > 0 {
-		status, err := provisioner.GetWorkspaceStatus(ctx, workspaces[0].Name)
+		status, err := client.GetWorkspaceStatus(ctx, workspaces[0].Name)
 		if err != nil {
 			if !errors.Is(err, provModels.ErrWorkspaceNotFound) {
 				return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.User, err)
@@ -34,12 +34,12 @@ func EnsureWorkspace(ctx context.Context, userStr *userstr.UserStr, writer io.Wr
 		}
 	}
 
-	name, err := provisionWorkspace(ctx, userStr, writer, provisioner)
+	name, err := provisionWorkspace(ctx, userStr, writer, client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.User, err)
 	}
 
-	status, err := provisioner.GetWorkspaceStatus(ctx, name)
+	status, err := client.GetWorkspaceStatus(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.User, err)
 	}
@@ -52,7 +52,7 @@ func EnsureWorkspace(ctx context.Context, userStr *userstr.UserStr, writer io.Wr
 }
 
 // provisionWorkspace provisions a new workspace for the user.
-func provisionWorkspace(ctx context.Context, userStr *userstr.UserStr, writer io.Writer,
+func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Writer,
 	client *provisioner.Client) (string, error) {
 	events := make(chan provModels.StreamEvent, 100)
 	if writer != nil {

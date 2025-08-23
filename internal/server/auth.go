@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/k8shell-io/common/models"
 	identityClient "github.com/k8shell-io/identity/pkg/client"
-	identity "github.com/k8shell-io/identity/pkg/models"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -161,7 +161,7 @@ func (s *Server) checkAuthInteractiveResponse(ctx context.Context,
 }
 
 // AuthPublicKey handles public key authentication via the identity service.
-func (s *Server) authPublicKey(user *identity.User, pubKey ssh.PublicKey) bool {
+func (s *Server) authPublicKey(user *models.User, pubKey ssh.PublicKey) bool {
 	pubKeyString := string(ssh.MarshalAuthorizedKey(pubKey))
 	pubKeyString = strings.TrimSuffix(pubKeyString, "\n")
 	pubKeyHash := ssh.FingerprintSHA256(pubKey)
@@ -181,7 +181,7 @@ func (s *Server) authPublicKey(user *identity.User, pubKey ssh.PublicKey) bool {
 }
 
 // AuthPassword handles password authentication via the identity service.
-func (s *Server) authPassword(_ *identity.User) bool {
+func (s *Server) authPassword(_ *models.User) bool {
 	// TODO: Call your identity service to validate password
 	return false
 }
@@ -207,7 +207,7 @@ func (s *Server) updateUser(ctx context.Context, connInfo *ConnectionInfo) {
 
 	if user == nil {
 		if connInfo.OnboardCap == nil {
-			var onboardCap *identity.OnboardCapability
+			var onboardCap *models.OnboardCapability
 			onboardCap, err = s.identity.GetOnboardCapability(ctx, connInfo.UserStr.User)
 			if err != nil {
 				s.log.Error().Msgf("Failed to get onboarding capability for user %s: %v", connInfo.UserStr.User, err)
