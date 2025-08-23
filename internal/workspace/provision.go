@@ -8,13 +8,13 @@ import (
 	"sync"
 
 	"github.com/k8shell-io/identity/pkg/userstr"
-	provisionerClient "github.com/k8shell-io/provisioner/pkg/client"
-	provisionerModels "github.com/k8shell-io/provisioner/pkg/models"
+	provisioner "github.com/k8shell-io/provisioner/pkg/client"
+	provModels "github.com/k8shell-io/provisioner/pkg/models"
 )
 
 // EnsureWorkspace checks if a workspace exists for the user and provisions it if not.
 func EnsureWorkspace(ctx context.Context, userStr *userstr.UserStr, writer io.Writer,
-	provisioner *provisionerClient.Client) (*provisionerModels.WorkspaceStatus, error) {
+	provisioner *provisioner.Client) (*provModels.WorkspaceStatus, error) {
 
 	workspaces, err := provisioner.GetWorkspaces(ctx, userStr.User, userStr.Blueprint)
 	if err != nil {
@@ -24,7 +24,7 @@ func EnsureWorkspace(ctx context.Context, userStr *userstr.UserStr, writer io.Wr
 	if len(workspaces) > 0 {
 		status, err := provisioner.GetWorkspaceStatus(ctx, workspaces[0].Name)
 		if err != nil {
-			if !errors.Is(err, provisionerModels.ErrWorkspaceNotFound) {
+			if !errors.Is(err, provModels.ErrWorkspaceNotFound) {
 				return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.User, err)
 			}
 		} else {
@@ -53,8 +53,8 @@ func EnsureWorkspace(ctx context.Context, userStr *userstr.UserStr, writer io.Wr
 
 // provisionWorkspace provisions a new workspace for the user.
 func provisionWorkspace(ctx context.Context, userStr *userstr.UserStr, writer io.Writer,
-	provisioner *provisionerClient.Client) (string, error) {
-	events := make(chan provisionerModels.StreamEvent, 100)
+	client *provisioner.Client) (string, error) {
+	events := make(chan provModels.StreamEvent, 100)
 	if writer != nil {
 		writer.Write([]byte("Provisioning workspace...\r\n"))
 	}
@@ -70,7 +70,7 @@ func provisionWorkspace(ctx context.Context, userStr *userstr.UserStr, writer io
 		defer wg.Done()
 		defer close(events)
 
-		provisionErr = provisioner.ProvisionWorkspaceStream(ctx, &provisionerClient.ProvisionOptions{
+		provisionErr = client.ProvisionWorkspaceStream(ctx, &provisioner.ProvisionOptions{
 			Username:  userStr.User,
 			Blueprint: userStr.Blueprint,
 			Timeout:   30,
