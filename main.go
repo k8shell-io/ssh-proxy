@@ -7,7 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/k8shell-io/ssh-proxy/internal/log"
+	log "github.com/k8shell-io/common/logger"
 	"github.com/k8shell-io/ssh-proxy/internal/server"
 )
 

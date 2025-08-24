@@ -10,10 +10,10 @@ import (
 	"sync"
 	"syscall"
 
+	log "github.com/k8shell-io/common/logger"
 	identity "github.com/k8shell-io/identity/pkg/client"
 	provisioner "github.com/k8shell-io/provisioner/pkg/client"
 	"github.com/k8shell-io/ssh-proxy/internal/config"
-	"github.com/k8shell-io/ssh-proxy/internal/log"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
 )
