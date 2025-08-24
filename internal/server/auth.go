@@ -50,7 +50,7 @@ func (s *Server) AuthPublicKey(conn ssh.ConnMetadata, pubKey ssh.PublicKey) (*ss
 			},
 		}
 	} else {
-		return nil, fmt.Errorf("no available authentication methods for user %s", connInfo.UserStr.User)
+		return nil, fmt.Errorf("no available authentication methods for user %s", connInfo.UserStr.Username)
 	}
 }
 
@@ -84,7 +84,7 @@ func (s *Server) AuthPassword(conn ssh.ConnMetadata, password []byte) (*ssh.Perm
 			},
 		}
 	} else {
-		return nil, fmt.Errorf("no available authentication methods for user %s", connInfo.UserStr.User)
+		return nil, fmt.Errorf("no available authentication methods for user %s", connInfo.UserStr.Username)
 	}
 }
 
@@ -100,21 +100,21 @@ func (s *Server) AuthKeyboardInteractive(conn ssh.ConnMetadata,
 	}
 	s.updateUser(ctx, connInfo)
 	if connInfo.User != nil {
-		return nil, fmt.Errorf("user %s is already onboarded", connInfo.UserStr.User)
+		return nil, fmt.Errorf("user %s is already onboarded", connInfo.UserStr.Username)
 	}
 
 	onboardCap := connInfo.GetOnboardCap()
 	if onboardCap == nil {
-		return nil, fmt.Errorf("no onboarding capability available for user %s", connInfo.UserStr.User)
+		return nil, fmt.Errorf("no onboarding capability available for user %s", connInfo.UserStr.Username)
 	}
 	if !onboardCap.CanOnboard {
-		s.log.Warn().Msgf("User %s is not allowed to onboard", connInfo.UserStr.User)
-		return nil, fmt.Errorf("user %s is not allowed to onboard", connInfo.UserStr.User)
+		s.log.Warn().Msgf("User %s is not allowed to onboard", connInfo.UserStr.Username)
+		return nil, fmt.Errorf("user %s is not allowed to onboard", connInfo.UserStr.Username)
 	}
 
-	onboardInfo, err := s.identity.OnboardUser(ctx, connInfo.UserStr.User)
+	onboardInfo, err := s.identity.OnboardUser(ctx, connInfo.UserStr.Username)
 	if err != nil {
-		s.log.Error().Msgf("Failed to get onboard info for user %s: %v", connInfo.UserStr.User, err)
+		s.log.Error().Msgf("Failed to get onboard info for user %s: %v", connInfo.UserStr.Username, err)
 		return nil, fmt.Errorf("onboarding failed")
 	}
 	connInfo.SetOnboardInfo(onboardInfo)
@@ -135,7 +135,8 @@ func (s *Server) AuthKeyboardInteractive(conn ssh.ConnMetadata,
 
 	answers, err := challenge("", "", []string{prompt}, []bool{true})
 	if err != nil {
-		s.log.Error().Msgf("Failed to get keyboard-interactive response for user %s: %v", connInfo.UserStr.User, err)
+		s.log.Error().Msgf("Failed to get keyboard-interactive response for user %s: %v",
+			connInfo.UserStr.Username, err)
 		return nil, err
 	}
 
@@ -196,11 +197,11 @@ func (s *Server) updateUser(ctx context.Context, connInfo *ConnectionInfo) {
 		return // User already loaded
 	}
 
-	user, err := s.identity.GetUser(ctx, connInfo.UserStr.User)
+	user, err := s.identity.GetUser(ctx, connInfo.UserStr.Username)
 	if err != nil {
 		var eresp identityClient.ErrorResponse
 		if errors.As(err, &eresp) && eresp.Status != 404 {
-			s.log.Error().Msgf("Failed to get user %s: %v", connInfo.UserStr.User, err)
+			s.log.Error().Msgf("Failed to get user %s: %v", connInfo.UserStr.Username, err)
 			return
 		}
 	}
@@ -208,9 +209,10 @@ func (s *Server) updateUser(ctx context.Context, connInfo *ConnectionInfo) {
 	if user == nil {
 		if connInfo.OnboardCap == nil {
 			var onboardCap *models.OnboardCapability
-			onboardCap, err = s.identity.GetOnboardCapability(ctx, connInfo.UserStr.User)
+			onboardCap, err = s.identity.GetOnboardCapability(ctx, connInfo.UserStr.Username)
 			if err != nil {
-				s.log.Error().Msgf("Failed to get onboarding capability for user %s: %v", connInfo.UserStr.User, err)
+				s.log.Error().Msgf("Failed to get onboarding capability for user %s: %v",
+					connInfo.UserStr.Username, err)
 				return
 			}
 			connInfo.OnboardCap = onboardCap
@@ -227,7 +229,7 @@ func (s *Server) getAvailableAuthMethods(connInfo *ConnectionInfo) *ssh.PartialS
 		onboardCap := connInfo.GetOnboardCap()
 		if onboardCap != nil && onboardCap.CanOnboard {
 			s.log.Debug().Msgf("User %s is not onboarded, providing keyboard-interactive authentication",
-				connInfo.UserStr.User)
+				connInfo.UserStr.Username)
 			return &ssh.PartialSuccessError{
 				Next: ssh.ServerAuthCallbacks{
 					KeyboardInteractiveCallback: s.AuthKeyboardInteractive,
@@ -257,7 +259,7 @@ func (s *Server) getAvailableAuthMethods(connInfo *ConnectionInfo) *ssh.PartialS
 		}
 	}
 
-	s.log.Warn().Msgf("No available authentication methods for user %s", connInfo.UserStr.User)
+	s.log.Warn().Msgf("No available authentication methods for user %s", connInfo.UserStr.Username)
 
 	return nil
 }

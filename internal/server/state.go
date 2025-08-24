@@ -65,18 +65,18 @@ var connStatesMutex sync.RWMutex
 var execSeqNumber int64 // sequence number for exec commands
 
 func getConnectionID(conn ssh.ConnMetadata, userStr *models.UserStr) string {
-	connID := fmt.Sprintf("%s-%s", conn.RemoteAddr(), userStr.User)
+	connID := fmt.Sprintf("%s-%s", conn.RemoteAddr(), userStr.Username)
 	return connID
 }
 
 func RemoveState(state *ConnectionInfo) {
 	connStatesMutex.Lock()
 	defer connStatesMutex.Unlock()
-	delete(connStates, fmt.Sprintf("12345-%s", state.UserStr.User))
+	delete(connStates, fmt.Sprintf("12345-%s", state.UserStr.Username))
 }
 
 func GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
-	userStr, err := models.Parse(conn.User())
+	userStr, err := models.NewUserStr(conn.User())
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse user string: %w", err)
 	}
@@ -141,7 +141,7 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 
 	status, err := workspace.EnsureWorkspace(ctx, c.UserStr, writer, client)
 	if err != nil {
-		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.UserStr.User, err)
+		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.UserStr.Username, err)
 	}
 	if writer != nil {
 		writer.Write([]byte(fmt.Sprintf("Connecting to the workspace at %s...\r\n", status.Host)))

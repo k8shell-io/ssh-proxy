@@ -16,16 +16,16 @@ import (
 func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Writer,
 	client *provisioner.Client) (*provModels.WorkspaceStatus, error) {
 
-	workspaces, err := client.GetWorkspaces(ctx, userStr.User, userStr.Blueprint)
+	workspaces, err := client.GetWorkspaces(ctx, userStr.Username, userStr.Blueprint)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.User, err)
+		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 	}
 
 	if len(workspaces) > 0 {
 		status, err := client.GetWorkspaceStatus(ctx, workspaces[0].Name)
 		if err != nil {
 			if !errors.Is(err, provModels.ErrWorkspaceNotFound) {
-				return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.User, err)
+				return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 			}
 		} else {
 			if status.Status == "Running" {
@@ -36,19 +36,19 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Wri
 
 	name, err := provisionWorkspace(ctx, userStr, writer, client)
 	if err != nil {
-		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.User, err)
+		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.Username, err)
 	}
 
 	status, err := client.GetWorkspaceStatus(ctx, name)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.User, err)
+		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 	}
 	if status.Status == "Running" {
 		return status, nil
 	}
 
 	return nil, fmt.Errorf("failed to ensure workspace for user %s: workspace status is %q",
-		userStr.User, status.Status)
+		userStr.Username, status.Status)
 }
 
 // provisionWorkspace provisions a new workspace for the user.
@@ -71,10 +71,9 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.
 		defer close(events)
 
 		provisionErr = client.ProvisionWorkspaceStream(ctx, &provisioner.ProvisionOptions{
-			Username:  userStr.User,
-			Blueprint: userStr.Blueprint,
-			Timeout:   30,
-			Stream:    true,
+			UserStr: *userStr,
+			Timeout: 30,
+			Stream:  true,
 		}, events)
 	}()
 
