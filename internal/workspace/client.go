@@ -9,7 +9,8 @@ import (
 	"sync"
 	"time"
 
-	pb "github.com/k8shell-io/ssh-proxy/grpc/generated-go/k8shelldpb"
+	"github.com/k8shell-io/common/models"
+	pb "github.com/k8shell-io/k8shelld/pkg/api/k8shelldpb"
 	"github.com/rs/zerolog"
 
 	"golang.org/x/crypto/ssh"
@@ -20,11 +21,14 @@ import (
 )
 
 type K8shelld struct {
-	conn         *grpc.ClientConn
-	log          *zerolog.Logger
-	infoClient   pb.InfoServiceClient
-	remoteClient pb.RemoteOSServiceClient
-	AccessKey    string
+	conn             *grpc.ClientConn
+	log              *zerolog.Logger
+	systemClient     pb.SystemServiceClient
+	shellClient      pb.ShellServiceClient
+	execClient       pb.ExecServiceClient
+	pfClient         pb.PortForwardServiceClient
+	unixSocketClient pb.UnixSocketServiceClient
+	AccessKey        string
 }
 
 // KEEPALIVE_TIME defines the time for keepalive pings.
@@ -70,10 +74,13 @@ func NewK8shelld(host string, address string, port int, accessKey string, tlsCer
 	}
 
 	return &K8shelld{
-		conn:         conn,
-		infoClient:   pb.NewInfoServiceClient(conn),
-		remoteClient: pb.NewRemoteOSServiceClient(conn),
-		AccessKey:    accessKey,
+		conn:             conn,
+		systemClient:     pb.NewSystemServiceClient(conn),
+		shellClient:      pb.NewShellServiceClient(conn),
+		execClient:       pb.NewExecServiceClient(conn),
+		pfClient:         pb.NewPortForwardServiceClient(conn),
+		unixSocketClient: pb.NewUnixSocketServiceClient(conn),
+		AccessKey:        accessKey,
 	}, nil
 }
 
@@ -81,15 +88,23 @@ func (c *K8shelld) Close() error {
 	return c.conn.Close()
 }
 
-func (c *K8shelld) GetVersion(ctx context.Context) (*pb.VersionResponse, error) {
+func (c *K8shelld) Handshake(ctx context.Context, user *models.User) (*pb.HandshakeResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	md := metadata.Pairs("authorization", c.AccessKey)
 	ctx = metadata.NewOutgoingContext(ctx, md)
 
-	req := &pb.VersionRequest{}
-	return c.infoClient.Version(ctx, req)
+	req := &pb.HandshakeRequest{
+		User: &pb.User{
+			Username:  user.Username,
+			Uid:       user.UID,
+			Gid:       user.GID,
+			UserToken: user.AccessToken,
+		},
+	}
+
+	return c.systemClient.Handshake(ctx, req)
 }
 
 // StartShell creates a PTY shell session over gRPC and bridges it with the SSH channel.
@@ -104,7 +119,7 @@ func (c *K8shelld) StartShell(ctx context.Context, channel ssh.Channel, sessionI
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	stream, err := c.remoteClient.Shell(ctx)
+	stream, err := c.shellClient.Shell(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create shell stream: %w", err)
 	}
@@ -204,7 +219,7 @@ func (c *K8shelld) ResizeTerminal(ctx context.Context, sessionId string, width, 
 		Height: height,
 	}
 
-	_, err := c.remoteClient.ResizeTerminal(ctx, req)
+	_, err := c.shellClient.ResizeTerminal(ctx, req)
 	return err
 }
 
@@ -218,7 +233,7 @@ func (c *K8shelld) StartUnixSocket(ctx context.Context, channel ssh.Channel, age
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	stream, err := c.remoteClient.UnixSocket(ctx)
+	stream, err := c.unixSocketClient.UnixSocket(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create UnixSocket stream: %w", err)
 	}
@@ -278,17 +293,9 @@ func (c *K8shelld) StartUnixSocket(ctx context.Context, channel ssh.Channel, age
 				}
 				return
 			}
-			switch r := resp.Response.(type) {
-			case *pb.UnixSocketResponse_Data:
-				if _, werr := channel.Write(r.Data); werr != nil {
-					errCh <- fmt.Errorf("ssh write: %w", werr)
-					return
-				}
-			case *pb.UnixSocketResponse_Terminate:
-				if r.Terminate {
-					errCh <- nil
-					return
-				}
+			if _, werr := channel.Write(resp.Data); werr != nil {
+				errCh <- fmt.Errorf("ssh write: %w", werr)
+				return
 			}
 		}
 	}()
@@ -318,7 +325,7 @@ func (c *K8shelld) StartPortForward(ctx context.Context, channel ssh.Channel, po
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	stream, err := c.remoteClient.PortForward(ctx)
+	stream, err := c.pfClient.PortForward(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create PortForward stream: %w", err)
 	}
@@ -378,20 +385,8 @@ func (c *K8shelld) StartPortForward(ctx context.Context, channel ssh.Channel, po
 				}
 				return
 			}
-			switch r := resp.Response.(type) {
-			case *pb.PortForwardResponse_Data:
-				if _, werr := channel.Write(r.Data); werr != nil {
-					errCh <- fmt.Errorf("ssh write: %w", werr)
-					return
-				}
-			case *pb.PortForwardResponse_Terminate:
-				if r.Terminate {
-					errCh <- nil
-					return
-				}
-			default:
-				// unknown response type — treat as error to avoid hanging
-				errCh <- fmt.Errorf("unknown PortForward response type")
+			if _, werr := channel.Write(resp.Data); werr != nil {
+				errCh <- fmt.Errorf("ssh write: %w", werr)
 				return
 			}
 		}
@@ -418,7 +413,7 @@ func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID st
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	stream, err := c.remoteClient.Exec(ctx)
+	stream, err := c.execClient.Exec(ctx)
 	if err != nil {
 		return 1, fmt.Errorf("failed to create exec stream: %w", err)
 	}
@@ -428,7 +423,7 @@ func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID st
 			CommandDetails: &pb.CommandDetails{
 				Command:     command,
 				ShellBinary: shellBinary,
-				SetEnvVars:  envVars,
+				EnvVars:     envVars,
 			},
 		},
 	}

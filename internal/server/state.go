@@ -152,13 +152,16 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.User.Username, err)
 	}
 
-	version, err := k8shelld.GetVersion(ctx)
+	handshake, err := k8shelld.Handshake(ctx, c.User)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get k8shelld version for user %s: %w", c.User.Username, err)
+		return nil, fmt.Errorf("handshake with k8shelld failed for user %s: %w", c.User.Username, err)
+	}
+	if !handshake.Accepted {
+		return nil, fmt.Errorf("handshake with k8shelld failed for user %s", c.User.Username)
 	}
 	if writer != nil {
-		writer.Write([]byte(fmt.Sprintf("Connected to k8shelld (version: %s-%s)\r\n",
-			version.Version, version.Commit)))
+		writer.Write([]byte(fmt.Sprintf("Connected to k8shelld (version: %s)\r\n",
+			handshake.ServerVersion)))
 	}
 	c.k8shelld = k8shelld
 
