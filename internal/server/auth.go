@@ -2,22 +2,24 @@ package server
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/k8shell-io/common/models"
-	identityClient "github.com/k8shell-io/identity/pkg/client"
 	"golang.org/x/crypto/ssh"
 )
 
 // AllowedAuthsCallback returns the available authentication methods for the user.
 func (s *Server) AllowedAuthsCallback(conn ssh.ConnMetadata) ssh.ServerAuthCallbacks {
-	auth, _ := GetConnInfo(conn)
-	s.updateUser(s.ctx, auth)
-	return s.getAvailableAuthMethods(auth).Next
+	connInfo, _ := GetConnInfo(conn)
+	s.updateUser(s.ctx, connInfo)
+	authMethods := s.getAvailableAuthMethods(connInfo)
+	if authMethods == nil {
+		return ssh.ServerAuthCallbacks{}
+	}
+	return authMethods.Next
 }
 
 // AuthPublicKey handles public key authentication.
@@ -183,7 +185,7 @@ func (s *Server) authPublicKey(user *models.User, pubKey ssh.PublicKey) bool {
 
 // AuthPassword handles password authentication via the identity service.
 func (s *Server) authPassword(_ *models.User) bool {
-	// TODO: Call your identity service to validate password
+	// TODO: Call identity service to validate password
 	return false
 }
 
@@ -199,11 +201,8 @@ func (s *Server) updateUser(ctx context.Context, connInfo *ConnectionInfo) {
 
 	user, err := s.identity.GetUser(ctx, connInfo.UserStr.Username)
 	if err != nil {
-		var eresp identityClient.ErrorResponse
-		if errors.As(err, &eresp) && eresp.Status != 404 {
-			s.log.Error().Msgf("Failed to get user %s: %v", connInfo.UserStr.Username, err)
-			return
-		}
+		s.log.Error().Msgf("Failed to get user %s: %v", connInfo.UserStr.Username, err)
+		return
 	}
 
 	if user == nil {

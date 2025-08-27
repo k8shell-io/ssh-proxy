@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/k8shell-io/yaml-config/pkg/yamlconfig"
+	"github.com/k8shell-io/common/config"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -36,18 +36,18 @@ type ProvisionerConfig struct {
 
 // NewConfig creates a new Config instance by loading the configuration from the specified file.
 func NewConfig(configFile string) (*Config, error) {
-	var config Config
+	var cfg Config
 
-	processor := yamlconfig.NewDefaultProcessor()
-	if err := processor.LoadAndDecode(configFile, &config); err != nil {
+	processor := config.NewDefaultProcessor()
+	if err := processor.LoadAndDecode(configFile, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to load configuration from '%s': %w", configFile, err)
 	}
 
-	if config.Ssh.Port == 0 || config.Identity.APIKey == "" {
+	if cfg.Ssh.Port == 0 || cfg.Identity.APIKey == "" {
 		return nil, fmt.Errorf("missing required configuration values: port and APIKey must be set")
 	}
 
-	return &config, nil
+	return &cfg, nil
 }
 
 func (c *Config) GetServerKey() (ssh.Signer, error) {
