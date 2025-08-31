@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,6 +36,7 @@ type ConnectionInfo struct {
 	cancel           context.CancelFunc        // function to cancel
 	sessionID        int32                     // SSH session ID
 	workspaceName    string                    // name of the workspace
+	channelInfo      []string                  // channel information
 }
 
 // SessionInfo holds information about a user's SSH session
@@ -107,9 +109,21 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
 			sessionID:   0,
 		}
 		connStates[connID] = connInfo
-		go connInfo.reportInOut(ctx)
+		go connInfo.reportSessionData(ctx)
 	}
 	return connInfo, nil
+}
+
+func (c *ConnectionInfo) AddChannelInfo(info string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.channelInfo = append(c.channelInfo, info)
+}
+
+func (c *ConnectionInfo) GetChannelInfo() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.channelInfo
 }
 
 func (c *ConnectionInfo) Close() {
@@ -127,26 +141,57 @@ func (c *ConnectionInfo) Close() {
 	}
 }
 
-func (c *ConnectionInfo) reportInOut(ctx context.Context) {
+func (c *ConnectionInfo) reportSessionData(ctx context.Context) {
 	t := time.NewTicker(10 * time.Second)
 	defer t.Stop()
+
+	prevIn, prevOut := c.counters.Snapshot()
+	var prevChannelInfo []string
+
+	getSessionID := func() int32 {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		return c.sessionID
+	}
+
+	sendUpdate := func(sessionID int32) {
+		curIn, curOut := c.counters.Snapshot()
+		curChannels := c.GetChannelInfo()
+
+		sendIn := int64(0)
+		sendOut := int64(0)
+		if curIn != prevIn {
+			sendIn = curIn
+		}
+		if curOut != prevOut {
+			sendOut = curOut
+		}
+
+		var sendChannels []string
+		if !slices.Equal(curChannels, prevChannelInfo) {
+			sendChannels = append([]string(nil), curChannels...)
+		} else {
+			sendChannels = []string{}
+		}
+
+		prevIn, prevOut = curIn, curOut
+		prevChannelInfo = append([]string(nil), curChannels...)
+
+		_ = c.identity.UpdateSSHSession(
+			ctx, c.UserStr.Username, sessionID, sendIn, sendOut, "", sendChannels,
+		)
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
-			c.mu.Lock()
-			sessionID := c.sessionID
-			c.mu.Unlock()
-			if sessionID != 0 {
-				in, out := c.counters.Snapshot()
-				c.identity.UpdateSSHSession(ctx, c.UserStr.Username, sessionID, in, out, "no-client", 0, []string{})
+			if sid := getSessionID(); sid != 0 {
+				sendUpdate(sid)
 			}
+			return
 		case <-t.C:
-			c.mu.Lock()
-			sessionID := c.sessionID
-			c.mu.Unlock()
-			if sessionID != 0 {
-				in, out := c.counters.Snapshot()
-				c.identity.UpdateSSHSession(ctx, c.UserStr.Username, sessionID, in, out, "no-client", 0, []string{})
+			if sid := getSessionID(); sid != 0 {
+				sendUpdate(sid)
 			}
 		}
 	}

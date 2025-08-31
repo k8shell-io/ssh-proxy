@@ -4,7 +4,7 @@ go 1.24.5
 
 require (
 	github.com/k8shell-io/common v0.11.22
-	github.com/k8shell-io/identity v0.11.10
+	github.com/k8shell-io/identity v0.11.11
 	github.com/k8shell-io/k8shelld v0.11.2
 	github.com/k8shell-io/provisioner v0.11.19
 	github.com/rs/zerolog v1.34.0

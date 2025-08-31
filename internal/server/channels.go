@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/k8shell-io/common/models"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -12,6 +13,7 @@ func (s *Server) handleChannels(sshConn *ssh.ServerConn, connInfo *ConnectionInf
 		case "session":
 			go s.handleSessionChannel(sshConn, connInfo, newChannel)
 		case "direct-tcpip":
+			connInfo.AddChannelInfo(models.ChannelShortPf)
 			go s.handleDirectTCPIPChannel(sshConn, connInfo, newChannel)
 		default:
 			s.log.Warn().Msgf("Unsupported channel type: %s", newChannel.ChannelType())

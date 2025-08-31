@@ -4,6 +4,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/k8shell-io/common/models"
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -79,6 +80,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 
 			if subsystemName == "sftp" {
 				req.Reply(true, nil)
+				connInfo.AddChannelInfo(models.ChannelShortSf)
 				sessionType <- "sftp"
 				sessionTypeSent = true
 			} else {
@@ -108,6 +110,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 
 			session.HasPTY = true
 			accepted = true
+			connInfo.AddChannelInfo(models.ChannelShortPt)
 			s.log.Debug().Msgf("PTY request accepted for user %s", session.Username)
 
 		case "env":
@@ -140,6 +143,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 			s.log.Debug().Msgf("Shell request accepted for user %s", session.Username)
 			sessionType <- "shell"
 			sessionTypeSent = true
+			connInfo.AddChannelInfo(models.ChannelShortSh)
 
 		case "exec":
 			command, err := s.parseExecRequest(req.Payload)
@@ -151,6 +155,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 				s.log.Debug().Msgf("Exec request accepted for user %s: %s", session.Username, command)
 				sessionType <- "exec"
 				sessionTypeSent = true
+				connInfo.AddChannelInfo(models.ChannelShortEx)
 			}
 
 		case "signal":
@@ -214,6 +219,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 			s.log.Debug().Msgf("SSH agent forwarding request accepted for user %s", session.Username)
 			session.Env = append(session.Env, fmt.Sprintf("SSH_AUTH_SOCK=%s",
 				session.SSHAuthSock))
+			connInfo.AddChannelInfo(models.ChannelShortAf)
 
 		default:
 			s.log.Warn().Msgf("Unsupported session request type: %s for user %s", req.Type, session.Username)
