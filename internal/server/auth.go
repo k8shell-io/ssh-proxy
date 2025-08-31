@@ -2,12 +2,14 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/k8shell-io/common/models"
+	identity "github.com/k8shell-io/identity/pkg/client"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -201,8 +203,11 @@ func (s *Server) updateUser(ctx context.Context, connInfo *ConnectionInfo) {
 
 	user, err := s.identity.GetUser(ctx, connInfo.UserStr.Username)
 	if err != nil {
-		s.log.Error().Msgf("Failed to get user %s: %v", connInfo.UserStr.Username, err)
-		return
+		var eresp identity.ErrorResponse
+		if errors.As(err, &eresp) && eresp.Status != 404 {
+			s.log.Error().Msgf("Failed to get user %s: %v", connInfo.UserStr.Username, err)
+			return
+		}
 	}
 
 	if user == nil {
