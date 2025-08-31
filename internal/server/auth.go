@@ -15,7 +15,7 @@ import (
 
 // AllowedAuthsCallback returns the available authentication methods for the user.
 func (s *Server) AllowedAuthsCallback(conn ssh.ConnMetadata) ssh.ServerAuthCallbacks {
-	connInfo, _ := GetConnInfo(conn)
+	connInfo, _ := s.GetConnInfo(conn)
 	s.updateUser(s.ctx, connInfo)
 	authMethods := s.getAvailableAuthMethods(connInfo)
 	if authMethods == nil {
@@ -29,7 +29,7 @@ func (s *Server) AuthPublicKey(conn ssh.ConnMetadata, pubKey ssh.PublicKey) (*ss
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
 
-	connInfo, err := GetConnInfo(conn)
+	connInfo, err := s.GetConnInfo(conn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection info: %w", err)
 	}
@@ -63,7 +63,7 @@ func (s *Server) AuthPassword(conn ssh.ConnMetadata, password []byte) (*ssh.Perm
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
 
-	connInfo, err := GetConnInfo(conn)
+	connInfo, err := s.GetConnInfo(conn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection info: %w", err)
 	}
@@ -98,7 +98,7 @@ func (s *Server) AuthKeyboardInteractive(conn ssh.ConnMetadata,
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	defer cancel()
 
-	connInfo, err := GetConnInfo(conn)
+	connInfo, err := s.GetConnInfo(conn)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get connection info: %w", err)
 	}

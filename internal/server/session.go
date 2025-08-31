@@ -23,7 +23,7 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 	session := &SessionInfo{
 		Username:   connInfo.User.Username,
 		Env:        []string{},
-		SessionId:  fmt.Sprintf("sh-%s-%d", connInfo.proxyID, channel.LocalID()),
+		SessionId:  fmt.Sprintf("sh-%s-%d", connInfo.proxyFullID, channel.LocalID()),
 		TermWidth:  80,
 		TermHeight: 24,
 		HasPTY:     false,
@@ -209,7 +209,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 		case "auth-agent-req@openssh.com":
 			accepted = true
 			session.HasAgent = true
-			session.AgentUnixID = fmt.Sprintf("ux-%s-%d", connInfo.proxyID, channel.LocalID())
+			session.AgentUnixID = fmt.Sprintf("ux-%s-%d", connInfo.proxyFullID, channel.LocalID())
 			session.SSHAuthSock = fmt.Sprintf(SSH_AUTH_SOCK_TEMP, session.AgentUnixID)
 			s.log.Debug().Msgf("SSH agent forwarding request accepted for user %s", session.Username)
 			session.Env = append(session.Env, fmt.Sprintf("SSH_AUTH_SOCK=%s",
@@ -253,7 +253,7 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 	s.log.Debug().Msgf("Starting shell session for user %s, session ID: %s", session.Username, session.SessionId)
 
 	if err := k8shelld.StartShell(s.ctx, channel, session.SessionId,
-		session.Env, session.TermWidth, session.TermHeight, session.HasPTY); err != nil {
+		session.Env, session.TermWidth, session.TermHeight, session.HasPTY, connInfo.counters); err != nil {
 		s.log.Error().Msgf("Shell session error: %v", err)
 	} else {
 		s.log.Debug().Msgf("Shell session %s completed for user %s", session.SessionId, session.Username)
@@ -283,7 +283,7 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *ConnectionInfo
 		session.SignalChan = nil
 	}()
 
-	execID := fmt.Sprintf("sf-%s-%d-%d", connInfo.proxyID, channel.LocalID(), connInfo.ExecSeqNumber())
+	execID := fmt.Sprintf("sf-%s-%d-%d", connInfo.proxyFullID, channel.LocalID(), connInfo.ExecSeqNumber())
 	s.log.Debug().Msgf("Starting sftp for user %s, exec ID: %s, command: %s",
 		session.Username, execID, SFTP_BINARY)
 
@@ -320,7 +320,7 @@ func (s *Server) handleExecRequest(connInfo *ConnectionInfo, channel ssh.Channel
 		session.SignalChan = nil
 	}()
 
-	execID := fmt.Sprintf("ex-%s-%d-%d", connInfo.proxyID, channel.LocalID(), connInfo.ExecSeqNumber())
+	execID := fmt.Sprintf("ex-%s-%d-%d", connInfo.proxyFullID, channel.LocalID(), connInfo.ExecSeqNumber())
 	s.log.Debug().Msgf("Starting exec for user %s, exec ID: %s, command: %s",
 		session.Username, execID, session.Command)
 

@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/k8shell-io/common/models"
+	identity "github.com/k8shell-io/identity/pkg/client"
 	provisioner "github.com/k8shell-io/provisioner/pkg/client"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"golang.org/x/crypto/ssh"
@@ -16,7 +18,8 @@ import (
 
 // ConnectionInfo represents the connection information for a user
 type ConnectionInfo struct {
-	proxyID          string                    // unique identifier of the proxy where connection is established
+	proxyFullID      string                    // unique identifier of the proxy with a PID where connection is established
+	identity         *identity.Client          // identity client for interacting with the identity service
 	k8shelld         *workspace.K8shelld       // k8shelld client for interacting with the workspace k8shelld daemon
 	UserStr          *models.UserStr           // user string information
 	OnboardCap       *models.OnboardCapability // onboarding capabilities
@@ -28,6 +31,10 @@ type ConnectionInfo struct {
 	Session          *SessionInfo              // SSH session information
 	DirectTCPIP      *sync.Map                 // direct TCP/IP connection information
 	DirectTCPIPCount int64                     // current count of direct TCP/IP connections
+	counters         *workspace.ConnCounters   // connection counters
+	cancel           context.CancelFunc        // function to cancel
+	sessionID        int32                     // SSH session ID
+	workspaceName    string                    // name of the workspace
 }
 
 // SessionInfo holds information about a user's SSH session
@@ -75,7 +82,7 @@ func RemoveState(state *ConnectionInfo) {
 	delete(connStates, fmt.Sprintf("12345-%s", state.UserStr.Username))
 }
 
-func GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
+func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
 	userStr, err := models.NewUserStr(conn.User())
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse user string: %w", err)
@@ -85,14 +92,22 @@ func GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
 
 	connStatesMutex.RLock()
 	defer connStatesMutex.RUnlock()
+
 	connInfo := connStates[connID]
 	if connInfo == nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		proxyID := GetProxyID()
 		connInfo = &ConnectionInfo{
-			proxyID:     GetProxyID(),
+			identity:    s.identity,
+			proxyFullID: fmt.Sprintf("%s-%d", proxyID, os.Getpid()),
 			UserStr:     userStr,
 			DirectTCPIP: &sync.Map{},
+			counters:    &workspace.ConnCounters{},
+			cancel:      cancel,
+			sessionID:   0,
 		}
 		connStates[connID] = connInfo
+		go connInfo.reportInOut(ctx)
 	}
 	return connInfo, nil
 }
@@ -104,30 +119,61 @@ func (s *ConnectionInfo) Close() {
 		s.k8shelld.Close()
 		s.k8shelld = nil
 	}
+	if s.cancel != nil {
+		s.cancel()
+	}
+	if s.sessionID != 0 {
+		s.identity.EndSSHSession(context.Background(), s.UserStr.Username, s.sessionID)
+	}
 }
 
-func (s *ConnectionInfo) SetOnboardInfo(onboardInfo *models.OnboardUser) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.OnboardInfo = onboardInfo
+func (c *ConnectionInfo) reportInOut(ctx context.Context) {
+	t := time.NewTicker(10 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			c.mu.Lock()
+			sessionID := c.sessionID
+			c.mu.Unlock()
+			if sessionID != 0 {
+				in, out := c.counters.Snapshot()
+				c.identity.UpdateSSHSession(ctx, c.UserStr.Username, sessionID, in, out, "no-client", 0, []string{})
+			}
+		case <-t.C:
+			c.mu.Lock()
+			sessionID := c.sessionID
+			c.mu.Unlock()
+			if sessionID != 0 {
+				in, out := c.counters.Snapshot()
+				c.identity.UpdateSSHSession(ctx, c.UserStr.Username, sessionID, in, out, "no-client", 0, []string{})
+			}
+		}
+	}
 }
 
-func (s *ConnectionInfo) GetOnboardInfo() *models.OnboardUser {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.OnboardInfo
+func (c *ConnectionInfo) SetOnboardInfo(onboardInfo *models.OnboardUser) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.OnboardInfo = onboardInfo
 }
 
-func (s *ConnectionInfo) SetOnboardCap(onboardCap *models.OnboardCapability) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.OnboardCap = onboardCap
+func (c *ConnectionInfo) GetOnboardInfo() *models.OnboardUser {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.OnboardInfo
 }
 
-func (s *ConnectionInfo) GetOnboardCap() *models.OnboardCapability {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.OnboardCap
+func (c *ConnectionInfo) SetOnboardCap(onboardCap *models.OnboardCapability) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.OnboardCap = onboardCap
+}
+
+func (c *ConnectionInfo) GetOnboardCap() *models.OnboardCapability {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.OnboardCap
 }
 
 func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Writer,
@@ -164,6 +210,15 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 			handshake.ServerVersion)))
 	}
 	c.k8shelld = k8shelld
+	c.workspaceName = status.Name
+
+	// create session
+	sshSession, err := c.identity.CreateSSHSession(ctx, c.User.Username, c.workspaceName,
+		GetProxyID(), os.Getpid(), "1.2.3.4")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SSH session for user %s: %w", c.User.Username, err)
+	}
+	c.sessionID = sshSession.SessionID
 
 	return c.k8shelld, nil
 }

@@ -152,37 +152,16 @@ func HandleConnectionFileDescriptor(fd int, configPath string) error {
 		return fmt.Errorf("failed to initialize SSH config: %w", err)
 	}
 
-	server.handleConnectionDirect(conn)
+	server.handleConnection(conn, true)
 
 	return nil
 }
 
-// handleConnectionDirect processes a single SSH connection without wait group management
-// This is used when forking is disabled and it runs in a subprocess
-func (s *Server) handleConnectionDirect(netConn net.Conn) {
-	defer netConn.Close()
-
-	s.log.Info().Msgf("New SSH connection from %s", netConn.RemoteAddr().String())
-	sshConn, channels, requests, err := ssh.NewServerConn(netConn, s.sshConfig)
-	if err != nil {
-		s.log.Error().Msgf("Failed to perform SSH handshake: %v", err)
-		return
-	}
-	defer sshConn.Close()
-
-	s.log.Info().Msgf("SSH handshake completed for user %s from %s",
-		sshConn.User(),
-		sshConn.RemoteAddr().String(),
-	)
-
-	go s.handleGlobalRequests(requests)
-	s.handleChannels(sshConn, channels)
-}
-
 // handleConnection processes a single SSH connection
-// This is used when forking is enabled, and it manages the connection in a goroutine.
-func (s *Server) handleConnection(netConn net.Conn) {
-	defer s.wg.Done()
+func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
+	if !isDirect {
+		defer s.wg.Done()
+	}
 	defer netConn.Close()
 
 	s.log.Info().Msgf("New SSH connection from %s", netConn.RemoteAddr().String())
@@ -195,8 +174,22 @@ func (s *Server) handleConnection(netConn net.Conn) {
 	defer sshConn.Close()
 	s.log.Info().Msgf("SSH handshake completed for user %s", sshConn.User())
 
+	connInfo, err := s.GetConnInfo(sshConn)
+	if err != nil {
+		s.log.Error().Msgf("Failed to get connection info: %v", err)
+		return
+	}
+	if connInfo.User == nil {
+		s.log.Error().Msgf("There is no user identity associated with username %s. Cannot handle connection.",
+			sshConn.User())
+		return
+	}
+	defer connInfo.Close()
+
 	go s.handleGlobalRequests(requests)
-	s.handleChannels(sshConn, channels)
+	s.handleChannels(sshConn, connInfo, channels)
+
+	s.log.Info().Msgf("Connection closed for user %s from %s", sshConn.User(), sshConn.RemoteAddr())
 }
 
 // Start begins listening for SSH connections on the configured port
@@ -254,7 +247,7 @@ func (s *Server) acceptConnections() {
 			go s.handleConnectionSubProcess(conn)
 		} else {
 			s.wg.Add(1)
-			go s.handleConnection(conn)
+			go s.handleConnection(conn, false)
 		}
 	}
 }
@@ -325,9 +318,9 @@ func (s *Server) Stop() {
 	s.log.Info().Msg("SSH server stopped")
 }
 
-// GetProxyID generates a unique proxy identifier based on hostname and process ID
-// Returns format: <proxy-id>-<process-id>. If hostname matches Kubernetes deployment pod pattern,
-// uses the pod hash as proxy-id. Otherwise uses "local" as proxy-id
+// GetProxyID generates a unique proxy identifier based on hostname
+// If hostname matches Kubernetes deployment pod pattern, it uses the pod hash as proxy-id.
+// Otherwise uses "local" as proxy-id
 func GetProxyID() string {
 	var proxyID string
 
@@ -341,10 +334,7 @@ func GetProxyID() string {
 			proxyID = "local"
 		}
 	}
-
-	processID := os.Getpid()
-
-	return fmt.Sprintf("%s-%d", proxyID, processID)
+	return proxyID
 }
 
 // extractPodHash extracts the pod hash from a Kubernetes deployment pod hostname

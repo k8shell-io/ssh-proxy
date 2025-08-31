@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/k8shell-io/common/models"
@@ -29,6 +30,17 @@ type K8shelld struct {
 	pfClient         pb.PortForwardServiceClient
 	unixSocketClient pb.UnixSocketServiceClient
 	AccessKey        string
+}
+
+type ConnCounters struct {
+	inTotal  int64
+	outTotal int64
+}
+
+func (c *ConnCounters) AddIn(n int)  { atomic.AddInt64(&c.inTotal, int64(n)) }
+func (c *ConnCounters) AddOut(n int) { atomic.AddInt64(&c.outTotal, int64(n)) }
+func (c *ConnCounters) Snapshot() (in, out int64) {
+	return atomic.LoadInt64(&c.inTotal), atomic.LoadInt64(&c.outTotal)
 }
 
 // KEEPALIVE_TIME defines the time for keepalive pings.
@@ -109,7 +121,7 @@ func (c *K8shelld) Handshake(ctx context.Context, user *models.User) (*pb.Handsh
 
 // StartShell creates a PTY shell session over gRPC and bridges it with the SSH channel.
 func (c *K8shelld) StartShell(ctx context.Context, channel ssh.Channel, sessionId string, envVars []string,
-	width, height uint32, usePty bool) error {
+	width, height uint32, usePty bool, counters *ConnCounters) error {
 	md := metadata.Pairs(
 		"authorization", c.AccessKey,
 		"session-id", sessionId,
@@ -167,6 +179,7 @@ func (c *K8shelld) StartShell(ctx context.Context, channel ssh.Channel, sessionI
 				errCh <- fmt.Errorf("grpc send: %w", serr)
 				return
 			}
+			counters.AddIn(n)
 		}
 	}()
 
@@ -189,6 +202,7 @@ func (c *K8shelld) StartShell(ctx context.Context, channel ssh.Channel, sessionI
 					errCh <- fmt.Errorf("ssh write: %w", werr)
 					return
 				}
+				counters.AddOut(len(r.Data))
 			case *pb.ShellResponse_Terminate:
 				if r.Terminate {
 					errCh <- nil

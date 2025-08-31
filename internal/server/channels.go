@@ -5,22 +5,9 @@ import (
 )
 
 // handleChannels handles SSH channel requests.
-func (s *Server) handleChannels(sshConn *ssh.ServerConn, channels <-chan ssh.NewChannel) {
-	connInfo, err := GetConnInfo(sshConn)
-	if err != nil {
-		s.log.Error().Msgf("Failed to get connection info: %v", err)
-		return
-	}
-	if connInfo.User == nil {
-		s.log.Error().Msgf("There is no user identity associated with username %s. Cannot handle channels.",
-			sshConn.User())
-		return
-	}
-	defer connInfo.Close()
-
+func (s *Server) handleChannels(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, channels <-chan ssh.NewChannel) {
 	for newChannel := range channels {
 		s.log.Debug().Msgf("Received channel request: type=%s", newChannel.ChannelType())
-
 		switch newChannel.ChannelType() {
 		case "session":
 			go s.handleSessionChannel(sshConn, connInfo, newChannel)
