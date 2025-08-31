@@ -112,18 +112,18 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
 	return connInfo, nil
 }
 
-func (s *ConnectionInfo) Close() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.k8shelld != nil {
-		s.k8shelld.Close()
-		s.k8shelld = nil
+func (c *ConnectionInfo) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.k8shelld != nil {
+		c.k8shelld.Close()
+		c.k8shelld = nil
 	}
-	if s.cancel != nil {
-		s.cancel()
+	if c.cancel != nil {
+		c.cancel()
 	}
-	if s.sessionID != 0 {
-		s.identity.EndSSHSession(context.Background(), s.UserStr.Username, s.sessionID)
+	if c.sessionID != 0 {
+		c.identity.EndSSHSession(context.Background(), c.UserStr.Username, c.sessionID)
 	}
 }
 
