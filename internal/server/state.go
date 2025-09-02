@@ -261,7 +261,7 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 
 	// create session
 	sshSession, err := c.identity.CreateSSHSession(ctx, c.User.Username, c.workspaceName,
-		GetProxyID(), os.Getpid(), "1.2.3.4")
+		GetProxyID(), os.Getpid(), c.clientIP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SSH session for user %s: %w", c.User.Username, err)
 	}
