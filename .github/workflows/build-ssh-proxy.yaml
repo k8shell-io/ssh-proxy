@@ -9,7 +9,7 @@ on:
       - "v*"
 
 jobs:
-  build-identity:
+  build-ssh-proxy:
     runs-on: k8shell-runner
 
     env:
@@ -62,7 +62,7 @@ jobs:
       - name: Build and push image
         uses: docker/build-push-action@v6
         with:
-          context: docker/identity
+          context: docker/ssh-proxy
           tags: ${{ secrets.REGISTRY }}/${{ env.REPO_NAME }}
           push: true
           build-args: |
