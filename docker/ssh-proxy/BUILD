@@ -1,0 +1,1 @@
+k8shell-base/ssh-proxy
