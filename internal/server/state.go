@@ -19,6 +19,8 @@ import (
 
 // ConnectionInfo represents the connection information for a user
 type ConnectionInfo struct {
+	clientIP         string
+	clientPort       int
 	proxyFullID      string                    // unique identifier of the proxy with a PID where connection is established
 	identity         *identity.Client          // identity client for interacting with the identity service
 	k8shelld         *workspace.K8shelld       // k8shelld client for interacting with the workspace k8shelld daemon

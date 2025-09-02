@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	log "github.com/k8shell-io/common/logger"
@@ -13,28 +14,25 @@ import (
 
 // Options represents the command line options
 type Options struct {
-	ConfigPath     string
-	LogText        bool
-	ShowVersion    bool
-	FileDescriptor int  // File descriptor for subprocess mode
-	EnableForking  bool // Enable subprocess-based connection handling
+	ConfigPath  string
+	LogText     bool
+	ShowVersion bool
+	IsChild     bool
 }
 
 // getOptions parses the command line options and returns the Options struct
 func getOptions(version string, commit_id string) (*Options, error) {
 	options := &Options{
-		ConfigPath:     "config/config.yaml",
-		LogText:        false,
-		ShowVersion:    false,
-		FileDescriptor: -1,
-		EnableForking:  false,
+		ConfigPath:  "config/config.yaml",
+		LogText:     false,
+		ShowVersion: false,
+		IsChild:     false,
 	}
 
 	flag.StringVar(&options.ConfigPath, "config", options.ConfigPath, "Path to the configuration file")
 	flag.BoolVar(&options.LogText, "logtext", options.LogText, "Log in text format (default: JSON)")
 	flag.BoolVar(&options.ShowVersion, "v", false, "Show version information")
-	flag.IntVar(&options.FileDescriptor, "fd", -1, "Handle connection from file descriptor")
-	flag.BoolVar(&options.EnableForking, "fork", false, "Enable subprocess-based connection handling")
+	flag.BoolVar(&options.IsChild, "child", false, "Enable child process mode")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage:\n  ssh-proxy [options]\n")
@@ -42,8 +40,6 @@ func getOptions(version string, commit_id string) (*Options, error) {
 		fmt.Fprintf(os.Stderr, "Options:\n")
 		fmt.Fprint(os.Stderr, "  --config <file>  Configuration file\n")
 		fmt.Fprint(os.Stderr, "  --logtext        Log in text format (default: JSON)\n")
-		fmt.Fprint(os.Stderr, "  --fork           Enable subprocess-based connection handling\n")
-		fmt.Fprint(os.Stderr, "  --fd <fd>        Handle connection from file descriptor (internal)\n")
 		fmt.Fprint(os.Stderr, "  -v               Show version and exit\n")
 	}
 
@@ -67,16 +63,24 @@ func main() {
 	log.JsonLogger = !opts.LogText
 	logger := log.NewLogger("ssh-proxy")
 
-	if opts.FileDescriptor >= 0 {
-		err := server.HandleConnectionFileDescriptor(opts.FileDescriptor, opts.ConfigPath)
+	if opts.IsChild {
+		ip := os.Getenv("PP_CLIENT_IP")
+		portStr := os.Getenv("PP_CLIENT_PORT")
+		port, err := strconv.Atoi(portStr)
 		if err != nil {
-			logger.Error().Msgf("Error handling connection from file descriptor: %v", err)
+			logger.Error().Msgf("Invalid port number: %v", err)
+			os.Exit(1)
+		}
+
+		err = server.HandleConnectionChildProcess(opts.ConfigPath, ip, port)
+		if err != nil {
+			logger.Error().Msgf("Error handling connection in the child process: %v", err)
 			os.Exit(1)
 		}
 		return
 	}
 
-	srv, err := server.NewServer(opts.ConfigPath, opts.EnableForking)
+	srv, err := server.NewServer(opts.ConfigPath)
 	if err != nil {
 		logger.Error().Msgf("Failed to create server: %v", err)
 		os.Exit(1)

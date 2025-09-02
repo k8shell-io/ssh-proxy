@@ -1,5 +1,13 @@
 # ssh-proxy service configuration
 
+server:
+  # true to start each connection in a new process
+  forking: true
+
+  # true to parse proxy protocol to get the real client IP and port
+  # set to false when proxy protocol is not used
+  proxyProtocol: false
+
 # ssh proxy configuration
 ssh:
   port: 2022

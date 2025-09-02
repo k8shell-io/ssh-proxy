@@ -1,11 +1,14 @@
 package server
 
 import (
+	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -35,7 +38,6 @@ type Server struct {
 	wg          sync.WaitGroup
 	identity    *identity.Client
 	provisioner *provisioner.Client
-	useForking  bool
 	configPath  string
 }
 
@@ -59,7 +61,7 @@ func NewClients(config *config.Config) (*identity.Client, *provisioner.Client) {
 }
 
 // NewServer creates a new SSH server instance.
-func NewServer(configPath string, useForking bool) (*Server, error) {
+func NewServer(configPath string) (*Server, error) {
 	log := log.NewLogger("ssh-server")
 
 	config, err := config.NewConfig(configPath)
@@ -74,14 +76,13 @@ func NewServer(configPath string, useForking bool) (*Server, error) {
 		ctx:        ctx,
 		cancel:     cancel,
 		configPath: configPath,
-		useForking: useForking,
 	}
 
 	if err := server.initSSHConfig(); err != nil {
 		return nil, fmt.Errorf("failed to initialize SSH config: %w", err)
 	}
 
-	if !useForking {
+	if !server.Config.Server.Forking {
 		identityClient, provisionerClient := NewClients(config)
 		server.identity = identityClient
 		server.provisioner = provisionerClient
@@ -112,11 +113,11 @@ func (s *Server) initSSHConfig() error {
 	return nil
 }
 
-// HandleConnectionFileDescriptor handles a connection from a file descriptor
+// HandleConnectionChildProcess handles a connection from a file descriptor
 // It is called when a new connection is accepted and processed in a subprocess when forking is enabled.
-func HandleConnectionFileDescriptor(fd int, configPath string) error {
-	// get the connection from file descriptor
-	file := os.NewFile(uintptr(fd), "connection")
+func HandleConnectionChildProcess(configPath string, ip string, port int) error {
+	// get the connection from file descriptor, fd 3 should be the connection
+	file := os.NewFile(uintptr(3), "connection")
 	defer file.Close()
 
 	conn, err := net.FileConn(file)
@@ -131,7 +132,7 @@ func HandleConnectionFileDescriptor(fd int, configPath string) error {
 	}
 
 	logger := log.NewLogger("ssh-server")
-	logger.Info().Msgf("Handling connection from file descriptor %d", fd)
+	logger.Info().Msg("Handling connection in the child process")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -152,13 +153,13 @@ func HandleConnectionFileDescriptor(fd int, configPath string) error {
 		return fmt.Errorf("failed to initialize SSH config: %w", err)
 	}
 
-	server.handleConnection(conn, true)
+	server.handleConnection(conn, true, ip, port)
 
 	return nil
 }
 
 // handleConnection processes a single SSH connection
-func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
+func (s *Server) handleConnection(netConn net.Conn, isDirect bool, ip string, port int) {
 	if !isDirect {
 		defer s.wg.Done()
 	}
@@ -184,6 +185,8 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 			sshConn.User())
 		return
 	}
+	connInfo.clientIP = ip
+	connInfo.clientPort = port
 	defer connInfo.Close()
 
 	go s.handleGlobalRequests(requests)
@@ -242,18 +245,43 @@ func (s *Server) acceptConnections() {
 			}
 		}
 
-		if s.useForking {
+		var ip string
+		var port int
+		if s.Config.Server.ProxyProtocol {
+			ip, port, err = ParseProxyProtocolV1(conn)
+			if err != nil {
+				s.log.Error().Err(err).Msg("Failed to parse PROXY protocol")
+				conn.Close()
+				continue
+			}
+		}
+
+		if ip != "" {
+			s.log.Debug().Msgf("Parsed PROXY protocol header: client IP %s, port %d", ip, port)
+		} else {
+			remoteAddr := conn.RemoteAddr()
+			if tcpAddr, ok := remoteAddr.(*net.TCPAddr); ok {
+				ip = tcpAddr.IP.String()
+				port = tcpAddr.Port
+			} else {
+				s.log.Error().Msgf("Unexpected addr type: %T\n", remoteAddr)
+				conn.Close()
+				continue
+			}
+		}
+
+		if s.Config.Server.Forking {
 			s.wg.Add(1)
-			go s.handleConnectionSubProcess(conn)
+			go s.startSubProcess(conn, ip, port)
 		} else {
 			s.wg.Add(1)
-			go s.handleConnection(conn, false)
+			go s.handleConnection(conn, false, ip, port)
 		}
 	}
 }
 
-// handleConnectionSubProcess spawns a new process to handle the SSH connection in a subprocess
-func (s *Server) handleConnectionSubProcess(netConn net.Conn) {
+// startSubProcess spawns a new process to handle the SSH connection in a subprocess
+func (s *Server) startSubProcess(netConn net.Conn, ip string, port int) {
 	defer s.wg.Done()
 	defer netConn.Close()
 
@@ -276,14 +304,15 @@ func (s *Server) handleConnectionSubProcess(netConn net.Conn) {
 	if !log.JsonLogger {
 		optLogtext = "--logtext"
 	}
-	cmd := exec.Command(os.Args[0], "--fd", "3", "--config", s.configPath, optLogtext)
+	cmd := exec.Command(os.Args[0], "--config", s.configPath, "--child", optLogtext)
 	cmd.ExtraFiles = []*os.File{connFile}
 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("SSH_PROXY_PORT=%d", s.Config.Ssh.Port),
+		fmt.Sprintf("PP_CLIENT_IP=%s", ip),
+		fmt.Sprintf("PP_CLIENT_PORT=%d", port),
 	)
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -361,4 +390,34 @@ func isValidPodHash(hash string) bool {
 		}
 	}
 	return true
+}
+
+// ParseProxyProtocolV1 parses a PROXY protocol v1 header (if present) from the connection.
+// Returns client IP and port if found, otherwise ("", 0, nil) when no PROXY header is used.
+func ParseProxyProtocolV1(conn net.Conn) (string, int, error) {
+	reader := bufio.NewReader(conn)
+	lineBytes, err := reader.ReadBytes('\n')
+	if err != nil {
+		return "", 0, fmt.Errorf("failed to read proxy header: %w", err)
+	}
+
+	line := strings.TrimSpace(string(lineBytes))
+
+	if !strings.HasPrefix(line, "PROXY") {
+		return "", 0, errors.New("invalid PROXY protocol header")
+	}
+
+	parts := strings.Split(line, " ")
+	if len(parts) < 6 {
+		return "", 0, errors.New("malformed PROXY protocol header: missing required fields")
+	}
+
+	realClientIP := parts[2]
+	realClientPortStr := parts[4]
+	realClientPort, err := strconv.Atoi(realClientPortStr)
+	if err != nil {
+		return "", 0, fmt.Errorf("invalid client port: %w", err)
+	}
+
+	return realClientIP, realClientPort, nil
 }

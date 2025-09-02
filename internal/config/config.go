@@ -10,9 +10,15 @@ import (
 
 // Config represents the server configuration
 type Config struct {
+	Server      ServerConfig      `yaml:"server"`
 	Ssh         SshConfig         `yaml:"ssh"`
 	Identity    IdentityConfig    `yaml:"identity"`
 	Provisioner ProvisionerConfig `yaml:"provisioner"`
+}
+
+type ServerConfig struct {
+	Forking       bool `yaml:"forking"`
+	ProxyProtocol bool `yaml:"proxyProtocol"`
 }
 
 // SshConfig represents the SSH server configuration.
