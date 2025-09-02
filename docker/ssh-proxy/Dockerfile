@@ -14,9 +14,10 @@ ENV GOFLAGS="-mod=vendor"
 RUN CGO_ENABLED=0 go build -ldflags="-s -w -X internal.server.SSHPROXY_VERSION=$VERSION -X \
     internal.server.SSHPROXY_COMMIT=$COMMIT_ID" -o /go/bin/ssh-proxy main.go
 
-FROM alpine:3.21.3
-
-RUN mkdir /app
-COPY --from=build /go/bin/ssh-proxy /app
+FROM gcr.io/distroless/static-debian12
 
 WORKDIR /app
+COPY --from=build /go/bin/ssh-proxy /app
+
+USER nonroot:nonroot
+ENTRYPOINT ["/app/ssh-proxy"]
