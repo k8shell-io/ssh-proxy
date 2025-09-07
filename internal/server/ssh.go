@@ -43,6 +43,16 @@ type Server struct {
 	configPath  string
 }
 
+// BufferedConn is a net.Conn that uses a bufio.Reader to read data.
+type BufferedConn struct {
+	net.Conn
+	reader *bufio.Reader
+}
+
+func (bc *BufferedConn) Read(b []byte) (int, error) {
+	return bc.reader.Read(b)
+}
+
 // NewClients creates new instances of the identity and provisioner clients.
 func NewClients(config *config.Config) (*identity.Client, *provisioner.Client) {
 	identityConfig := identity.Config{
@@ -117,7 +127,7 @@ func (s *Server) initSSHConfig() error {
 
 // HandleConnectionChildProcess handles a connection from a file descriptor
 // It is called when a new connection is accepted and processed in a subprocess when forking is enabled.
-func HandleConnectionChildProcess(configPath string, ip string, port int) error {
+func HandleConnectionChildProcess(configPath string) error {
 	// get the connection from file descriptor, fd 3 should be the connection
 	file := os.NewFile(uintptr(3), "connection")
 	defer file.Close()
@@ -155,21 +165,47 @@ func HandleConnectionChildProcess(configPath string, ip string, port int) error 
 		return fmt.Errorf("failed to initialize SSH config: %w", err)
 	}
 
-	server.handleConnection(conn, true, ip, port)
+	server.handleConnection(conn, true)
 
 	return nil
 }
 
 // handleConnection processes a single SSH connection
-func (s *Server) handleConnection(netConn net.Conn, isDirect bool, ip string, port int) {
+func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 	if !isDirect {
 		defer s.wg.Done()
 	}
 	defer netConn.Close()
 
+	var ip string
+	var port int
+	remoteAddr := netConn.RemoteAddr()
+	if tcpAddr, ok := remoteAddr.(*net.TCPAddr); ok {
+		ip = tcpAddr.IP.String()
+		port = tcpAddr.Port
+	} else {
+		s.log.Error().Msgf("Unexpected addr type: %T\n", remoteAddr)
+		netConn.Close()
+		return
+	}
+
+	var cleanConn net.Conn = netConn
+
+	if s.Config.Server.ProxyProtocol {
+		var err error
+		cleanConn, ip, port, err = ParseProxyProtocolV1(netConn)
+		if err != nil {
+			s.log.Error().Err(err).Msg("Failed to parse PROXY protocol")
+			return
+		}
+		if ip != "" {
+			s.log.Debug().Msgf("Parsed PROXY protocol header: client IP %s, port %d", ip, port)
+		}
+	}
+
 	s.log.Info().Msgf("New SSH connection from %s", netConn.RemoteAddr().String())
 
-	sshConn, channels, requests, err := ssh.NewServerConn(netConn, s.sshConfig)
+	sshConn, channels, requests, err := ssh.NewServerConn(cleanConn, s.sshConfig)
 	if err != nil {
 		s.log.Error().Msgf("Failed to perform SSH handshake: %v", err)
 		return
@@ -252,7 +288,7 @@ func (s *Server) acceptConnections() {
 			go s.startSubProcess(conn)
 		} else {
 			s.wg.Add(1)
-			go s.handleConnectionWithProxyProtocol(conn, false)
+			go s.handleConnection(conn, false)
 		}
 	}
 }
@@ -403,50 +439,4 @@ func ParseProxyProtocolV1(conn net.Conn) (net.Conn, string, int, error) {
 
 	// Return connection that uses the buffered reader (proxy protocol already consumed)
 	return &BufferedConn{Conn: conn, reader: reader}, realClientIP, realClientPort, nil
-}
-
-// Simple buffered connection wrapper
-type BufferedConn struct {
-	net.Conn
-	reader *bufio.Reader
-}
-
-func (bc *BufferedConn) Read(b []byte) (int, error) {
-	return bc.reader.Read(b)
-}
-
-// Update handleConnectionWithProxyProtocol
-func (s *Server) handleConnectionWithProxyProtocol(netConn net.Conn, isDirect bool) {
-	if !isDirect {
-		defer s.wg.Done()
-	}
-	defer netConn.Close()
-
-	var ip string
-	var port int
-	remoteAddr := netConn.RemoteAddr()
-	if tcpAddr, ok := remoteAddr.(*net.TCPAddr); ok {
-		ip = tcpAddr.IP.String()
-		port = tcpAddr.Port
-	} else {
-		s.log.Error().Msgf("Unexpected addr type: %T\n", remoteAddr)
-		netConn.Close()
-		return
-	}
-
-	var cleanConn net.Conn = netConn
-
-	if s.Config.Server.ProxyProtocol {
-		var err error
-		cleanConn, ip, port, err = ParseProxyProtocolV1(netConn)
-		if err != nil {
-			s.log.Error().Err(err).Msg("Failed to parse PROXY protocol")
-			return
-		}
-		if ip != "" {
-			s.log.Debug().Msgf("Parsed PROXY protocol header: client IP %s, port %d", ip, port)
-		}
-	}
-
-	s.handleConnection(cleanConn, isDirect, ip, port)
 }
