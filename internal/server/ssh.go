@@ -43,7 +43,8 @@ type Server struct {
 	configPath  string
 }
 
-// BufferedConn is a net.Conn that uses a bufio.Reader to read data.
+// BufferedConn uses an existing bufio.Reader to avoid losing any data already read from the connection.
+// This is used to handle the PROXY protocol where some data may have already been read from the connection.
 type BufferedConn struct {
 	net.Conn
 	reader *bufio.Reader
@@ -177,33 +178,33 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 	}
 	defer netConn.Close()
 
-	var ip string
+	var ip string = ""
 	var port int
-	remoteAddr := netConn.RemoteAddr()
-	if tcpAddr, ok := remoteAddr.(*net.TCPAddr); ok {
-		ip = tcpAddr.IP.String()
-		port = tcpAddr.Port
-	} else {
-		s.log.Error().Msgf("Unexpected addr type: %T\n", remoteAddr)
-		netConn.Close()
-		return
-	}
-
 	var cleanConn net.Conn = netConn
 
 	if s.Config.Server.ProxyProtocol {
 		var err error
 		cleanConn, ip, port, err = ParseProxyProtocolV1(netConn)
 		if err != nil {
-			s.log.Error().Err(err).Msg("Failed to parse PROXY protocol")
-			return
+			s.log.Warn().Msgf("Failed to parse PROXY protocol header: %v", err)
 		}
 		if ip != "" {
 			s.log.Debug().Msgf("Parsed PROXY protocol header: client IP %s, port %d", ip, port)
 		}
 	}
 
-	s.log.Info().Msgf("New SSH connection from %s", netConn.RemoteAddr().String())
+	if ip == "" {
+		remoteAddr := netConn.RemoteAddr()
+		if tcpAddr, ok := remoteAddr.(*net.TCPAddr); ok {
+			ip = tcpAddr.IP.String()
+			port = tcpAddr.Port
+		} else {
+			s.log.Error().Msgf("Unexpected addr type: %T\n", remoteAddr)
+			return
+		}
+	}
+
+	s.log.Info().Msgf("New SSH connection from %s:%d", ip, port)
 
 	sshConn, channels, requests, err := ssh.NewServerConn(cleanConn, s.sshConfig)
 	if err != nil {
