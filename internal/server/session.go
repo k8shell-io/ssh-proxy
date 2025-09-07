@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 
 	"github.com/k8shell-io/common/models"
 	"golang.org/x/crypto/ssh"
@@ -241,7 +242,12 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, channel ssh.Channel) {
 	session := connInfo.Session
 
-	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, channel, s.provisioner)
+	var writer io.Writer = nil
+	if s.Config.Server.ShowProvisionInfo {
+		writer = channel
+	}
+
+	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, writer, s.provisioner)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", connInfo.User.Username, err)
 		return

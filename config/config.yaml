@@ -8,6 +8,9 @@ server:
   # set to false when proxy protocol is not used
   proxyProtocol: false
 
+  # true to show provision info when starting a shell
+  showProvisionInfo: true
+
 # ssh proxy configuration
 ssh:
   port: 2022

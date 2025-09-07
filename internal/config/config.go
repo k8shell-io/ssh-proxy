@@ -17,8 +17,9 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Forking       bool `yaml:"forking"`
-	ProxyProtocol bool `yaml:"proxyProtocol"`
+	Forking           bool `yaml:"forking"`
+	ProxyProtocol     bool `yaml:"proxyProtocol"`
+	ShowProvisionInfo bool `yaml:"showProvisionInfo"`
 }
 
 // SshConfig represents the SSH server configuration.
