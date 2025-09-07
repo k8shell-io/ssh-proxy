@@ -406,21 +406,18 @@ func isValidPodHash(hash string) bool {
 func ParseProxyProtocolV1(conn net.Conn) (net.Conn, string, int, error) {
 	reader := bufio.NewReader(conn)
 
-	// Peek to check if PROXY protocol is present
 	peek, err := reader.Peek(6)
 	if err != nil {
 		if err == io.EOF && len(peek) == 0 {
-			return conn, "", 0, nil // No data available
+			return conn, "", 0, fmt.Errorf("connection closed before reading PROXY protocol header")
 		}
 		return conn, "", 0, fmt.Errorf("failed to peek at connection: %w", err)
 	}
 
-	// No proxy protocol - return connection that handles peeked data
 	if !bytes.HasPrefix(peek, []byte("PROXY ")) {
-		return &BufferedConn{Conn: conn, reader: reader}, "", 0, nil
+		return &BufferedConn{Conn: conn, reader: reader}, "", 0, fmt.Errorf("no PROXY protocol header found")
 	}
 
-	// CONSUME the proxy protocol line
 	lineBytes, err := reader.ReadBytes('\n')
 	if err != nil {
 		return conn, "", 0, fmt.Errorf("failed to read proxy protocol line: %w", err)
@@ -438,6 +435,5 @@ func ParseProxyProtocolV1(conn net.Conn) (net.Conn, string, int, error) {
 		return conn, "", 0, fmt.Errorf("invalid client port: %w", err)
 	}
 
-	// Return connection that uses the buffered reader (proxy protocol already consumed)
 	return &BufferedConn{Conn: conn, reader: reader}, realClientIP, realClientPort, nil
 }
