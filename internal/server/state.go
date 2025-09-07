@@ -232,7 +232,7 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 		return c.k8shelld, nil
 	}
 
-	status, err := workspace.EnsureWorkspace(ctx, c.UserStr, writer, client)
+	status, err := workspace.EnsureWorkspace(ctx, c.UserStr, writer, showProvisionInfo, client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.UserStr.Username, err)
 	}
