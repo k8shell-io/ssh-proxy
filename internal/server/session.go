@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/binary"
 	"fmt"
-	"io"
 
 	"github.com/k8shell-io/common/models"
 	"golang.org/x/crypto/ssh"
@@ -242,12 +241,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, channel ssh.Channel) {
 	session := connInfo.Session
 
-	var writer io.Writer = nil
-	if s.Config.Server.ShowProvisionInfo {
-		writer = channel
-	}
-
-	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, writer, s.provisioner)
+	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, channel, s.Config.Server.ShowProvisionInfo, s.provisioner)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", connInfo.User.Username, err)
 		return
@@ -278,7 +272,7 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *ConnectionInfo
 	session := connInfo.Session
 	s.log.Info().Msgf("Handling sftp subsystem in channel for user %s, command: %s", session.Username, session.Command)
 
-	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, nil, s.provisioner)
+	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, nil, false, s.provisioner)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for sftp exec: %v", err)
 		return
@@ -314,7 +308,7 @@ func (s *Server) handleExecRequest(connInfo *ConnectionInfo, channel ssh.Channel
 	session := connInfo.Session
 	s.log.Info().Msgf("Handling exec in channel for user %s, command: %s", session.Username, session.Command)
 
-	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, nil, s.provisioner)
+	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, nil, false, s.provisioner)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for exec: %v", err)
 		s.sendExitStatus(channel, 1)

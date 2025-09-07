@@ -13,7 +13,7 @@ import (
 )
 
 // EnsureWorkspace checks if a workspace exists for the user and provisions it if not.
-func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Writer,
+func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Writer, showProvisionInfo bool,
 	client *provisioner.Client) (*provModels.WorkspaceStatus, error) {
 
 	workspaces, err := client.GetWorkspaces(ctx, userStr.Username, userStr.Blueprint)
@@ -34,7 +34,7 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Wri
 		}
 	}
 
-	name, err := provisionWorkspace(ctx, userStr, writer, client)
+	name, err := provisionWorkspace(ctx, userStr, writer, showProvisionInfo, client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.Username, err)
 	}
@@ -52,7 +52,7 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Wri
 }
 
 // provisionWorkspace provisions a new workspace for the user.
-func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Writer,
+func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Writer, showProvisionInfo bool,
 	client *provisioner.Client) (string, error) {
 	events := make(chan provModels.StreamEvent, 100)
 	if writer != nil {
@@ -82,7 +82,7 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.
 		defer wg.Done()
 
 		for event := range events {
-			if writer != nil {
+			if writer != nil && showProvisionInfo {
 				writer.Write([]byte(fmt.Sprintf("%s\r\n", event.String())))
 			}
 

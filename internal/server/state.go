@@ -223,7 +223,7 @@ func (c *ConnectionInfo) GetOnboardCap() *models.OnboardCapability {
 	return c.OnboardCap
 }
 
-func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Writer,
+func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Writer, showProvisionInfo bool,
 	client *provisioner.Client) (*workspace.K8shelld, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
