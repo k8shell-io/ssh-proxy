@@ -2,9 +2,11 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -245,43 +247,18 @@ func (s *Server) acceptConnections() {
 			}
 		}
 
-		var ip string
-		var port int
-		if s.Config.Server.ProxyProtocol {
-			ip, port, err = ParseProxyProtocolV1(conn)
-			if err != nil {
-				s.log.Error().Err(err).Msg("Failed to parse PROXY protocol")
-				conn.Close()
-				continue
-			}
-		}
-
-		if ip != "" {
-			s.log.Debug().Msgf("Parsed PROXY protocol header: client IP %s, port %d", ip, port)
-		} else {
-			remoteAddr := conn.RemoteAddr()
-			if tcpAddr, ok := remoteAddr.(*net.TCPAddr); ok {
-				ip = tcpAddr.IP.String()
-				port = tcpAddr.Port
-			} else {
-				s.log.Error().Msgf("Unexpected addr type: %T\n", remoteAddr)
-				conn.Close()
-				continue
-			}
-		}
-
 		if s.Config.Server.Forking {
 			s.wg.Add(1)
-			go s.startSubProcess(conn, ip, port)
+			go s.startSubProcess(conn)
 		} else {
 			s.wg.Add(1)
-			go s.handleConnection(conn, false, ip, port)
+			go s.handleConnectionWithProxyProtocol(conn, false)
 		}
 	}
 }
 
 // startSubProcess spawns a new process to handle the SSH connection in a subprocess
-func (s *Server) startSubProcess(netConn net.Conn, ip string, port int) {
+func (s *Server) startSubProcess(netConn net.Conn) {
 	defer s.wg.Done()
 	defer netConn.Close()
 
@@ -309,11 +286,7 @@ func (s *Server) startSubProcess(netConn net.Conn, ip string, port int) {
 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("PP_CLIENT_IP=%s", ip),
-		fmt.Sprintf("PP_CLIENT_PORT=%d", port),
-	)
+	cmd.Env = os.Environ()
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{
 		Setpgid: true,
@@ -392,32 +365,88 @@ func isValidPodHash(hash string) bool {
 	return true
 }
 
-// ParseProxyProtocolV1 parses a PROXY protocol v1 header (if present) from the connection.
-// Returns client IP and port if found, otherwise ("", 0, nil) when no PROXY header is used.
-func ParseProxyProtocolV1(conn net.Conn) (string, int, error) {
+// ParseProxyProtocolV1 parses and CONSUMES the proxy protocol header
+func ParseProxyProtocolV1(conn net.Conn) (net.Conn, string, int, error) {
 	reader := bufio.NewReader(conn)
+
+	// Peek to check if PROXY protocol is present
+	peek, err := reader.Peek(6)
+	if err != nil {
+		if err == io.EOF && len(peek) == 0 {
+			return conn, "", 0, nil // No data available
+		}
+		return conn, "", 0, fmt.Errorf("failed to peek at connection: %w", err)
+	}
+
+	// No proxy protocol - return connection that handles peeked data
+	if !bytes.HasPrefix(peek, []byte("PROXY ")) {
+		return &BufferedConn{Conn: conn, reader: reader}, "", 0, nil
+	}
+
+	// CONSUME the proxy protocol line
 	lineBytes, err := reader.ReadBytes('\n')
 	if err != nil {
-		return "", 0, fmt.Errorf("failed to read proxy header: %w", err)
+		return conn, "", 0, fmt.Errorf("failed to read proxy protocol line: %w", err)
 	}
 
 	line := strings.TrimSpace(string(lineBytes))
-
-	if !strings.HasPrefix(line, "PROXY") {
-		return "", 0, errors.New("invalid PROXY protocol header")
-	}
-
 	parts := strings.Split(line, " ")
 	if len(parts) < 6 {
-		return "", 0, errors.New("malformed PROXY protocol header: missing required fields")
+		return conn, "", 0, errors.New("malformed PROXY protocol header: missing required fields")
 	}
 
 	realClientIP := parts[2]
-	realClientPortStr := parts[4]
-	realClientPort, err := strconv.Atoi(realClientPortStr)
+	realClientPort, err := strconv.Atoi(parts[4])
 	if err != nil {
-		return "", 0, fmt.Errorf("invalid client port: %w", err)
+		return conn, "", 0, fmt.Errorf("invalid client port: %w", err)
 	}
 
-	return realClientIP, realClientPort, nil
+	// Return connection that uses the buffered reader (proxy protocol already consumed)
+	return &BufferedConn{Conn: conn, reader: reader}, realClientIP, realClientPort, nil
+}
+
+// Simple buffered connection wrapper
+type BufferedConn struct {
+	net.Conn
+	reader *bufio.Reader
+}
+
+func (bc *BufferedConn) Read(b []byte) (int, error) {
+	return bc.reader.Read(b)
+}
+
+// Update handleConnectionWithProxyProtocol
+func (s *Server) handleConnectionWithProxyProtocol(netConn net.Conn, isDirect bool) {
+	if !isDirect {
+		defer s.wg.Done()
+	}
+	defer netConn.Close()
+
+	var ip string
+	var port int
+	remoteAddr := netConn.RemoteAddr()
+	if tcpAddr, ok := remoteAddr.(*net.TCPAddr); ok {
+		ip = tcpAddr.IP.String()
+		port = tcpAddr.Port
+	} else {
+		s.log.Error().Msgf("Unexpected addr type: %T\n", remoteAddr)
+		netConn.Close()
+		return
+	}
+
+	var cleanConn net.Conn = netConn
+
+	if s.Config.Server.ProxyProtocol {
+		var err error
+		cleanConn, ip, port, err = ParseProxyProtocolV1(netConn)
+		if err != nil {
+			s.log.Error().Err(err).Msg("Failed to parse PROXY protocol")
+			return
+		}
+		if ip != "" {
+			s.log.Debug().Msgf("Parsed PROXY protocol header: client IP %s, port %d", ip, port)
+		}
+	}
+
+	s.handleConnection(cleanConn, isDirect, ip, port)
 }
