@@ -22,14 +22,8 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 	defer channel.Close()
 
 	session := &SessionInfo{
-		Username: connInfo.User.Username,
-		Env: []string{
-			"USERNAME=" + connInfo.User.Username,
-			"USEREMAIL=" + connInfo.User.Email,
-			"USERFULLNAME=" + connInfo.User.Fullname,
-			"USERORGANIZATION=" + connInfo.User.Organization,
-			"USERSOURCE=" + connInfo.User.Source,
-		},
+		Username:   connInfo.User.Username,
+		Env:        []string{},
 		SessionId:  fmt.Sprintf("sh-%s-%d", connInfo.proxyFullID, channel.LocalID()),
 		TermWidth:  80,
 		TermHeight: 24,
@@ -247,7 +241,8 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, channel ssh.Channel) {
 	session := connInfo.Session
 
-	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, channel, s.Config.Server.ShowProvisionInfo, s.provisioner)
+	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, channel, s.Config.Server.ShowProvisionInfo,
+		s.provisioner, session.Env)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", connInfo.User.Username, err)
 		return
@@ -278,7 +273,7 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *ConnectionInfo
 	session := connInfo.Session
 	s.log.Info().Msgf("Handling sftp subsystem in channel for user %s, command: %s", session.Username, session.Command)
 
-	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, nil, false, s.provisioner)
+	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, nil, false, s.provisioner, session.Env)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for sftp exec: %v", err)
 		return
@@ -314,7 +309,7 @@ func (s *Server) handleExecRequest(connInfo *ConnectionInfo, channel ssh.Channel
 	session := connInfo.Session
 	s.log.Info().Msgf("Handling exec in channel for user %s, command: %s", session.Username, session.Command)
 
-	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, nil, false, s.provisioner)
+	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, nil, false, s.provisioner, session.Env)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for exec: %v", err)
 		s.sendExitStatus(channel, 1)

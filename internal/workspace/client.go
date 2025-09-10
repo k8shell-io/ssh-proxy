@@ -100,7 +100,7 @@ func (c *K8shelld) Close() error {
 	return c.conn.Close()
 }
 
-func (c *K8shelld) Handshake(ctx context.Context, user *models.User) (*pb.HandshakeResponse, error) {
+func (c *K8shelld) Handshake(ctx context.Context, user *models.User, envVars []string) (*pb.HandshakeResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
@@ -114,6 +114,7 @@ func (c *K8shelld) Handshake(ctx context.Context, user *models.User) (*pb.Handsh
 			Gid:       user.GID,
 			UserToken: user.AccessToken,
 		},
+		EnvVars: envVars,
 	}
 
 	return c.systemClient.Handshake(ctx, req)

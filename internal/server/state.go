@@ -224,7 +224,7 @@ func (c *ConnectionInfo) GetOnboardCap() *models.OnboardCapability {
 }
 
 func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Writer, showProvisionInfo bool,
-	client *provisioner.Client) (*workspace.K8shelld, error) {
+	client *provisioner.Client, envVars []string) (*workspace.K8shelld, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -245,7 +245,7 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.User.Username, err)
 	}
 
-	handshake, err := k8shelld.Handshake(ctx, c.User)
+	handshake, err := k8shelld.Handshake(ctx, c.User, envVars)
 	if err != nil {
 		return nil, fmt.Errorf("handshake with k8shelld failed for user %s: %w", c.User.Username, err)
 	}
