@@ -22,8 +22,14 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 	defer channel.Close()
 
 	session := &SessionInfo{
-		Username:   connInfo.User.Username,
-		Env:        []string{},
+		Username: connInfo.User.Username,
+		Env: []string{
+			"USERNAME=" + connInfo.User.Username,
+			"USEREMAIL=" + connInfo.User.Email,
+			"USERFULLNAME=" + connInfo.User.Fullname,
+			"USERORGANIZATION=" + connInfo.User.Organization,
+			"USERSOURCE=" + connInfo.User.Source,
+		},
 		SessionId:  fmt.Sprintf("sh-%s-%d", connInfo.proxyFullID, channel.LocalID()),
 		TermWidth:  80,
 		TermHeight: 24,
