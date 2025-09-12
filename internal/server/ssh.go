@@ -209,6 +209,12 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 	sshConn, channels, requests, err := ssh.NewServerConn(cleanConn, s.sshConfig)
 	if err != nil {
 		s.log.Error().Msgf("Failed to perform SSH handshake: %v", err)
+		connInfo := GetConnectionInfoByAddress(netConn.RemoteAddr().String())
+		if connInfo != nil {
+			s.log.Debug().Msgf("Failed connection info: %v", connInfo.failureInfo)
+			connInfo.Close()
+			RemoveState(connInfo)
+		}
 		return
 	}
 	defer sshConn.Close()

@@ -2,11 +2,11 @@
 
 server:
   # true to start each connection in a new process
-  forking: true
+  forking: false
 
   # true to parse proxy protocol to get the real client IP and port
   # set to false when proxy protocol is not used
-  proxyProtocol: false
+  proxyProtocol: true
 
   # true to show provision info when starting a shell
   showProvisionInfo: true
@@ -18,12 +18,12 @@ ssh:
 
 # Identity service configuration
 identity:
-  baseURL: http://10.42.3.4:9090
+  baseURL: http://${IDENTITY_SERVICE_HOST}:9090
   APIKey: !file ${SECRET_FILES}/identity_key
   timeout: 1000 
 
 provisioner:
-  baseURL: http://10.42.2.240:9201
+  baseURL: http://${PROVISIONER_SERVICE_HOST}:9201
   APIKey: !file ${SECRET_FILES}/provisioner_key
   timeout: 30000
 

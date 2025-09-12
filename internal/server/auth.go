@@ -40,9 +40,11 @@ func (s *Server) AuthPublicKey(conn ssh.ConnMetadata, pubKey ssh.PublicKey) (*ss
 				s.log.Info().Msgf("User %s authenticated with public key", connInfo.User.Username)
 				return &ssh.Permissions{}, nil
 			} else {
+				connInfo.AddFailureInfo("Public key authentication failed", nil)
 				return nil, fmt.Errorf("public key authentication failed for user %s", connInfo.User.Username)
 			}
 		} else {
+			connInfo.AddFailureInfo("Public key authentication not available", nil)
 			return nil, fmt.Errorf("public key authentication not available for user %s", connInfo.User.Username)
 		}
 	}
@@ -54,6 +56,7 @@ func (s *Server) AuthPublicKey(conn ssh.ConnMetadata, pubKey ssh.PublicKey) (*ss
 			},
 		}
 	} else {
+		connInfo.AddFailureInfo("No available authentication methods", nil)
 		return nil, fmt.Errorf("no available authentication methods for user %s", connInfo.UserStr.Username)
 	}
 }
@@ -74,9 +77,11 @@ func (s *Server) AuthPassword(conn ssh.ConnMetadata, password []byte) (*ssh.Perm
 				s.log.Info().Msgf("User %s authenticated with password", connInfo.User.Username)
 				return &ssh.Permissions{}, nil
 			} else {
+				connInfo.AddFailureInfo("Password authentication failed", nil)
 				return nil, fmt.Errorf("password authentication failed for user %s", connInfo.User.Username)
 			}
 		} else {
+			connInfo.AddFailureInfo("Password authentication not available", nil)
 			return nil, fmt.Errorf("password authentication not available for user %s", connInfo.User.Username)
 		}
 	}
@@ -88,6 +93,7 @@ func (s *Server) AuthPassword(conn ssh.ConnMetadata, password []byte) (*ssh.Perm
 			},
 		}
 	} else {
+		connInfo.AddFailureInfo("No available authentication methods", nil)
 		return nil, fmt.Errorf("no available authentication methods for user %s", connInfo.UserStr.Username)
 	}
 }
@@ -205,8 +211,11 @@ func (s *Server) updateUser(ctx context.Context, connInfo *ConnectionInfo) {
 	if err != nil {
 		var eresp identity.ErrorResponse
 		if errors.As(err, &eresp) && eresp.Status != 404 {
+			connInfo.AddFailureInfo("Failed to get user", err)
 			s.log.Error().Msgf("Failed to get user %s: %v", connInfo.UserStr.Username, err)
 			return
+		} else {
+			connInfo.AddFailureInfo("User not found", err)
 		}
 	}
 
@@ -220,6 +229,10 @@ func (s *Server) updateUser(ctx context.Context, connInfo *ConnectionInfo) {
 				return
 			}
 			connInfo.OnboardCap = onboardCap
+			if onboardCap == nil || !onboardCap.CanOnboard {
+				s.log.Warn().Msgf("User %s is not onboarded and has no onboarding capability", connInfo.UserStr.Username)
+				connInfo.AddFailureInfo("User is not onboarded and has no onboarding capability", nil)
+			}
 		}
 	} else {
 		connInfo.User = user
@@ -264,6 +277,7 @@ func (s *Server) getAvailableAuthMethods(connInfo *ConnectionInfo) *ssh.PartialS
 	}
 
 	s.log.Warn().Msgf("No available authentication methods for user %s", connInfo.UserStr.Username)
+	connInfo.AddFailureInfo("No available authentication methods", nil)
 
 	return nil
 }

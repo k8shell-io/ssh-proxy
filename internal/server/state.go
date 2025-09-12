@@ -39,6 +39,12 @@ type ConnectionInfo struct {
 	sessionID        int32                     // SSH session ID
 	workspaceName    string                    // name of the workspace
 	channelInfo      []string                  // channel information
+	failureInfo      []FailureInfo             // failure information
+}
+
+type FailureInfo struct {
+	Info string // failure information
+	err  error  // error details
 }
 
 // SessionInfo holds information about a user's SSH session
@@ -75,9 +81,18 @@ var connStates = make(map[string]*ConnectionInfo)
 var connStatesMutex sync.RWMutex
 var execSeqNumber int64 // sequence number for exec commands
 
-func getConnectionID(conn ssh.ConnMetadata, userStr *models.UserStr) string {
-	connID := fmt.Sprintf("%s-%s", conn.RemoteAddr(), userStr.Username)
+func getConnectionID(remoteAddr string) string {
+	connID := fmt.Sprintf("connid-%s", remoteAddr)
 	return connID
+}
+
+func GetConnectionInfoByAddress(remoteAddr string) *ConnectionInfo {
+	connID := getConnectionID(remoteAddr)
+	connStatesMutex.RLock()
+	defer connStatesMutex.RUnlock()
+
+	connInfo := connStates[connID]
+	return connInfo
 }
 
 func RemoveState(state *ConnectionInfo) {
@@ -92,7 +107,7 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
 		return nil, fmt.Errorf("failed to parse user string: %w", err)
 	}
 
-	connID := getConnectionID(conn, userStr)
+	connID := getConnectionID(conn.RemoteAddr().String())
 
 	connStatesMutex.RLock()
 	defer connStatesMutex.RUnlock()
@@ -114,6 +129,10 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
 		go connInfo.reportSessionData(ctx)
 	}
 	return connInfo, nil
+}
+
+func (c *ConnectionInfo) AddFailureInfo(info string, err error) {
+	c.failureInfo = append(c.failureInfo, FailureInfo{Info: info, err: err})
 }
 
 func (c *ConnectionInfo) AddChannelInfo(info string) {
