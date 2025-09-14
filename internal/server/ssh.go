@@ -222,11 +222,15 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 	if err != nil {
 		s.log.Error().Msgf("Failed to perform SSH handshake: %v", err)
 		connInfo := GetConnectionInfoByAddress(netConn.RemoteAddr().String())
+
 		if connInfo != nil {
 			s.log.Debug().Msgf("Failed connection info: %v", connInfo.failureInfo)
 
 			if s.nats != nil {
-				s.nats.PublishFailedConnection(ip, port, connInfo.UserStr.Username, connInfo.failureInfo)
+				failureInfo := []string{}
+				failureInfo = append(failureInfo, connInfo.failureInfo...)
+				failureInfo = append(failureInfo, string(err.Error()))
+				s.nats.PublishFailedConnection(ip, port, connInfo.UserStr.Username, failureInfo)
 			}
 
 			connInfo.Close()
