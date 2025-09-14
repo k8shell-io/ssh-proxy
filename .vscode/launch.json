@@ -14,7 +14,8 @@
             "env": {
                 "SECRET_FILES": "/opt/shared/ssh-proxy/secrets",
                 "PROVISIONER_SERVICE_HOST": "provisioner.k8shell-test",
-                "IDENTITY_SERVICE_HOST": "identity.k8shell-test"
+                "IDENTITY_SERVICE_HOST": "identity.k8shell-test",
+                "NATS_HOST": "nats.k8shell-test",
             },
             "cwd": "${workspaceFolder}",
             "args": [

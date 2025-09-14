@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/k8shell-io/common/config"
+	"github.com/k8shell-io/ssh-proxy/internal/nats"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -14,6 +15,7 @@ type Config struct {
 	Ssh         SshConfig         `yaml:"ssh"`
 	Identity    IdentityConfig    `yaml:"identity"`
 	Provisioner ProvisionerConfig `yaml:"provisioner"`
+	Nats        nats.Config       `yaml:"nats"`
 }
 
 type ServerConfig struct {
@@ -35,6 +37,7 @@ type IdentityConfig struct {
 	Timeout int    `yaml:"timeout"`
 }
 
+// ProvisionerConfig represents the provisioner service configuration.
 type ProvisionerConfig struct {
 	BaseURL string `yaml:"baseURL"`
 	APIKey  string `yaml:"APIKey"`

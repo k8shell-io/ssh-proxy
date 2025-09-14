@@ -19,6 +19,7 @@ import (
 	identity "github.com/k8shell-io/identity/pkg/client"
 	provisioner "github.com/k8shell-io/provisioner/pkg/client"
 	"github.com/k8shell-io/ssh-proxy/internal/config"
+	"github.com/k8shell-io/ssh-proxy/internal/nats"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
 )
@@ -40,6 +41,7 @@ type Server struct {
 	wg          sync.WaitGroup
 	identity    *identity.Client
 	provisioner *provisioner.Client
+	nats        *nats.Client
 	configPath  string
 }
 
@@ -96,6 +98,11 @@ func NewServer(configPath string) (*Server, error) {
 	}
 
 	if !server.Config.Server.Forking {
+		server.nats, err = nats.NewClient(config.Nats, GetProxyID())
+		if err != nil {
+			return nil, fmt.Errorf("failed to create NATS client: %w", err)
+		}
+
 		identityClient, provisionerClient := NewClients(config)
 		server.identity = identityClient
 		server.provisioner = provisionerClient
@@ -158,6 +165,11 @@ func HandleConnectionChildProcess(configPath string) error {
 		configPath: configPath,
 	}
 
+	server.nats, err = nats.NewClient(config.Nats, GetProxyID())
+	if err != nil {
+		return fmt.Errorf("failed to create NATS client: %w", err)
+	}
+
 	identityClient, provisionerClient := NewClients(config)
 	server.identity = identityClient
 	server.provisioner = provisionerClient
@@ -212,6 +224,11 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 		connInfo := GetConnectionInfoByAddress(netConn.RemoteAddr().String())
 		if connInfo != nil {
 			s.log.Debug().Msgf("Failed connection info: %v", connInfo.failureInfo)
+
+			if s.nats != nil {
+				s.nats.PublishFailedConnection(ip, port, connInfo.UserStr.Username, connInfo.failureInfo)
+			}
+
 			connInfo.Close()
 			RemoveState(connInfo)
 		}

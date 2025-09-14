@@ -21,7 +21,7 @@ import (
 type ConnectionInfo struct {
 	clientIP         string
 	clientPort       int
-	proxyFullID      string                    // unique identifier of the proxy with a PID where connection is established
+	proxyFullID      string                    // identifier of the proxy with a PID where connection is established
 	identity         *identity.Client          // identity client for interacting with the identity service
 	k8shelld         *workspace.K8shelld       // k8shelld client for interacting with the workspace k8shelld daemon
 	UserStr          *models.UserStr           // user string information
@@ -39,12 +39,7 @@ type ConnectionInfo struct {
 	sessionID        int32                     // SSH session ID
 	workspaceName    string                    // name of the workspace
 	channelInfo      []string                  // channel information
-	failureInfo      []FailureInfo             // failure information
-}
-
-type FailureInfo struct {
-	Info string // failure information
-	err  error  // error details
+	failureInfo      []string                  // failure information
 }
 
 // SessionInfo holds information about a user's SSH session
@@ -132,7 +127,11 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
 }
 
 func (c *ConnectionInfo) AddFailureInfo(info string, err error) {
-	c.failureInfo = append(c.failureInfo, FailureInfo{Info: info, err: err})
+	if err != nil {
+		c.failureInfo = append(c.failureInfo, fmt.Sprintf("%s: %v", info, err))
+	} else {
+		c.failureInfo = append(c.failureInfo, info)
+	}
 }
 
 func (c *ConnectionInfo) AddChannelInfo(info string) {

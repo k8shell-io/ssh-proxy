@@ -27,3 +27,14 @@ provisioner:
   APIKey: !file ${SECRET_FILES}/provisioner_key
   timeout: 30000
 
+nats:
+  host: ${NATS_HOST}
+  port: 4222
+  token: !file ${SECRET_FILES}/nats_token
+
+  sshFailures:
+    enabled: true
+    subject: ssh.failures
+    publicIPOnly: true
+    whitelist:
+      - 147.32.0.0/0
