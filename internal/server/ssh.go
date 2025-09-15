@@ -100,7 +100,7 @@ func NewServer(configPath string) (*Server, error) {
 	if !server.Config.Server.Forking {
 		server.nats, err = nats.NewClient(config.Nats, GetProxyID())
 		if err != nil {
-			return nil, fmt.Errorf("failed to create NATS client: %w", err)
+			server.log.Error().Msgf("failed to create NATS client: %v", err)
 		}
 
 		identityClient, provisionerClient := NewClients(config)
@@ -167,7 +167,7 @@ func HandleConnectionChildProcess(configPath string) error {
 
 	server.nats, err = nats.NewClient(config.Nats, GetProxyID())
 	if err != nil {
-		return fmt.Errorf("failed to create NATS client: %w", err)
+		server.log.Error().Msgf("failed to create NATS client: %v", err)
 	}
 
 	identityClient, provisionerClient := NewClients(config)
