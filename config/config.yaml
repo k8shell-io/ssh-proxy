@@ -30,7 +30,8 @@ provisioner:
 nats:
   host: ${NATS_HOST}
   port: 4222
-  token: !file ${SECRET_FILES}/nats_token
+  user: sshproxy
+  password: !file ${SECRET_FILES}/sshproxy_nats_token
 
   sshFailures:
     enabled: true

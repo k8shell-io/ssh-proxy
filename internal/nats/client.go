@@ -13,7 +13,8 @@ import (
 type Config struct {
 	Host        string            `yaml:"host"`
 	Port        int               `yaml:"port"`
-	Token       string            `yaml:"token"`
+	User        string            `yaml:"user"`
+	Password    string            `yaml:"password"`
 	SshFailures SshFailuresConfig `yaml:"sshFailures"`
 }
 
@@ -51,8 +52,8 @@ func NewClient(config Config, proxyId string) (*Client, error) {
 		nats.MaxReconnects(5),
 	}
 
-	if config.Token != "" {
-		opts = append(opts, nats.Token(config.Token))
+	if config.User != "" && config.Password != "" {
+		opts = append(opts, nats.UserInfo(config.User, config.Password))
 	}
 
 	var whitelist []*net.IPNet
