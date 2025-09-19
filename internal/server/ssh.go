@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	log "github.com/k8shell-io/common/logger"
 	identity "github.com/k8shell-io/identity/pkg/client"
@@ -29,6 +30,8 @@ var (
 	SSHPROXY_COMMIT  = "0000000"
 	SERVER_VERSION   = fmt.Sprintf("SSH-2.0-ssh-proxy_%s/%s k8shell.io", SSHPROXY_VERSION, SSHPROXY_COMMIT)
 )
+
+const SSH_HANDSHAKE_DEADLINE = 15 * time.Second
 
 // Server represents the SSH server that handles incoming connections and authentication.
 type Server struct {
@@ -218,9 +221,23 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 
 	s.log.Info().Msgf("New SSH connection from %s:%d", ip, port)
 
+	deadline := time.Now().Add(SSH_HANDSHAKE_DEADLINE)
+	if err := netConn.SetReadDeadline(deadline); err != nil {
+		s.log.Warn().Msgf("Failed to set read deadline: %v", err)
+	}
+
 	sshConn, channels, requests, err := ssh.NewServerConn(cleanConn, s.sshConfig)
+
 	if err != nil {
 		s.log.Error().Msgf("Failed to perform SSH handshake: %v", err)
+		if netErr, isNetErr := err.(net.Error); isNetErr && netErr.Timeout() {
+			s.log.Warn().Msgf("SSH handshake timed out for connection from %s:%d", ip, port)
+		}
+
+		if resetErr := netConn.SetReadDeadline(time.Time{}); resetErr != nil {
+			s.log.Warn().Msgf("Failed to reset read deadline: %v", resetErr)
+		}
+
 		connInfo := GetConnectionInfoByAddress(netConn.RemoteAddr().String())
 
 		if connInfo != nil {
