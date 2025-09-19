@@ -70,11 +70,17 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.
 		defer wg.Done()
 		defer close(events)
 
-		provisionErr = client.ProvisionWorkspaceStream(ctx, &provisioner.ProvisionOptions{
-			UserStr: *userStr,
-			Timeout: 30,
-			Stream:  true,
-		}, events)
+		select {
+		case <-ctx.Done():
+			provisionErr = ctx.Err()
+			return
+		default:
+			provisionErr = client.ProvisionWorkspaceStream(ctx, &provisioner.ProvisionOptions{
+				UserStr: *userStr,
+				Timeout: 30,
+				Stream:  true,
+			}, events)
+		}
 	}()
 
 	wg.Add(1)
