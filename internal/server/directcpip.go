@@ -7,16 +7,13 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// Maximum number of direct TCP/IP connections allowed (per ssh connection)
-const MAX_DIRECT_TCPIP_CONNECTIONS = 15
-
 // handleDirectTCPIPChannel handles a new direct TCP/IP channel request
 func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *ConnectionInfo, newChannel ssh.NewChannel) {
-	if !connInfo.IncrementDirectTCPIPCount(MAX_DIRECT_TCPIP_CONNECTIONS) {
+	if !connInfo.IncrementDirectTCPIPCount(s.Config.Server.MaxDirectTCPIPConnections) {
 		s.log.Warn().Msgf("User %s exceeded max direct-tcpip connections (limit: %d)",
-			connInfo.User.Username, MAX_DIRECT_TCPIP_CONNECTIONS)
+			connInfo.User.Username, s.Config.Server.MaxDirectTCPIPConnections)
 		newChannel.Reject(ssh.ResourceShortage,
-			fmt.Sprintf("maximum direct-tcpip connections exceeded (%d)", MAX_DIRECT_TCPIP_CONNECTIONS))
+			fmt.Sprintf("maximum direct-tcpip connections exceeded (%d)", s.Config.Server.MaxDirectTCPIPConnections))
 		return
 	}
 

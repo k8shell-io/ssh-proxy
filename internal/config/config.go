@@ -19,9 +19,11 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Forking           bool `yaml:"forking"`
-	ProxyProtocol     bool `yaml:"proxyProtocol"`
-	ShowProvisionInfo bool `yaml:"showProvisionInfo"`
+	Forking                   bool `yaml:"forking"`
+	ProxyProtocol             bool `yaml:"proxyProtocol"`
+	ShowProvisionInfo         bool `yaml:"showProvisionInfo"`
+	SSHHandshakeTimeout       int  `yaml:"SSHHandshakeTimeout"`
+	MaxDirectTCPIPConnections int  `yaml:"maxDirectTCPIPConnections"`
 }
 
 // SshConfig represents the SSH server configuration.

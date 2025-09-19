@@ -31,8 +31,6 @@ var (
 	SERVER_VERSION   = fmt.Sprintf("SSH-2.0-ssh-proxy_%s/%s k8shell.io", SSHPROXY_VERSION, SSHPROXY_COMMIT)
 )
 
-const SSH_HANDSHAKE_DEADLINE = 15 * time.Second
-
 // Server represents the SSH server that handles incoming connections and authentication.
 type Server struct {
 	Config      *config.Config
@@ -221,7 +219,7 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 
 	s.log.Info().Msgf("New SSH connection from %s:%d", ip, port)
 
-	deadline := time.Now().Add(SSH_HANDSHAKE_DEADLINE)
+	deadline := time.Now().Add(time.Duration(s.Config.Server.SSHHandshakeTimeout) * time.Second)
 	if err := netConn.SetReadDeadline(deadline); err != nil {
 		s.log.Warn().Msgf("Failed to set read deadline: %v", err)
 	}

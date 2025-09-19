@@ -11,6 +11,12 @@ server:
   # true to show provision info when starting a shell
   showProvisionInfo: true
 
+  # SSH handshake timeout in seconds
+  SSHHandshakeTimeout: 15
+
+  # maximum number of direct TCP/IP connections allowed (per ssh connection)
+  maxDirectTCPIPConnections: 15
+
 # ssh proxy configuration
 ssh:
   port: 2022

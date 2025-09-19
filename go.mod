@@ -7,6 +7,7 @@ require (
 	github.com/k8shell-io/identity v0.11.11
 	github.com/k8shell-io/k8shelld v0.11.2
 	github.com/k8shell-io/provisioner v0.11.19
+	github.com/nats-io/nats.go v1.45.0
 	github.com/rs/zerolog v1.34.0
 	golang.org/x/crypto v0.40.0
 	google.golang.org/grpc v1.74.2
@@ -21,7 +22,6 @@ require (
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/nats-io/nats.go v1.45.0 // indirect
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	golang.org/x/net v0.42.0 // indirect
