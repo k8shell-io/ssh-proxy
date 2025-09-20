@@ -282,7 +282,6 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 			for _, line := range lines {
 				writer.Write([]byte(line + "\r\n"))
 			}
-			writer.Write([]byte("\r\n"))
 		}
 	}
 	c.k8shelld = k8shelld
