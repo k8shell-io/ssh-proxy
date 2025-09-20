@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -258,11 +259,6 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 	}
 	if writer != nil {
 		writer.Write([]byte(fmt.Sprintf("Connecting to the workspace at %s...\r\n", status.Host)))
-		if status.Splash != "" {
-			writer.Write([]byte("\r\n"))
-			writer.Write([]byte(status.Splash + "\r\n"))
-			writer.Write([]byte("\r\n"))
-		}
 	}
 
 	k8shelld, err := workspace.NewK8shelld(status.Host, status.PodIP, status.Port, status.AccessKey, status.TLSCert)
@@ -280,6 +276,14 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 	if writer != nil {
 		writer.Write([]byte(fmt.Sprintf("Connected to k8shelld (version: %s)\r\n",
 			handshake.ServerVersion)))
+		if status.Splash != "" {
+			writer.Write([]byte("\r\n"))
+			lines := strings.Split(status.Splash, "\n")
+			for _, line := range lines {
+				writer.Write([]byte(line + "\r\n"))
+			}
+			writer.Write([]byte("\r\n"))
+		}
 	}
 	c.k8shelld = k8shelld
 	c.workspaceName = status.Name
