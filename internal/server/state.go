@@ -258,6 +258,11 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 	}
 	if writer != nil {
 		writer.Write([]byte(fmt.Sprintf("Connecting to the workspace at %s...\r\n", status.Host)))
+		if status.Splash != "" {
+			writer.Write([]byte("\r\n"))
+			writer.Write([]byte(status.Splash + "\r\n"))
+			writer.Write([]byte("\r\n"))
+		}
 	}
 
 	k8shelld, err := workspace.NewK8shelld(status.Host, status.PodIP, status.Port, status.AccessKey, status.TLSCert)
