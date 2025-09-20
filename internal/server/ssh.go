@@ -226,14 +226,14 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 
 	sshConn, channels, requests, err := ssh.NewServerConn(cleanConn, s.sshConfig)
 
+	if resetErr := netConn.SetReadDeadline(time.Time{}); resetErr != nil {
+		s.log.Warn().Msgf("Failed to reset read deadline: %v", resetErr)
+	}
+
 	if err != nil {
 		s.log.Error().Msgf("Failed to perform SSH handshake: %v", err)
 		if netErr, isNetErr := err.(net.Error); isNetErr && netErr.Timeout() {
 			s.log.Warn().Msgf("SSH handshake timed out for connection from %s:%d", ip, port)
-		}
-
-		if resetErr := netConn.SetReadDeadline(time.Time{}); resetErr != nil {
-			s.log.Warn().Msgf("Failed to reset read deadline: %v", resetErr)
 		}
 
 		connInfo := GetConnectionInfoByAddress(netConn.RemoteAddr().String())
