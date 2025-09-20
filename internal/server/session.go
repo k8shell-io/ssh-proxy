@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/binary"
 	"fmt"
-	"time"
 
 	"github.com/k8shell-io/common/models"
 	"golang.org/x/crypto/ssh"
@@ -242,46 +241,46 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, channel ssh.Channel) {
 	session := connInfo.Session
 
-	stopChan := make(chan struct{})
+	// stopChan := make(chan struct{})
 
-	go func() {
-		buffer := make([]byte, 1)
-		for {
-			select {
-			case <-stopChan:
-				return
-			default:
-				size, err := channel.ReadBufferSize()
-				if err != nil {
-					return
-				}
+	// go func() {
+	// 	buffer := make([]byte, 1)
+	// 	for {
+	// 		select {
+	// 		case <-stopChan:
+	// 			return
+	// 		default:
+	// 			size, err := channel.ReadBufferSize()
+	// 			if err != nil {
+	// 				return
+	// 			}
 
-				if size > 0 {
-					n, err := channel.Read(buffer)
-					if err != nil {
-						return
-					}
+	// 			if size > 0 {
+	// 				n, err := channel.Read(buffer)
+	// 				if err != nil {
+	// 					return
+	// 				}
 
-					if n > 0 && buffer[0] == 3 {
-						s.log.Info().Msgf("Ctrl+C detected for user %s, canceling shell session", session.Username)
-						connInfo.cancel()
-						return
-					}
-				} else {
-					select {
-					case <-stopChan:
-						return
-					case <-time.After(10 * time.Millisecond):
-						// Continue checking
-					}
-				}
-			}
-		}
-	}()
+	// 				if n > 0 && buffer[0] == 3 {
+	// 					s.log.Info().Msgf("Ctrl+C detected for user %s, canceling shell session", session.Username)
+	// 					connInfo.cancel()
+	// 					return
+	// 				}
+	// 			} else {
+	// 				select {
+	// 				case <-stopChan:
+	// 					return
+	// 				case <-time.After(10 * time.Millisecond):
+	// 					// Continue checking
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+	// }()
 
 	k8shelld, err := connInfo.CreateK8shelldClient(connInfo.Ctx, channel, s.Config.Server.ShowProvisionInfo,
 		s.provisioner, session.Env)
-	close(stopChan)
+	// close(stopChan)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", connInfo.User.Username, err)
 		return
