@@ -59,20 +59,8 @@ func (bc *BufferedConn) Read(b []byte) (int, error) {
 
 // NewClients creates new instances of the identity and provisioner clients.
 func NewClients(config *config.Config) (*identity.Client, *provisioner.Client) {
-	identityConfig := identity.Config{
-		BaseURL: config.Identity.BaseURL,
-		APIKey:  config.Identity.APIKey,
-		Timeout: config.Identity.Timeout,
-	}
-	identityClient := identity.NewClient(identityConfig)
-
-	provisionerConfig := provisioner.Config{
-		BaseURL: config.Provisioner.BaseURL,
-		APIKey:  config.Provisioner.APIKey,
-		Timeout: config.Provisioner.Timeout,
-	}
-	provisionerClient := provisioner.NewClient(provisionerConfig)
-
+	identityClient := identity.NewClient(config.Identity)
+	provisionerClient := provisioner.NewClient(config.Provisioner)
 	return identityClient, provisionerClient
 }
 

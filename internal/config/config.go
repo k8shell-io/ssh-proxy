@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/k8shell-io/common/apiclient"
 	"github.com/k8shell-io/common/config"
 	"github.com/k8shell-io/ssh-proxy/internal/nats"
 	"golang.org/x/crypto/ssh"
@@ -11,11 +12,11 @@ import (
 
 // Config represents the server configuration
 type Config struct {
-	Server      ServerConfig      `yaml:"server"`
-	Ssh         SshConfig         `yaml:"ssh"`
-	Identity    IdentityConfig    `yaml:"identity"`
-	Provisioner ProvisionerConfig `yaml:"provisioner"`
-	Nats        nats.Config       `yaml:"nats"`
+	Server      ServerConfig     `yaml:"server"`
+	Ssh         SshConfig        `yaml:"ssh"`
+	Identity    apiclient.Config `yaml:"identity"`
+	Provisioner apiclient.Config `yaml:"provisioner"`
+	Nats        nats.Config      `yaml:"nats"`
 }
 
 type ServerConfig struct {
@@ -30,20 +31,6 @@ type ServerConfig struct {
 type SshConfig struct {
 	Port      int    `yaml:"port"`
 	ServerKey string `yaml:"serverKey"`
-}
-
-// IdentityConfig represents the identity service configuration.
-type IdentityConfig struct {
-	BaseURL string `yaml:"baseURL"`
-	APIKey  string `yaml:"APIKey"`
-	Timeout int    `yaml:"timeout"`
-}
-
-// ProvisionerConfig represents the provisioner service configuration.
-type ProvisionerConfig struct {
-	BaseURL string `yaml:"baseURL"`
-	APIKey  string `yaml:"APIKey"`
-	Timeout int    `yaml:"timeout"`
 }
 
 const (
