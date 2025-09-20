@@ -56,7 +56,7 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.
 	client *provisioner.Client) (string, error) {
 	events := make(chan provModels.StreamEvent, 100)
 	if writer != nil {
-		writer.Write([]byte("Provisioning workspace...\r\n"))
+		writer.Write([]byte("Starting workspace...\r\n"))
 	}
 
 	var name string
