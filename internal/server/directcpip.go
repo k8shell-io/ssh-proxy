@@ -56,7 +56,7 @@ func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connectio
 
 	go ssh.DiscardRequests(requests)
 
-	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, nil, false, s.provisioner, []string{})
+	k8shelld, err := connInfo.CreateK8shelldClient(connInfo.Ctx, nil, false, s.provisioner, []string{})
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", connInfo.User.Username, err)
 		return
@@ -65,7 +65,7 @@ func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connectio
 	s.log.Debug().Msgf("Starting port forward %s for user %s: %s:%d",
 		tcpipInfo.DirectTCPIPId, connInfo.User.Username, tcpipInfo.DestHost, tcpipInfo.DestPort)
 
-	if err := k8shelld.StartPortForward(s.ctx, channel, tcpipInfo.DirectTCPIPId,
+	if err := k8shelld.StartPortForward(connInfo.Ctx, channel, tcpipInfo.DirectTCPIPId,
 		tcpipInfo.DestHost, tcpipInfo.DestPort); err != nil {
 		s.log.Error().Msgf("Port forward failed for user %s: %v", connInfo.User.Username, err)
 	} else {

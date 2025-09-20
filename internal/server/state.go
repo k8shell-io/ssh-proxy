@@ -35,6 +35,7 @@ type ConnectionInfo struct {
 	DirectTCPIP      *sync.Map                 // direct TCP/IP connection information
 	DirectTCPIPCount int64                     // current count of direct TCP/IP connections
 	counters         *workspace.ConnCounters   // connection counters
+	Ctx              context.Context           // context for managing lifecycle
 	cancel           context.CancelFunc        // function to cancel
 	sessionID        int32                     // SSH session ID
 	workspaceName    string                    // name of the workspace
@@ -117,11 +118,12 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
 			UserStr:     userStr,
 			DirectTCPIP: &sync.Map{},
 			counters:    &workspace.ConnCounters{},
+			Ctx:         ctx,
 			cancel:      cancel,
 			sessionID:   0,
 		}
 		connStates[connID] = connInfo
-		go connInfo.reportSessionData(ctx)
+		go connInfo.reportSessionData(connInfo.Ctx)
 	}
 	return connInfo, nil
 }

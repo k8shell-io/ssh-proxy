@@ -199,7 +199,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 					session.TermWidth = width
 					session.TermHeight = height
 
-					if err := k8shelld.ResizeTerminal(s.ctx, session.SessionId, width, height); err != nil {
+					if err := k8shelld.ResizeTerminal(connInfo.Ctx, session.SessionId, width, height); err != nil {
 						s.log.Error().Msgf("Failed to resize terminal: %v", err)
 					}
 				} else {
@@ -241,8 +241,32 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, channel ssh.Channel) {
 	session := connInfo.Session
 
-	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, channel, s.Config.Server.ShowProvisionInfo,
+	stopChan := make(chan struct{})
+
+	go func() {
+		buffer := make([]byte, 1)
+		for {
+			select {
+			case <-stopChan:
+				return
+			default:
+				n, err := channel.Read(buffer)
+				if err != nil {
+					return
+				}
+
+				if n > 0 && buffer[0] == 3 {
+					s.log.Info().Msgf("Ctrl+C detected for user %s, canceling shell session", session.Username)
+					connInfo.cancel()
+					return
+				}
+			}
+		}
+	}()
+
+	k8shelld, err := connInfo.CreateK8shelldClient(connInfo.Ctx, channel, s.Config.Server.ShowProvisionInfo,
 		s.provisioner, session.Env)
+	close(stopChan)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", connInfo.User.Username, err)
 		return
@@ -259,7 +283,7 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 
 	s.log.Debug().Msgf("Starting shell session for user %s, session ID: %s", session.Username, session.SessionId)
 
-	if err := k8shelld.StartShell(s.ctx, channel, session.SessionId,
+	if err := k8shelld.StartShell(connInfo.Ctx, channel, session.SessionId,
 		session.Env, session.TermWidth, session.TermHeight, session.HasPTY, connInfo.counters); err != nil {
 		s.log.Error().Msgf("Shell session error: %v", err)
 	} else {
@@ -273,7 +297,7 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *ConnectionInfo
 	session := connInfo.Session
 	s.log.Info().Msgf("Handling sftp subsystem in channel for user %s, command: %s", session.Username, session.Command)
 
-	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, nil, false, s.provisioner, session.Env)
+	k8shelld, err := connInfo.CreateK8shelldClient(connInfo.Ctx, nil, false, s.provisioner, session.Env)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for sftp exec: %v", err)
 		return
@@ -294,7 +318,7 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *ConnectionInfo
 	s.log.Debug().Msgf("Starting sftp for user %s, exec ID: %s, command: %s",
 		session.Username, execID, SFTP_BINARY)
 
-	_, err = k8shelld.StartExec(s.ctx, channel, execID, SFTP_BINARY, "", []string{}, session.SignalChan)
+	_, err = k8shelld.StartExec(connInfo.Ctx, channel, execID, SFTP_BINARY, "", []string{}, session.SignalChan)
 	if err != nil {
 		s.log.Error().Msgf("Sftp exec failed for command '%s': %v", SFTP_BINARY, err)
 	} else {
@@ -309,7 +333,7 @@ func (s *Server) handleExecRequest(connInfo *ConnectionInfo, channel ssh.Channel
 	session := connInfo.Session
 	s.log.Info().Msgf("Handling exec in channel for user %s, command: %s", session.Username, session.Command)
 
-	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, nil, false, s.provisioner, session.Env)
+	k8shelld, err := connInfo.CreateK8shelldClient(connInfo.Ctx, nil, false, s.provisioner, session.Env)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for exec: %v", err)
 		s.sendExitStatus(channel, 1)
@@ -331,7 +355,7 @@ func (s *Server) handleExecRequest(connInfo *ConnectionInfo, channel ssh.Channel
 	s.log.Debug().Msgf("Starting exec for user %s, exec ID: %s, command: %s",
 		session.Username, execID, session.Command)
 
-	exitCode, err := k8shelld.StartExec(s.ctx, channel, execID, session.Command, "/bin/sh",
+	exitCode, err := k8shelld.StartExec(connInfo.Ctx, channel, execID, session.Command, "/bin/sh",
 		session.Env, session.SignalChan)
 	if err != nil {
 		s.log.Error().Msgf("Exec failed for command '%s': %v", session.Command, err)
@@ -381,7 +405,7 @@ func (s *Server) handleAgent(sshConn *ssh.ServerConn, connInfo *ConnectionInfo) 
 	go func() {
 		s.log.Debug().Msgf("Starting agent forwarding for user %s, unix socket id: %s", connInfo.UserStr.Username,
 			connInfo.Session.AgentUnixID)
-		err := k8shelld.StartUnixSocket(s.ctx, channel, connInfo.Session.AgentUnixID, connInfo.Session.SSHAuthSock)
+		err := k8shelld.StartUnixSocket(connInfo.Ctx, channel, connInfo.Session.AgentUnixID, connInfo.Session.SSHAuthSock)
 		if err != nil {
 			if statusErr, ok := status.FromError(err); ok && statusErr.Code() == codes.Canceled {
 				s.log.Debug().Msgf("Agent forwarding canceled for user %s", connInfo.UserStr.Username)
