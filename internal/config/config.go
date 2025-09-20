@@ -46,6 +46,11 @@ type ProvisionerConfig struct {
 	Timeout int    `yaml:"timeout"`
 }
 
+const (
+	DEFAULT_SSH_HANDSHAKE_TIMEOUT        = 30
+	DEFAULT_MAX_DIRECT_TCPIP_CONNECTIONS = 15
+)
+
 // NewConfig creates a new Config instance by loading the configuration from the specified file.
 func NewConfig(configFile string) (*Config, error) {
 	var cfg Config
@@ -53,6 +58,14 @@ func NewConfig(configFile string) (*Config, error) {
 	processor := config.NewDefaultProcessor()
 	if err := processor.LoadAndDecode(configFile, &cfg); err != nil {
 		return nil, fmt.Errorf("failed to load configuration from '%s': %w", configFile, err)
+	}
+
+	if cfg.Server.SSHHandshakeTimeout == 0 {
+		cfg.Server.SSHHandshakeTimeout = DEFAULT_SSH_HANDSHAKE_TIMEOUT
+	}
+
+	if cfg.Server.MaxDirectTCPIPConnections == 0 {
+		cfg.Server.MaxDirectTCPIPConnections = DEFAULT_MAX_DIRECT_TCPIP_CONNECTIONS
 	}
 
 	if cfg.Ssh.Port == 0 || cfg.Identity.APIKey == "" {
