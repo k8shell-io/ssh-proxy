@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/k8shell-io/common/models"
 	"golang.org/x/crypto/ssh"
@@ -250,15 +251,29 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 			case <-stopChan:
 				return
 			default:
-				n, err := channel.Read(buffer)
+				size, err := channel.ReadBufferSize()
 				if err != nil {
 					return
 				}
 
-				if n > 0 && buffer[0] == 3 {
-					s.log.Info().Msgf("Ctrl+C detected for user %s, canceling shell session", session.Username)
-					connInfo.cancel()
-					return
+				if size > 0 {
+					n, err := channel.Read(buffer)
+					if err != nil {
+						return
+					}
+
+					if n > 0 && buffer[0] == 3 {
+						s.log.Info().Msgf("Ctrl+C detected for user %s, canceling shell session", session.Username)
+						connInfo.cancel()
+						return
+					}
+				} else {
+					select {
+					case <-stopChan:
+						return
+					case <-time.After(10 * time.Millisecond):
+						// Continue checking
+					}
 				}
 			}
 		}
