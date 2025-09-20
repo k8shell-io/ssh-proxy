@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/k8shell-io/common/models"
 	"golang.org/x/crypto/ssh"
@@ -241,46 +242,17 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, channel ssh.Channel) {
 	session := connInfo.Session
 
-	// stopChan := make(chan struct{})
-
-	// go func() {
-	// 	buffer := make([]byte, 1)
-	// 	for {
-	// 		select {
-	// 		case <-stopChan:
-	// 			return
-	// 		default:
-	// 			size, err := channel.ReadBufferSize()
-	// 			if err != nil {
-	// 				return
-	// 			}
-
-	// 			if size > 0 {
-	// 				n, err := channel.Read(buffer)
-	// 				if err != nil {
-	// 					return
-	// 				}
-
-	// 				if n > 0 && buffer[0] == 3 {
-	// 					s.log.Info().Msgf("Ctrl+C detected for user %s, canceling shell session", session.Username)
-	// 					connInfo.cancel()
-	// 					return
-	// 				}
-	// 			} else {
-	// 				select {
-	// 				case <-stopChan:
-	// 					return
-	// 				case <-time.After(10 * time.Millisecond):
-	// 					// Continue checking
-	// 				}
-	// 			}
-	// 		}
-	// 	}
-	// }()
+	var stopCtrlC chan struct{}
+	if connInfo.Session.HasPTY {
+		stopCtrlC = make(chan struct{})
+		go s.cancelOnCtrlC(channel, connInfo, stopCtrlC)
+	}
 
 	k8shelld, err := connInfo.CreateK8shelldClient(connInfo.Ctx, channel, s.Config.Server.ShowProvisionInfo,
 		s.provisioner, session.Env)
-	// close(stopChan)
+	if stopCtrlC != nil {
+		close(stopCtrlC)
+	}
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", connInfo.User.Username, err)
 		return
@@ -302,6 +274,41 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 		s.log.Error().Msgf("Shell session error: %v", err)
 	} else {
 		s.log.Debug().Msgf("Shell session %s completed for user %s", session.SessionId, session.Username)
+	}
+}
+
+func (s *Server) cancelOnCtrlC(channel ssh.Channel, connInfo *ConnectionInfo, stopChan chan struct{}) {
+	buffer := make([]byte, 1)
+	for {
+		select {
+		case <-stopChan:
+			return
+		default:
+			size, err := channel.ReadBufferSize()
+			if err != nil {
+				return
+			}
+
+			if size > 0 {
+				n, err := channel.Read(buffer)
+				if err != nil {
+					return
+				}
+
+				if n > 0 && buffer[0] == 3 {
+					s.log.Info().Msgf("Ctrl+C detected, canceling shell session")
+					connInfo.cancel()
+					return
+				}
+			} else {
+				select {
+				case <-stopChan:
+					return
+				case <-time.After(10 * time.Millisecond):
+					// Continue checking
+				}
+			}
+		}
 	}
 }
 
