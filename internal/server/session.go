@@ -17,20 +17,20 @@ var SFTP_BINARY = "/usr/local/bin/sftp"
 func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, newChannel ssh.NewChannel) {
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
-		s.log.Error().Msgf("Failed to accept session channel for user %s: %v", connInfo.User.Username, err)
+		s.log.Error().Msgf("Failed to accept session channel for user %s: %v", connInfo.user.Username, err)
 		return
 	}
 	defer channel.Close()
 
 	session := &SessionInfo{
-		Username:   connInfo.User.Username,
-		Env:        []string{},
-		SessionId:  fmt.Sprintf("sh-%s-%d", connInfo.proxyFullID, channel.LocalID()),
-		TermWidth:  80,
-		TermHeight: 24,
-		HasPTY:     false,
+		username:   connInfo.user.Username,
+		env:        []string{},
+		sessionId:  fmt.Sprintf("sh-%s-%d", connInfo.proxyFullID, channel.LocalID()),
+		termWidth:  80,
+		termHeight: 24,
+		hasPTY:     false,
 	}
-	connInfo.Session = session
+	connInfo.session = session
 
 	sessionType := make(chan string, 2)
 	go s.handleSessionRequests(requests, connInfo, channel, sessionType)
@@ -48,14 +48,14 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 		s.handleExecRequest(connInfo, channel)
 
 	default:
-		s.log.Warn().Msgf("No valid session request received for user %s", session.Username)
+		s.log.Warn().Msgf("No valid session request received for user %s", session.username)
 	}
 }
 
 func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *ConnectionInfo,
 	channel ssh.Channel, sessionType chan<- string) {
 	sessionTypeSent := false
-	session := connInfo.Session
+	session := connInfo.session
 
 	for req := range requests {
 		s.log.Debug().Msgf("Received session request: type=%s, want_reply=%t, payload_len=%d",
@@ -95,24 +95,24 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 				if len(req.Payload) >= int(4+termLen) {
 					termType := string(req.Payload[4 : 4+termLen])
 					termEnv := fmt.Sprintf("TERM=%s", termType)
-					session.Env = append(session.Env, termEnv)
-					s.log.Debug().Msgf("Terminal type: %s for user %s", termType, session.Username)
+					session.env = append(session.env, termEnv)
+					s.log.Debug().Msgf("Terminal type: %s for user %s", termType, session.username)
 
 					offset := 4 + int(termLen)
 					if len(req.Payload) >= offset+16 {
-						session.TermWidth = binary.BigEndian.Uint32(req.Payload[offset : offset+4])
-						session.TermHeight = binary.BigEndian.Uint32(req.Payload[offset+4 : offset+8])
+						session.termWidth = binary.BigEndian.Uint32(req.Payload[offset : offset+4])
+						session.termHeight = binary.BigEndian.Uint32(req.Payload[offset+4 : offset+8])
 
 						s.log.Debug().Msgf("PTY size from request: %dx%d for user %s",
-							session.TermWidth, session.TermHeight, session.Username)
+							session.termWidth, session.termHeight, session.username)
 					}
 				}
 			}
 
-			session.HasPTY = true
+			session.hasPTY = true
 			accepted = true
 			connInfo.AddChannelInfo(models.ChannelShortPt)
-			s.log.Debug().Msgf("PTY request accepted for user %s", session.Username)
+			s.log.Debug().Msgf("PTY request accepted for user %s", session.username)
 
 		case "env":
 			if len(req.Payload) >= 8 {
@@ -125,23 +125,23 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 					if len(req.Payload) >= int(8+nameLen+valueLen) {
 						value := string(req.Payload[8+nameLen : 8+nameLen+valueLen])
 						envVar := fmt.Sprintf("%s=%s", name, value)
-						if name != "TERM" || !s.hasTermEnv(session.Env) {
-							session.Env = append(session.Env, envVar)
+						if name != "TERM" || !s.hasTermEnv(session.env) {
+							session.env = append(session.env, envVar)
 						}
 
-						s.log.Debug().Msgf("Env: %s=%s for user %s", name, value, session.Username)
+						s.log.Debug().Msgf("Env: %s=%s for user %s", name, value, session.username)
 						accepted = true
 					}
 				}
 			}
 
 			if !accepted {
-				s.log.Warn().Msgf("Failed to parse env request payload for user %s", session.Username)
+				s.log.Warn().Msgf("Failed to parse env request payload for user %s", session.username)
 			}
 
 		case "shell":
 			accepted = true
-			s.log.Debug().Msgf("Shell request accepted for user %s", session.Username)
+			s.log.Debug().Msgf("Shell request accepted for user %s", session.username)
 			sessionType <- "shell"
 			sessionTypeSent = true
 			connInfo.AddChannelInfo(models.ChannelShortSh)
@@ -152,8 +152,8 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 				s.log.Error().Msgf("Failed to parse exec request: %v", err)
 			} else {
 				accepted = true
-				session.Command = command
-				s.log.Debug().Msgf("Exec request accepted for user %s: %s", session.Username, command)
+				session.command = command
+				s.log.Debug().Msgf("Exec request accepted for user %s: %s", session.username, command)
 				sessionType <- "exec"
 				sessionTypeSent = true
 				connInfo.AddChannelInfo(models.ChannelShortEx)
@@ -174,17 +174,17 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 			signalName := string(req.Payload[4 : 4+nameLen])
 			s.log.Debug().Msgf("Signal request: %s", signalName)
 
-			if session.SignalChan != nil {
+			if session.signalChan != nil {
 				select {
-				case session.SignalChan <- signalName:
+				case session.signalChan <- signalName:
 					accepted = true
-					s.log.Debug().Msgf("Signal %s sent to active exec process for user %s", signalName, session.Username)
+					s.log.Debug().Msgf("Signal %s sent to active exec process for user %s", signalName, session.username)
 				default:
-					s.log.Warn().Msgf("Signal channel full, couldn't send signal %s for user %s", signalName, session.Username)
+					s.log.Warn().Msgf("Signal channel full, couldn't send signal %s for user %s", signalName, session.username)
 					accepted = false
 				}
 			} else {
-				s.log.Warn().Msgf("No active exec session to send signal %s for user %s", signalName, session.Username)
+				s.log.Warn().Msgf("No active exec session to send signal %s for user %s", signalName, session.username)
 				accepted = false
 			}
 
@@ -196,34 +196,34 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 					width := binary.BigEndian.Uint32(req.Payload[0:4])
 					height := binary.BigEndian.Uint32(req.Payload[4:8])
 
-					s.log.Debug().Msgf("Window change: %dx%d for user %s", width, height, session.Username)
-					session.TermWidth = width
-					session.TermHeight = height
+					s.log.Debug().Msgf("Window change: %dx%d for user %s", width, height, session.username)
+					session.termWidth = width
+					session.termHeight = height
 
-					if err := k8shelld.ResizeTerminal(connInfo.Ctx, session.SessionId, width, height); err != nil {
+					if err := k8shelld.ResizeTerminal(connInfo.ctx, session.sessionId, width, height); err != nil {
 						s.log.Error().Msgf("Failed to resize terminal: %v", err)
 					}
 				} else {
 					s.log.Warn().Msgf("Received window-change request for user %s, but payload is too short",
-						session.Username)
+						session.username)
 				}
 			} else {
 				s.log.Warn().Msgf("Received window-change request for user %s, but k8shelld is not available",
-					session.Username)
+					session.username)
 			}
 
 		case "auth-agent-req@openssh.com":
 			accepted = true
-			session.HasAgent = true
-			session.AgentUnixID = fmt.Sprintf("ux-%s-%d", connInfo.proxyFullID, channel.LocalID())
-			session.SSHAuthSock = fmt.Sprintf(SSH_AUTH_SOCK_TEMP, session.AgentUnixID)
-			s.log.Debug().Msgf("SSH agent forwarding request accepted for user %s", session.Username)
-			session.Env = append(session.Env, fmt.Sprintf("SSH_AUTH_SOCK=%s",
-				session.SSHAuthSock))
+			session.hasAgent = true
+			session.agentUnixID = fmt.Sprintf("ux-%s-%d", connInfo.proxyFullID, channel.LocalID())
+			session.sshAuthSock = fmt.Sprintf(SSH_AUTH_SOCK_TEMP, session.agentUnixID)
+			s.log.Debug().Msgf("SSH agent forwarding request accepted for user %s", session.username)
+			session.env = append(session.env, fmt.Sprintf("SSH_AUTH_SOCK=%s",
+				session.sshAuthSock))
 			connInfo.AddChannelInfo(models.ChannelShortAf)
 
 		default:
-			s.log.Warn().Msgf("Unsupported session request type: %s for user %s", req.Type, session.Username)
+			s.log.Warn().Msgf("Unsupported session request type: %s for user %s", req.Type, session.username)
 		}
 
 		if req.WantReply {
@@ -240,25 +240,25 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 
 // handleShellRequest handles a shell request for a user
 func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, channel ssh.Channel) {
-	session := connInfo.Session
+	session := connInfo.session
 
 	var stopCtrlC chan struct{}
-	if connInfo.Session.HasPTY {
+	if connInfo.session.hasPTY {
 		stopCtrlC = make(chan struct{})
 		go s.cancelOnCtrlC(channel, connInfo, stopCtrlC)
 	}
 
-	k8shelld, err := connInfo.CreateK8shelldClient(connInfo.Ctx, channel, s.Config.Server.ShowProvisionInfo,
-		s.provisioner, session.Env)
+	k8shelld, err := connInfo.CreateK8shelldClient(connInfo.ctx, channel, s.Config.Server.ShowProvisionInfo,
+		s.provisioner, session.env)
 	if stopCtrlC != nil {
 		close(stopCtrlC)
 	}
 	if err != nil {
-		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", connInfo.User.Username, err)
+		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", connInfo.user.Username, err)
 		return
 	}
 
-	if session.HasAgent {
+	if session.hasAgent {
 		agentChannel, err := s.handleAgent(sshConn, connInfo)
 		if err != nil {
 			s.log.Error().Msgf("Failed to create agent channel: %v", err)
@@ -267,13 +267,13 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 		}
 	}
 
-	s.log.Debug().Msgf("Starting shell session for user %s, session ID: %s", session.Username, session.SessionId)
+	s.log.Debug().Msgf("Starting shell session for user %s, session ID: %s", session.username, session.sessionId)
 
-	if err := k8shelld.StartShell(connInfo.Ctx, channel, session.SessionId,
-		session.Env, session.TermWidth, session.TermHeight, session.HasPTY, connInfo.counters); err != nil {
+	if err := k8shelld.StartShell(connInfo.ctx, channel, session.sessionId,
+		session.env, session.termWidth, session.termHeight, session.hasPTY, connInfo.counters); err != nil {
 		s.log.Error().Msgf("Shell session error: %v", err)
 	} else {
-		s.log.Debug().Msgf("Shell session %s completed for user %s", session.SessionId, session.Username)
+		s.log.Debug().Msgf("Shell session %s completed for user %s", session.sessionId, session.username)
 	}
 }
 
@@ -315,35 +315,35 @@ func (s *Server) cancelOnCtrlC(channel ssh.Channel, connInfo *ConnectionInfo, st
 // ** SFTP
 
 func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *ConnectionInfo, channel ssh.Channel) {
-	session := connInfo.Session
-	s.log.Info().Msgf("Handling sftp subsystem in channel for user %s, command: %s", session.Username, session.Command)
+	session := connInfo.session
+	s.log.Info().Msgf("Handling sftp subsystem in channel for user %s, command: %s", session.username, session.command)
 
-	k8shelld, err := connInfo.CreateK8shelldClient(connInfo.Ctx, nil, false, s.provisioner, session.Env)
+	k8shelld, err := connInfo.CreateK8shelldClient(connInfo.ctx, nil, false, s.provisioner, session.env)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for sftp exec: %v", err)
 		return
 	}
 
-	if session.SignalChan != nil {
-		s.log.Error().Msgf("Signal channel already exists for user %s, cannot start exec", session.Username)
+	if session.signalChan != nil {
+		s.log.Error().Msgf("Signal channel already exists for user %s, cannot start exec", session.username)
 		return
 	}
 
-	session.SignalChan = make(chan string, 10)
+	session.signalChan = make(chan string, 10)
 	defer func() {
-		close(session.SignalChan)
-		session.SignalChan = nil
+		close(session.signalChan)
+		session.signalChan = nil
 	}()
 
 	execID := fmt.Sprintf("sf-%s-%d-%d", connInfo.proxyFullID, channel.LocalID(), connInfo.ExecSeqNumber())
 	s.log.Debug().Msgf("Starting sftp for user %s, exec ID: %s, command: %s",
-		session.Username, execID, SFTP_BINARY)
+		session.username, execID, SFTP_BINARY)
 
-	_, err = k8shelld.StartExec(connInfo.Ctx, channel, execID, SFTP_BINARY, "", []string{}, session.SignalChan)
+	_, err = k8shelld.StartExec(connInfo.ctx, channel, execID, SFTP_BINARY, "", []string{}, session.signalChan)
 	if err != nil {
 		s.log.Error().Msgf("Sftp exec failed for command '%s': %v", SFTP_BINARY, err)
 	} else {
-		s.log.Debug().Msgf("Sftp exec completed for user %s, exec ID: %s", session.Username, execID)
+		s.log.Debug().Msgf("Sftp exec completed for user %s, exec ID: %s", session.username, execID)
 	}
 }
 
@@ -351,35 +351,35 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *ConnectionInfo
 
 // handleExecRequest handles an exec request for a user
 func (s *Server) handleExecRequest(connInfo *ConnectionInfo, channel ssh.Channel) {
-	session := connInfo.Session
-	s.log.Info().Msgf("Handling exec in channel for user %s, command: %s", session.Username, session.Command)
+	session := connInfo.session
+	s.log.Info().Msgf("Handling exec in channel for user %s, command: %s", session.username, session.command)
 
-	k8shelld, err := connInfo.CreateK8shelldClient(connInfo.Ctx, nil, false, s.provisioner, session.Env)
+	k8shelld, err := connInfo.CreateK8shelldClient(connInfo.ctx, nil, false, s.provisioner, session.env)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for exec: %v", err)
 		s.sendExitStatus(channel, 1)
 		return
 	}
 
-	if session.SignalChan != nil {
-		s.log.Error().Msgf("Signal channel already exists for user %s, cannot start exec", session.Username)
+	if session.signalChan != nil {
+		s.log.Error().Msgf("Signal channel already exists for user %s, cannot start exec", session.username)
 		return
 	}
 
-	session.SignalChan = make(chan string, 10)
+	session.signalChan = make(chan string, 10)
 	defer func() {
-		close(session.SignalChan)
-		session.SignalChan = nil
+		close(session.signalChan)
+		session.signalChan = nil
 	}()
 
 	execID := fmt.Sprintf("ex-%s-%d-%d", connInfo.proxyFullID, channel.LocalID(), connInfo.ExecSeqNumber())
 	s.log.Debug().Msgf("Starting exec for user %s, exec ID: %s, command: %s",
-		session.Username, execID, session.Command)
+		session.username, execID, session.command)
 
-	exitCode, err := k8shelld.StartExec(connInfo.Ctx, channel, execID, session.Command, "/bin/sh",
-		session.Env, session.SignalChan)
+	exitCode, err := k8shelld.StartExec(connInfo.ctx, channel, execID, session.command, "/bin/sh",
+		session.env, session.signalChan)
 	if err != nil {
-		s.log.Error().Msgf("Exec failed for command '%s': %v", session.Command, err)
+		s.log.Error().Msgf("Exec failed for command '%s': %v", session.command, err)
 	}
 
 	if exitCode < 0 {
@@ -388,10 +388,10 @@ func (s *Server) handleExecRequest(connInfo *ConnectionInfo, channel ssh.Channel
 	}
 
 	if exitCode > 0 {
-		s.log.Warn().Msgf("Command error '%s': exit code: %d", session.Command, exitCode)
+		s.log.Warn().Msgf("Command error '%s': exit code: %d", session.command, exitCode)
 	}
 
-	s.log.Debug().Msgf("Command '%s' executed in the workspace, exit-code=%d", session.Command, exitCode)
+	s.log.Debug().Msgf("Command '%s' executed in the workspace, exit-code=%d", session.command, exitCode)
 	s.sendExitStatus(channel, exitCode)
 }
 
@@ -407,11 +407,11 @@ func (s *Server) sendExitStatus(channel ssh.Channel, exitCode int32) {
 // createAgentChannel creates a server-initiated agent forwarding channel and
 // handles the communication between the SSH agent and the unix socket in the workspace
 func (s *Server) handleAgent(sshConn *ssh.ServerConn, connInfo *ConnectionInfo) (ssh.Channel, error) {
-	s.log.Debug().Msgf("Creating agent channel for user %s", connInfo.UserStr.Username)
+	s.log.Debug().Msgf("Creating agent channel for user %s", connInfo.userStr.Username)
 
 	k8shelld := connInfo.k8shelld
 	if k8shelld == nil {
-		return nil, fmt.Errorf("k8shelld client does not exist for user %s", connInfo.UserStr.Username)
+		return nil, fmt.Errorf("k8shelld client does not exist for user %s", connInfo.userStr.Username)
 	}
 
 	channel, reqs, err := sshConn.OpenChannel("auth-agent@openssh.com", nil)
@@ -420,21 +420,21 @@ func (s *Server) handleAgent(sshConn *ssh.ServerConn, connInfo *ConnectionInfo) 
 	}
 	go ssh.DiscardRequests(reqs)
 
-	s.log.Debug().Msgf("Agent channel created for user %s", connInfo.UserStr.Username)
+	s.log.Debug().Msgf("Agent channel created for user %s", connInfo.userStr.Username)
 
 	// handle communication with the SSH agent and the unix socket
 	go func() {
-		s.log.Debug().Msgf("Starting agent forwarding for user %s, unix socket id: %s", connInfo.UserStr.Username,
-			connInfo.Session.AgentUnixID)
-		err := k8shelld.StartUnixSocket(connInfo.Ctx, channel, connInfo.Session.AgentUnixID, connInfo.Session.SSHAuthSock)
+		s.log.Debug().Msgf("Starting agent forwarding for user %s, unix socket id: %s", connInfo.userStr.Username,
+			connInfo.session.agentUnixID)
+		err := k8shelld.StartUnixSocket(connInfo.ctx, channel, connInfo.session.agentUnixID, connInfo.session.sshAuthSock)
 		if err != nil {
 			if statusErr, ok := status.FromError(err); ok && statusErr.Code() == codes.Canceled {
-				s.log.Debug().Msgf("Agent forwarding canceled for user %s", connInfo.UserStr.Username)
+				s.log.Debug().Msgf("Agent forwarding canceled for user %s", connInfo.userStr.Username)
 			} else {
-				s.log.Error().Msgf("Agent forwarding deadline exceeded for user %s", connInfo.UserStr.Username)
+				s.log.Error().Msgf("Agent forwarding deadline exceeded for user %s", connInfo.userStr.Username)
 			}
 		}
-		s.log.Debug().Msgf("Agent channel closed for user %s", connInfo.UserStr.Username)
+		s.log.Debug().Msgf("Agent channel closed for user %s", connInfo.userStr.Username)
 	}()
 
 	return channel, nil

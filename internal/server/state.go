@@ -25,18 +25,16 @@ type ConnectionInfo struct {
 	proxyFullID      string                    // identifier of the proxy with a PID where connection is established
 	identity         *identity.Client          // identity client for interacting with the identity service
 	k8shelld         *workspace.K8shelld       // k8shelld client for interacting with the workspace k8shelld daemon
-	UserStr          *models.UserStr           // user string information
-	OnboardCap       *models.OnboardCapability // onboarding capabilities
-	OnboardInfo      *models.OnboardUser       // onboarding information
-	User             *models.User              // user information
-	AuthFailCount    int                       // number of failed authentication attempts
-	AuthLastAttempt  time.Time                 // timestamp of the last authentication attempt
+	userStr          *models.UserStr           // user string information
+	onboardCap       *models.OnboardCapability // onboarding capabilities
+	onboardInfo      *models.OnboardUser       // onboarding information
+	user             *models.User              // user information
 	mu               sync.RWMutex              // mutex for synchronizing access
-	Session          *SessionInfo              // SSH session information
-	DirectTCPIP      *sync.Map                 // direct TCP/IP connection information
-	DirectTCPIPCount int64                     // current count of direct TCP/IP connections
+	session          *SessionInfo              // SSH session information
+	directTCPIP      *sync.Map                 // direct TCP/IP connection information
+	directTCPIPCount int64                     // current count of direct TCP/IP connections
 	counters         *workspace.ConnCounters   // connection counters
-	Ctx              context.Context           // context for managing lifecycle
+	ctx              context.Context           // context for managing lifecycle
 	cancel           context.CancelFunc        // function to cancel
 	sessionID        int32                     // SSH session ID
 	workspaceName    string                    // name of the workspace
@@ -46,31 +44,26 @@ type ConnectionInfo struct {
 
 // SessionInfo holds information about a user's SSH session
 type SessionInfo struct {
-	Username     string        // username of the user
-	TermType     string        // terminal type
-	TermWidth    uint32        // terminal width
-	TermHeight   uint32        // terminal height
-	TermWidthPx  uint32        // terminal width in pixels
-	TermHeightPx uint32        // terminal height in pixels
-	Env          []string      // environment variables
-	Command      string        // command to execute
-	HasPTY       bool          // true when the session has a pseudo-terminal
-	SessionId    string        // unique session identifier
-	ShellReady   chan struct{} // channel to signal when the shell is ready
-	HasAgent     bool          // true when the session has an SSH agent
-	AgentChannel ssh.Channel   // channel for the SSH agent
-	AgentUnixID  string        // unique identifier for the agent Unix socket
-	SSHAuthSock  string        // value of SSH_AUTH_SOCK env variable
-	SignalChan   chan string   `json:"-"`
+	username    string      // username of the user
+	termWidth   uint32      // terminal width
+	termHeight  uint32      // terminal height
+	env         []string    // environment variables
+	command     string      // command to execute
+	hasPTY      bool        // true when the session has a pseudo-terminal
+	sessionId   string      // unique session identifier
+	hasAgent    bool        // true when the session has an SSH agent
+	agentUnixID string      // unique identifier for the agent Unix socket
+	sshAuthSock string      // value of SSH_AUTH_SOCK env variable
+	signalChan  chan string `json:"-"`
 }
 
 type DirectTCPIPInfo struct {
-	Username      string // username of the user
-	DirectTCPIPId string // unique identifier for the direct TCP/IP connection
-	DestHost      string // destination host
-	DestPort      uint32 // destination port
-	OriginHost    string // origin host
-	OriginPort    uint32 // origin port
+	username      string // username of the user
+	directTCPIPId string // unique identifier for the direct TCP/IP connection
+	destHost      string // destination host
+	destPort      uint32 // destination port
+	originHost    string // origin host
+	originPort    uint32 // origin port
 }
 
 // Global state storage
@@ -95,7 +88,7 @@ func GetConnectionInfoByAddress(remoteAddr string) *ConnectionInfo {
 func RemoveState(state *ConnectionInfo) {
 	connStatesMutex.Lock()
 	defer connStatesMutex.Unlock()
-	delete(connStates, fmt.Sprintf("12345-%s", state.UserStr.Username))
+	delete(connStates, fmt.Sprintf("12345-%s", state.userStr.Username))
 }
 
 func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
@@ -116,15 +109,15 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
 		connInfo = &ConnectionInfo{
 			identity:    s.identity,
 			proxyFullID: fmt.Sprintf("%s-%d", proxyID, os.Getpid()),
-			UserStr:     userStr,
-			DirectTCPIP: &sync.Map{},
+			userStr:     userStr,
+			directTCPIP: &sync.Map{},
 			counters:    &workspace.ConnCounters{},
-			Ctx:         ctx,
+			ctx:         ctx,
 			cancel:      cancel,
 			sessionID:   0,
 		}
 		connStates[connID] = connInfo
-		go connInfo.reportSessionData(connInfo.Ctx)
+		go connInfo.reportSessionData(connInfo.ctx)
 	}
 	return connInfo, nil
 }
@@ -160,7 +153,7 @@ func (c *ConnectionInfo) Close() {
 		c.cancel()
 	}
 	if c.sessionID != 0 {
-		c.identity.EndSSHSession(context.Background(), c.UserStr.Username, c.sessionID)
+		c.identity.EndSSHSession(context.Background(), c.userStr.Username, c.sessionID)
 	}
 }
 
@@ -201,7 +194,7 @@ func (c *ConnectionInfo) reportSessionData(ctx context.Context) {
 		prevChannelInfo = append([]string(nil), curChannels...)
 
 		_ = c.identity.UpdateSSHSession(
-			ctx, c.UserStr.Username, sessionID, sendIn, sendOut, "", sendChannels,
+			ctx, c.userStr.Username, sessionID, sendIn, sendOut, "", sendChannels,
 		)
 	}
 
@@ -223,25 +216,25 @@ func (c *ConnectionInfo) reportSessionData(ctx context.Context) {
 func (c *ConnectionInfo) SetOnboardInfo(onboardInfo *models.OnboardUser) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.OnboardInfo = onboardInfo
+	c.onboardInfo = onboardInfo
 }
 
 func (c *ConnectionInfo) GetOnboardInfo() *models.OnboardUser {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.OnboardInfo
+	return c.onboardInfo
 }
 
 func (c *ConnectionInfo) SetOnboardCap(onboardCap *models.OnboardCapability) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.OnboardCap = onboardCap
+	c.onboardCap = onboardCap
 }
 
 func (c *ConnectionInfo) GetOnboardCap() *models.OnboardCapability {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.OnboardCap
+	return c.onboardCap
 }
 
 func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Writer, showProvisionInfo bool,
@@ -253,9 +246,9 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 		return c.k8shelld, nil
 	}
 
-	status, err := workspace.EnsureWorkspace(ctx, c.UserStr, writer, showProvisionInfo, client)
+	status, err := workspace.EnsureWorkspace(ctx, c.userStr, writer, showProvisionInfo, client)
 	if err != nil {
-		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.UserStr.Username, err)
+		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.userStr.Username, err)
 	}
 	if writer != nil {
 		writer.Write([]byte(fmt.Sprintf("Connecting to the workspace at %s...\r\n", status.Host)))
@@ -263,15 +256,15 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 
 	k8shelld, err := workspace.NewK8shelld(status.Host, status.PodIP, status.Port, status.AccessKey, status.TLSCert)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.User.Username, err)
+		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.user.Username, err)
 	}
 
-	handshake, err := k8shelld.Handshake(ctx, c.User, envVars)
+	handshake, err := k8shelld.Handshake(ctx, c.user, envVars)
 	if err != nil {
-		return nil, fmt.Errorf("handshake with k8shelld failed for user %s: %w", c.User.Username, err)
+		return nil, fmt.Errorf("handshake with k8shelld failed for user %s: %w", c.user.Username, err)
 	}
 	if !handshake.Accepted {
-		return nil, fmt.Errorf("handshake with k8shelld failed for user %s", c.User.Username)
+		return nil, fmt.Errorf("handshake with k8shelld failed for user %s", c.user.Username)
 	}
 	if writer != nil {
 		writer.Write([]byte(fmt.Sprintf("Connected to k8shelld (version: %s)\r\n",
@@ -288,10 +281,10 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 	c.workspaceName = status.Name
 
 	// create session
-	sshSession, err := c.identity.CreateSSHSession(ctx, c.User.Username, c.workspaceName,
+	sshSession, err := c.identity.CreateSSHSession(ctx, c.user.Username, c.workspaceName,
 		GetProxyID(), os.Getpid(), c.clientIP)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create SSH session for user %s: %w", c.User.Username, err)
+		return nil, fmt.Errorf("failed to create SSH session for user %s: %w", c.user.Username, err)
 	}
 	c.sessionID = sshSession.SessionID
 
@@ -301,12 +294,12 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 // IncrementDirectTCPIPCount atomically increments the direct TCP/IP count
 func (c *ConnectionInfo) IncrementDirectTCPIPCount(maxLimit int) bool {
 	for {
-		current := atomic.LoadInt64(&c.DirectTCPIPCount)
+		current := atomic.LoadInt64(&c.directTCPIPCount)
 		if current >= int64(maxLimit) {
 			return false
 		}
 
-		if atomic.CompareAndSwapInt64(&c.DirectTCPIPCount, current, current+1) {
+		if atomic.CompareAndSwapInt64(&c.directTCPIPCount, current, current+1) {
 			return true
 		}
 	}
@@ -315,12 +308,12 @@ func (c *ConnectionInfo) IncrementDirectTCPIPCount(maxLimit int) bool {
 // DecrementDirectTCPIPCount atomically decrements the direct TCP/IP count
 func (c *ConnectionInfo) DecrementDirectTCPIPCount() {
 	for {
-		current := atomic.LoadInt64(&c.DirectTCPIPCount)
+		current := atomic.LoadInt64(&c.directTCPIPCount)
 		if current <= 0 {
 			return
 		}
 
-		if atomic.CompareAndSwapInt64(&c.DirectTCPIPCount, current, current-1) {
+		if atomic.CompareAndSwapInt64(&c.directTCPIPCount, current, current-1) {
 			return
 		}
 	}
@@ -328,7 +321,7 @@ func (c *ConnectionInfo) DecrementDirectTCPIPCount() {
 
 // GetDirectTCPIPCount returns the current direct TCP/IP count
 func (c *ConnectionInfo) GetDirectTCPIPCount() int {
-	return int(atomic.LoadInt64(&c.DirectTCPIPCount))
+	return int(atomic.LoadInt64(&c.directTCPIPCount))
 }
 
 func (c *ConnectionInfo) ExecSeqNumber() int64 {

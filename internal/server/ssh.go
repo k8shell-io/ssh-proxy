@@ -233,7 +233,7 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 				failureInfo := []string{}
 				failureInfo = append(failureInfo, connInfo.failureInfo...)
 				failureInfo = append(failureInfo, string(err.Error()))
-				s.nats.PublishFailedConnection(ip, port, connInfo.UserStr.Username, failureInfo)
+				s.nats.PublishFailedConnection(ip, port, connInfo.userStr.Username, failureInfo)
 			}
 
 			connInfo.Close()
@@ -249,7 +249,7 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 		s.log.Error().Msgf("Failed to get connection info: %v", err)
 		return
 	}
-	if connInfo.User == nil {
+	if connInfo.user == nil {
 		s.log.Error().Msgf("There is no user identity associated with username %s. Cannot handle connection.",
 			sshConn.User())
 		return
