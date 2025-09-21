@@ -56,7 +56,7 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.
 	client *provisioner.Client) (string, error) {
 	events := make(chan provModels.StreamEvent, 100)
 	if writer != nil && !showProvisionInfo {
-		writer.Write([]byte("Starting workspace (0%)...\r"))
+		writer.Write([]byte("Starting workspace (0%)..."))
 	} else {
 		writer.Write([]byte("Starting workspace...\r\n"))
 	}
@@ -105,7 +105,7 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.
 				if showProvisionInfo {
 					writer.Write([]byte(fmt.Sprintf("%s\r\n", event.String())))
 				} else {
-					writer.Write([]byte(fmt.Sprintf("Starting workspace (%d%%)...\r", percentage)))
+					writer.Write([]byte(fmt.Sprintf("\rStarting workspace (%d%%)...", percentage)))
 				}
 			}
 
@@ -119,7 +119,7 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.
 		}
 
 		if writer != nil && !showProvisionInfo {
-			writer.Write([]byte(fmt.Sprintf("Starting workspace (%d%%)...\r\n", 100)))
+			writer.Write([]byte(fmt.Sprintf("\rStarting workspace (%d%%)...\r\n", 100)))
 		}
 	}()
 
