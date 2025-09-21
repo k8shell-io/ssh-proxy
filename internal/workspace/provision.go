@@ -55,13 +55,17 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Wri
 func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Writer, showProvisionInfo bool,
 	client *provisioner.Client) (string, error) {
 	events := make(chan provModels.StreamEvent, 100)
-	if writer != nil {
+	if writer != nil && !showProvisionInfo {
+		writer.Write([]byte("Starting workspace (0%)...\r"))
+	} else {
 		writer.Write([]byte("Starting workspace...\r\n"))
 	}
 
 	var name string
 	var provisionErr error
 	var eventErr error
+	var eventCount int
+	const totalEvents = 10
 
 	var wg sync.WaitGroup
 
@@ -88,8 +92,21 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.
 		defer wg.Done()
 
 		for event := range events {
-			if writer != nil && showProvisionInfo {
-				writer.Write([]byte(fmt.Sprintf("%s\r\n", event.String())))
+			eventCount++
+
+			percentage := (eventCount * 100) / totalEvents
+			if percentage > 100 {
+				percentage = 100
+			}
+
+			fmt.Print(eventCount, totalEvents, percentage)
+
+			if writer != nil {
+				if showProvisionInfo {
+					writer.Write([]byte(fmt.Sprintf("%s\r\n", event.String())))
+				} else {
+					writer.Write([]byte(fmt.Sprintf("Starting workspace (%d%%)...\r", percentage)))
+				}
 			}
 
 			if event.Status == "Running" {
@@ -99,6 +116,10 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.
 			if event.Status == "Error" {
 				eventErr = fmt.Errorf("provisioning error: %s", event.Message)
 			}
+		}
+
+		if writer != nil && !showProvisionInfo {
+			writer.Write([]byte(fmt.Sprintf("Starting workspace (%d%%)...\r\n", 100)))
 		}
 	}()
 
