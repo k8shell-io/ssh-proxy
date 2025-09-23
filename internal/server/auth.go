@@ -226,11 +226,9 @@ func (s *Server) updateUser(ctx context.Context, connInfo *ConnectionInfo) {
 			}
 		}
 	} else {
-		// TODO: improve check permissions
-		if connInfo.userStr.Blueprint != "" && !slices.Contains(user.Blueprints, connInfo.userStr.Blueprint) &&
-			!strings.HasPrefix(connInfo.userStr.Blueprint, "repo-") {
-			connInfo.AddFailureInfo(fmt.Sprintf("User not allowed to access blueprint %s", connInfo.userStr.Blueprint), nil)
-			connInfo.user = nil
+		if !connInfo.userStr.HasCustomBlueprint && !user.HasBlueprint(connInfo.userStr.Blueprint) {
+			connInfo.AddFailureInfo(fmt.Sprintf("User not allowed to access blueprint %s",
+				connInfo.userStr.Blueprint), nil)
 			return
 		}
 		connInfo.user = user
