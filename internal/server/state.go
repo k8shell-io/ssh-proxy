@@ -163,7 +163,6 @@ func (c *ConnectionInfo) Close() {
 
 func (c *ConnectionInfo) reportSessionData(ctx context.Context) {
 	t := time.NewTicker(10 * time.Second)
-	defer t.Stop()
 
 	prevIn, prevOut := c.counters.Snapshot()
 	var prevChannelInfo []string
@@ -200,17 +199,21 @@ func (c *ConnectionInfo) reportSessionData(ctx context.Context) {
 		)
 	}
 
+	defer func() {
+		if sid := getSessionID(); sid != 0 {
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+
+			sendUpdate(cleanupCtx, sid)
+			_ = c.identity.EndSSHSession(cleanupCtx, c.userStr.Username, sid)
+			fmt.Printf("**** Session %d for user %s ended and reported final data\n", sid, c.userStr.Username)
+		}
+		t.Stop()
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
-			if sid := getSessionID(); sid != 0 {
-				cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-
-				sendUpdate(cleanupCtx, sid)
-				_ = c.identity.EndSSHSession(cleanupCtx, c.userStr.Username, sid)
-				fmt.Printf("**** Session %d for user %s ended and reported final data\n", sid, c.userStr.Username)
-			}
 			return
 		case <-t.C:
 			if sid := getSessionID(); sid != 0 {
