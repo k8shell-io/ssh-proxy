@@ -144,7 +144,6 @@ func (w *InfoWriter) WriteSystemError(p string) {
 
 func (w *InfoWriter) WriteSplash(splash string) {
 	if w.Writer != nil {
-		w.Writer.Write([]byte("\r\n"))
 		lines := strings.Split(splash, "\n")
 		for _, line := range lines {
 			fmt.Fprintf(w.Writer, "%s\r\n", line)
