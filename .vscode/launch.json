@@ -13,8 +13,8 @@
             "program": "main.go",
             "env": {
                 "SECRET_FILES": "/opt/shared/ssh-proxy/secrets",
-                "PROVISIONER_SERVICE_HOST": "provisioner.k8shell-test",
-                //"PROVISIONER_SERVICE_HOST": "10.42.1.97",
+                //"PROVISIONER_SERVICE_HOST": "provisioner.k8shell-test",
+                "PROVISIONER_SERVICE_HOST": "10.42.1.97",
                 "IDENTITY_SERVICE_HOST": "identity.k8shell-test",
                 "NATS_HOST": "nats.k8shell-test",
             },
