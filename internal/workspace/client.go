@@ -30,6 +30,7 @@ type K8shelld struct {
 	pfClient         pb.PortForwardServiceClient
 	unixSocketClient pb.UnixSocketServiceClient
 	AccessKey        string
+	counters         *ConnCounters
 }
 
 type ConnCounters struct {
@@ -49,7 +50,7 @@ var KEEPALIVE_TIME = 5 * time.Minute
 // KEEPALIVE_TIMEOUT defines the timeout for keepalive pings.
 var KEEPALIVE_TIMEOUT = 20 * time.Second
 
-func NewK8shelld(host string, address string, port int, accessKey string, tlsCert string) (*K8shelld, error) {
+func NewK8shelld(host string, address string, port int, accessKey string, tlsCert string, counters *ConnCounters) (*K8shelld, error) {
 	var creds credentials.TransportCredentials
 	if tlsCert != "" {
 		pool := x509.NewCertPool()
@@ -93,6 +94,7 @@ func NewK8shelld(host string, address string, port int, accessKey string, tlsCer
 		pfClient:         pb.NewPortForwardServiceClient(conn),
 		unixSocketClient: pb.NewUnixSocketServiceClient(conn),
 		AccessKey:        accessKey,
+		counters:         counters,
 	}, nil
 }
 
@@ -122,7 +124,7 @@ func (c *K8shelld) Handshake(ctx context.Context, user *models.User, envVars []s
 
 // StartShell creates a PTY shell session over gRPC and bridges it with the SSH channel.
 func (c *K8shelld) StartShell(ctx context.Context, channel ssh.Channel, sessionId string, envVars []string,
-	width, height uint32, usePty bool, counters *ConnCounters) error {
+	width, height uint32, usePty bool) error {
 	md := metadata.Pairs(
 		"authorization", c.AccessKey,
 		"session-id", sessionId,
@@ -180,7 +182,7 @@ func (c *K8shelld) StartShell(ctx context.Context, channel ssh.Channel, sessionI
 				errCh <- fmt.Errorf("grpc send: %w", serr)
 				return
 			}
-			counters.AddIn(n)
+			c.counters.AddIn(n)
 		}
 	}()
 
@@ -203,7 +205,7 @@ func (c *K8shelld) StartShell(ctx context.Context, channel ssh.Channel, sessionI
 					errCh <- fmt.Errorf("ssh write: %w", werr)
 					return
 				}
-				counters.AddOut(len(r.Data))
+				c.counters.AddOut(len(r.Data))
 			case *pb.ShellResponse_Terminate:
 				if r.Terminate {
 					errCh <- nil
@@ -293,6 +295,7 @@ func (c *K8shelld) StartUnixSocket(ctx context.Context, channel ssh.Channel, age
 				errCh <- fmt.Errorf("grpc send: %w", serr)
 				return
 			}
+			c.counters.AddIn(n)
 		}
 	}()
 
@@ -312,6 +315,7 @@ func (c *K8shelld) StartUnixSocket(ctx context.Context, channel ssh.Channel, age
 				errCh <- fmt.Errorf("ssh write: %w", werr)
 				return
 			}
+			c.counters.AddOut(len(resp.Data))
 		}
 	}()
 
@@ -385,6 +389,7 @@ func (c *K8shelld) StartPortForward(ctx context.Context, channel ssh.Channel, po
 				errCh <- fmt.Errorf("grpc send: %w", serr)
 				return
 			}
+			c.counters.AddIn(n)
 		}
 	}()
 
@@ -404,6 +409,7 @@ func (c *K8shelld) StartPortForward(ctx context.Context, channel ssh.Channel, po
 				errCh <- fmt.Errorf("ssh write: %w", werr)
 				return
 			}
+			c.counters.AddOut(len(resp.Data))
 		}
 	}()
 
@@ -509,6 +515,7 @@ func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID st
 					writerErr = fmt.Errorf("grpc send: %w", serr)
 					return
 				}
+				c.counters.AddIn(n)
 			} else {
 				select {
 				case <-ctx.Done():
@@ -546,11 +553,13 @@ func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID st
 					readerErr = fmt.Errorf("ssh write: %w", err)
 					return
 				}
+				c.counters.AddOut(len(r.Stdout))
 			case *pb.ExecResponse_Stderr:
 				if _, err := stderr.Write(r.Stderr); err != nil {
 					readerErr = fmt.Errorf("ssh write: %w", err)
 					return
 				}
+				c.counters.AddOut(len(r.Stderr))
 			case *pb.ExecResponse_ExitCode:
 				exitCodeCh <- r.ExitCode
 				return

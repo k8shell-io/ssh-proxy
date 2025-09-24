@@ -270,7 +270,7 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 	s.log.Debug().Msgf("Starting shell session for user %s, session ID: %s", session.username, session.sessionId)
 
 	if err := k8shelld.StartShell(connInfo.ctx, channel, session.sessionId,
-		session.env, session.termWidth, session.termHeight, session.hasPTY, connInfo.counters); err != nil {
+		session.env, session.termWidth, session.termHeight, session.hasPTY); err != nil {
 		s.log.Error().Msgf("Shell session error: %v", err)
 	} else {
 		s.log.Debug().Msgf("Shell session %s completed for user %s", session.sessionId, session.username)
