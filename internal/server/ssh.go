@@ -169,6 +169,8 @@ func HandleConnectionChildProcess(configPath string) error {
 
 	server.handleConnection(conn, true)
 
+	cancel()
+
 	return nil
 }
 

@@ -100,25 +100,32 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
 	connID := getConnectionID(conn.RemoteAddr().String())
 
 	connStatesMutex.RLock()
-	defer connStatesMutex.RUnlock()
-
 	connInfo := connStates[connID]
+	connStatesMutex.RUnlock()
+
 	if connInfo == nil {
-		ctx, cancel := context.WithCancel(context.Background())
-		proxyID := GetProxyID()
-		connInfo = &ConnectionInfo{
-			identity:    s.identity,
-			proxyFullID: fmt.Sprintf("%s-%d", proxyID, os.Getpid()),
-			userStr:     userStr,
-			directTCPIP: &sync.Map{},
-			counters:    &workspace.ConnCounters{},
-			ctx:         ctx,
-			cancel:      cancel,
-			sessionID:   0,
+		connStatesMutex.Lock()
+		defer connStatesMutex.Unlock()
+
+		connInfo = connStates[connID]
+		if connInfo == nil {
+			ctx, cancel := context.WithCancel(context.Background())
+			proxyID := GetProxyID()
+			connInfo = &ConnectionInfo{
+				identity:    s.identity,
+				proxyFullID: fmt.Sprintf("%s-%d", proxyID, os.Getpid()),
+				userStr:     userStr,
+				directTCPIP: &sync.Map{},
+				counters:    &workspace.ConnCounters{},
+				ctx:         ctx,
+				cancel:      cancel,
+				sessionID:   0,
+			}
+			connStates[connID] = connInfo
+			go connInfo.reportSessionData(connInfo.ctx)
 		}
-		connStates[connID] = connInfo
-		go connInfo.reportSessionData(connInfo.ctx)
 	}
+
 	return connInfo, nil
 }
 
@@ -204,6 +211,7 @@ func (c *ConnectionInfo) reportSessionData(ctx context.Context) {
 
 				sendUpdate(cleanupCtx, sid)
 				_ = c.identity.EndSSHSession(cleanupCtx, c.userStr.Username, sid)
+				fmt.Printf("**** Session %d for user %s ended and reported final data\n", sid, c.userStr.Username)
 			}
 			return
 		case <-t.C:
