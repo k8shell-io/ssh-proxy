@@ -169,9 +169,7 @@ func (c *ConnectionInfo) reportSessionData(ctx context.Context) {
 	var prevChannelInfo []string
 
 	getSessionID := func() int32 {
-		c.mu.Lock()
-		defer c.mu.Unlock()
-		return c.sessionID
+		return atomic.LoadInt32(&c.sessionID)
 	}
 
 	sendUpdate := func(reqCtx context.Context, sessionID int32) {
@@ -249,8 +247,8 @@ func (c *ConnectionInfo) GetOnboardCap() *models.OnboardCapability {
 func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Writer,
 	writerOptions *workspace.InfoWriterOptions, client *provisioner.Client,
 	envVars []string) (*workspace.K8shelld, error) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
 	if c.k8shelld != nil {
 		return c.k8shelld, nil
@@ -298,7 +296,7 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SSH session for user %s: %w", c.user.Username, err)
 	}
-	c.sessionID = sshSession.SessionID
+	atomic.StoreInt32(&c.sessionID, sshSession.SessionID)
 
 	return c.k8shelld, nil
 }
