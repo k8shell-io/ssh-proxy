@@ -158,6 +158,8 @@ func (c *ConnectionInfo) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	fmt.Printf("DEBUG: Closing connection for user %s\n", c.userStr.Username)
+
 	if c.k8shelld != nil {
 		c.k8shelld.Close()
 		c.k8shelld = nil
@@ -169,6 +171,8 @@ func (c *ConnectionInfo) Close() error {
 
 	c.reportWg.Wait()
 
+	fmt.Printf("DEBUG: Connection closed for user %s\n", c.userStr.Username)
+
 	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -176,6 +180,9 @@ func (c *ConnectionInfo) Close() error {
 	if err != nil {
 		return fmt.Errorf("failed to end SSH session %d for user %s: %w", c.sessionID, c.userStr.Username, err)
 	}
+
+	fmt.Printf("DEBUG: SSH session %d ended for user %s\n", c.sessionID, c.userStr.Username)
+
 	return nil
 }
 
