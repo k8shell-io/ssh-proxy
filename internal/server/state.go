@@ -122,7 +122,7 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
 				sessionID:   0,
 			}
 			connStates[connID] = connInfo
-			go connInfo.reportSessionData(connInfo.ctx)
+			go connInfo.reportSessionData()
 		}
 	}
 
@@ -161,7 +161,7 @@ func (c *ConnectionInfo) Close() {
 	}
 }
 
-func (c *ConnectionInfo) reportSessionData(ctx context.Context) {
+func (c *ConnectionInfo) reportSessionData() {
 	t := time.NewTicker(10 * time.Second)
 
 	prevIn, prevOut := c.counters.Snapshot()
@@ -200,6 +200,7 @@ func (c *ConnectionInfo) reportSessionData(ctx context.Context) {
 	}
 
 	defer func() {
+		fmt.Printf("DEBUG: reportSessionData cleanup starting for user %s\n", c.userStr.Username)
 		if sid := getSessionID(); sid != 0 {
 			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -209,15 +210,16 @@ func (c *ConnectionInfo) reportSessionData(ctx context.Context) {
 			fmt.Printf("**** Session %d for user %s ended and reported final data\n", sid, c.userStr.Username)
 		}
 		t.Stop()
+		fmt.Printf("DEBUG: reportSessionData cleanup completed for user %s\n", c.userStr.Username)
 	}()
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-c.ctx.Done():
 			return
 		case <-t.C:
 			if sid := getSessionID(); sid != 0 {
-				sendUpdate(ctx, sid)
+				sendUpdate(c.ctx, sid)
 			}
 		}
 	}
