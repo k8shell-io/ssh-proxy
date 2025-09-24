@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -248,6 +249,10 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 
 	status, err := workspace.EnsureWorkspace(ctx, c.userStr, writer, showProvisionInfo, client)
 	if err != nil {
+		var provisionErr *workspace.ProvisionError
+		if errors.As(err, &provisionErr) && writer != nil {
+			writer.Write([]byte(fmt.Sprintf("%s\r\n", provisionErr.Message)))
+		}
 		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.userStr.Username, err)
 	}
 	if writer != nil {
@@ -267,12 +272,12 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 		return nil, fmt.Errorf("handshake with k8shelld failed for user %s", c.user.Username)
 	}
 	if writer != nil {
-		writer.Write([]byte(fmt.Sprintf("Connected to k8shelld (version: %s)\r\n",
-			handshake.ServerVersion)))
+		fmt.Fprintf(writer, "Connected to k8shelld (version: %s)\r\n",
+			handshake.ServerVersion)
 		if status.Splash != "" {
 			writer.Write([]byte("\r\n"))
-			lines := strings.Split(status.Splash, "\n")
-			for _, line := range lines {
+			lines := strings.SplitSeq(status.Splash, "\n")
+			for line := range lines {
 				writer.Write([]byte(line + "\r\n"))
 			}
 		}

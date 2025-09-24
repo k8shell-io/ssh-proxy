@@ -12,6 +12,14 @@ import (
 	provModels "github.com/k8shell-io/provisioner/pkg/models"
 )
 
+type ProvisionError struct {
+	Message string
+}
+
+func (e *ProvisionError) Error() string {
+	return e.Message
+}
+
 // EnsureWorkspace checks if a workspace exists for the user and provisions it if not.
 func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Writer, showProvisionInfo bool,
 	client *provisioner.Client) (*provModels.WorkspaceStatus, error) {
@@ -55,17 +63,12 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Wri
 func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Writer, showProvisionInfo bool,
 	client *provisioner.Client) (string, error) {
 	events := make(chan provModels.StreamEvent, 100)
-	if writer != nil && !showProvisionInfo {
-		writer.Write([]byte("Starting workspace (0%)..."))
-	} else {
-		writer.Write([]byte("Starting workspace...\r\n"))
-	}
 
 	var name string
 	var provisionErr error
 	var eventErr error
 	var eventCount int
-	const totalEvents = 10
+	const totalEvents = 12
 
 	var wg sync.WaitGroup
 
@@ -94,18 +97,22 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.
 		for event := range events {
 			eventCount++
 
-			percentage := (eventCount * 100) / totalEvents
-			if percentage > 100 {
-				percentage = 100
+			if event.Type == "status" && event.Status == "Starting" {
+				if writer != nil && !showProvisionInfo {
+					writer.Write([]byte("Starting workspace (0%)..."))
+				} else {
+					writer.Write([]byte("Starting workspace...\r\n"))
+				}
+				continue
 			}
 
-			fmt.Print(eventCount, totalEvents, percentage)
+			percentage := min((eventCount*100)/totalEvents, 100)
 
 			if writer != nil {
 				if showProvisionInfo {
-					writer.Write([]byte(fmt.Sprintf("%s\r\n", event.String())))
+					fmt.Fprintf(writer, "%s\r\n", event.String())
 				} else {
-					writer.Write([]byte(fmt.Sprintf("\rStarting workspace (%d%%)...", percentage)))
+					fmt.Fprintf(writer, "\rStarting workspace (%d%%)...", percentage)
 				}
 			}
 
@@ -114,22 +121,22 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.
 			}
 
 			if event.Status == "Error" {
-				eventErr = fmt.Errorf("provisioning error: %s", event.Message)
+				eventErr = fmt.Errorf("%s", event.Message)
 			}
 		}
 
 		if writer != nil && !showProvisionInfo {
-			writer.Write([]byte(fmt.Sprintf("\rStarting workspace (%d%%)...\r\n", 100)))
+			fmt.Fprintf(writer, "\rStarting workspace (%d%%)...\r\n", 100)
 		}
 	}()
 
 	wg.Wait()
 
 	if eventErr != nil {
-		return "", eventErr
+		return "", &ProvisionError{Message: eventErr.Error()}
 	}
 	if provisionErr != nil {
-		return "", provisionErr
+		return "", &ProvisionError{Message: provisionErr.Error()}
 	}
 	if name == "" {
 		return "", fmt.Errorf("provisioning completed but no running workspace name received")
