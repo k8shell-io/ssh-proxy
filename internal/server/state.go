@@ -254,7 +254,7 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 	if err != nil {
 		var provisionErr *workspace.ProvisionError
 		if errors.As(err, &provisionErr) {
-			infoWriter.WriteError("Provisioning error: " + provisionErr.Message)
+			infoWriter.WriteError(provisionErr.Message)
 		}
 		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.userStr.Username, err)
 	}
