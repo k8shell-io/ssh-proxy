@@ -40,6 +40,10 @@ type ConnectionInfo struct {
 	workspaceName    string                    // name of the workspace
 	channelInfo      []string                  // channel information
 	failureInfo      []string                  // failure information
+	prevIn           int64                     // previous input counter
+	prevOut          int64                     // previous output counter
+	prevChannelInfo  []string                  // previous channel information
+	reportWg         sync.WaitGroup            // wait group for reporting goroutine
 }
 
 // SessionInfo holds information about a user's SSH session
@@ -122,6 +126,7 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
 				sessionID:   0,
 			}
 			connStates[connID] = connInfo
+			connInfo.reportWg.Add(1)
 			go connInfo.reportSessionData()
 		}
 	}
@@ -149,82 +154,72 @@ func (c *ConnectionInfo) GetChannelInfo() []string {
 	return c.channelInfo
 }
 
-func (c *ConnectionInfo) Close() {
+func (c *ConnectionInfo) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
 	if c.k8shelld != nil {
 		c.k8shelld.Close()
 		c.k8shelld = nil
 	}
+
 	if c.cancel != nil {
 		c.cancel()
 	}
+
+	c.reportWg.Wait()
+
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err := c.identity.EndSSHSession(cleanupCtx, c.userStr.Username, c.sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to end SSH session %d for user %s: %w", c.sessionID, c.userStr.Username, err)
+	}
+	return nil
+}
+
+func (c *ConnectionInfo) sendUpdate() {
+	curIn, curOut := c.counters.Snapshot()
+	curChannels := c.GetChannelInfo()
+
+	sendIn := int64(0)
+	sendOut := int64(0)
+	if curIn != c.prevIn {
+		sendIn = curIn
+	}
+	if curOut != c.prevOut {
+		sendOut = curOut
+	}
+
+	var sendChannels []string
+	if !slices.Equal(curChannels, c.prevChannelInfo) {
+		sendChannels = append([]string(nil), curChannels...)
+	} else {
+		sendChannels = []string{}
+	}
+
+	c.prevIn, c.prevOut = curIn, curOut
+	c.prevChannelInfo = append([]string(nil), curChannels...)
+
+	_ = c.identity.UpdateSSHSession(
+		c.ctx, c.userStr.Username, c.sessionID, sendIn, sendOut, "", sendChannels,
+	)
 }
 
 func (c *ConnectionInfo) reportSessionData() {
+	defer c.reportWg.Done()
+
 	t := time.NewTicker(10 * time.Second)
 	defer t.Stop()
-
-	prevIn, prevOut := c.counters.Snapshot()
-	var prevChannelInfo []string
-
-	getSessionID := func() int32 {
-		return atomic.LoadInt32(&c.sessionID)
-	}
-
-	sendUpdate := func(reqCtx context.Context, sessionID int32) {
-		curIn, curOut := c.counters.Snapshot()
-		curChannels := c.GetChannelInfo()
-
-		sendIn := int64(0)
-		sendOut := int64(0)
-		if curIn != prevIn {
-			sendIn = curIn
-		}
-		if curOut != prevOut {
-			sendOut = curOut
-		}
-
-		var sendChannels []string
-		if !slices.Equal(curChannels, prevChannelInfo) {
-			sendChannels = append([]string(nil), curChannels...)
-		} else {
-			sendChannels = []string{}
-		}
-
-		prevIn, prevOut = curIn, curOut
-		prevChannelInfo = append([]string(nil), curChannels...)
-
-		_ = c.identity.UpdateSSHSession(
-			reqCtx, c.userStr.Username, sessionID, sendIn, sendOut, "", sendChannels,
-		)
-	}
-
-	defer func() {
-		if r := recover(); r != nil {
-			fmt.Printf("DEBUG: Panic in cleanup for user %s: %v\n", c.userStr.Username, r)
-		}
-
-		fmt.Printf("DEBUG: reportSessionData cleanup starting for user %s\n", c.userStr.Username)
-		if sid := getSessionID(); sid != 0 {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-
-			sendUpdate(cleanupCtx, sid)
-			_ = c.identity.EndSSHSession(cleanupCtx, c.userStr.Username, sid)
-			fmt.Printf("**** Session %d for user %s ended and reported final data\n", sid, c.userStr.Username)
-		}
-		fmt.Printf("DEBUG: reportSessionData cleanup completed for user %s\n", c.userStr.Username)
-	}()
 
 	for {
 		select {
 		case <-c.ctx.Done():
+			c.sendUpdate()
 			return
 		case <-t.C:
-			if sid := getSessionID(); sid != 0 {
-				sendUpdate(c.ctx, sid)
-			}
+			c.sendUpdate()
 		}
 	}
 }
