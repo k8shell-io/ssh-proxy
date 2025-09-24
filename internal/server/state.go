@@ -163,6 +163,7 @@ func (c *ConnectionInfo) Close() {
 
 func (c *ConnectionInfo) reportSessionData() {
 	t := time.NewTicker(10 * time.Second)
+	defer t.Stop()
 
 	prevIn, prevOut := c.counters.Snapshot()
 	var prevChannelInfo []string
@@ -200,16 +201,19 @@ func (c *ConnectionInfo) reportSessionData() {
 	}
 
 	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("DEBUG: Panic in cleanup for user %s: %v\n", c.userStr.Username, r)
+		}
+
 		fmt.Printf("DEBUG: reportSessionData cleanup starting for user %s\n", c.userStr.Username)
 		if sid := getSessionID(); sid != 0 {
-			// cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			// defer cancel()
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 
-			sendUpdate(context.Background(), sid)
-			_ = c.identity.EndSSHSession(context.Background(), c.userStr.Username, sid)
+			sendUpdate(cleanupCtx, sid)
+			_ = c.identity.EndSSHSession(cleanupCtx, c.userStr.Username, sid)
 			fmt.Printf("**** Session %d for user %s ended and reported final data\n", sid, c.userStr.Username)
 		}
-		t.Stop()
 		fmt.Printf("DEBUG: reportSessionData cleanup completed for user %s\n", c.userStr.Username)
 	}()
 
