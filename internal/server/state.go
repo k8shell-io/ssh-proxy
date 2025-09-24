@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -38,12 +37,11 @@ type ConnectionInfo struct {
 	cancel           context.CancelFunc        // function to cancel
 	sessionID        int32                     // SSH session ID
 	workspaceName    string                    // name of the workspace
+	channelInfoMu    sync.RWMutex              // mutex for synchronizing access to channelInfo
 	channelInfo      []string                  // channel information
 	failureInfo      []string                  // failure information
-	prevIn           int64                     // previous input counter
-	prevOut          int64                     // previous output counter
-	prevChannelInfo  []string                  // previous channel information
-	reportWg         sync.WaitGroup            // wait group for reporting goroutine
+	reportStopCh     chan struct{}             // channel to signal report goroutine to stop
+	reportWg         sync.WaitGroup            // wait group for report goroutine
 }
 
 // SessionInfo holds information about a user's SSH session
@@ -109,24 +107,26 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
 
 	if connInfo == nil {
 		connStatesMutex.Lock()
-		defer connStatesMutex.Unlock()
-
 		connInfo = connStates[connID]
 		if connInfo == nil {
 			ctx, cancel := context.WithCancel(context.Background())
 			proxyID := GetProxyID()
 			connInfo = &ConnectionInfo{
-				identity:    s.identity,
-				proxyFullID: fmt.Sprintf("%s-%d", proxyID, os.Getpid()),
-				userStr:     userStr,
-				directTCPIP: &sync.Map{},
-				counters:    &workspace.ConnCounters{},
-				ctx:         ctx,
-				cancel:      cancel,
-				sessionID:   0,
+				identity:     s.identity,
+				proxyFullID:  fmt.Sprintf("%s-%d", proxyID, os.Getpid()),
+				userStr:      userStr,
+				directTCPIP:  &sync.Map{},
+				counters:     &workspace.ConnCounters{},
+				ctx:          ctx,
+				cancel:       cancel,
+				sessionID:    0,
+				reportStopCh: make(chan struct{}),
 			}
-			connStates[connID] = connInfo
 			connInfo.reportWg.Add(1)
+			connStates[connID] = connInfo
+		}
+		connStatesMutex.Unlock()
+		if connInfo != nil {
 			go connInfo.reportSessionData()
 		}
 	}
@@ -143,90 +143,72 @@ func (c *ConnectionInfo) AddFailureInfo(info string, err error) {
 }
 
 func (c *ConnectionInfo) AddChannelInfo(info string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+	c.channelInfoMu.Lock()
+	defer c.channelInfoMu.Unlock()
 	c.channelInfo = append(c.channelInfo, info)
 }
 
 func (c *ConnectionInfo) GetChannelInfo() []string {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.channelInfo
+	c.channelInfoMu.RLock()
+	defer c.channelInfoMu.RUnlock()
+	out := make([]string, len(c.channelInfo))
+	copy(out, c.channelInfo)
+	return out
 }
 
 func (c *ConnectionInfo) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	fmt.Printf("DEBUG: Closing connection for user %s\n", c.userStr.Username)
-
 	if c.k8shelld != nil {
-		c.k8shelld.Close()
+		_ = c.k8shelld.Close()
 		c.k8shelld = nil
 	}
 
-	if c.cancel != nil {
-		c.cancel()
-	}
-
+	close(c.reportStopCh)
 	c.reportWg.Wait()
 
-	fmt.Printf("DEBUG: Connection closed for user %s\n", c.userStr.Username)
-
-	cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	err := c.identity.EndSSHSession(cleanupCtx, c.userStr.Username, c.sessionID)
-	if err != nil {
-		return fmt.Errorf("failed to end SSH session %d for user %s: %w", c.sessionID, c.userStr.Username, err)
+	if err := c.sendUpdate(true); err != nil {
+		return fmt.Errorf("failed to send final session update for user %s and session id %d: %w",
+			c.userStr.Username, c.sessionID, err)
 	}
 
-	fmt.Printf("DEBUG: SSH session %d ended for user %s\n", c.sessionID, c.userStr.Username)
-
+	c.cancel()
 	return nil
 }
 
-func (c *ConnectionInfo) sendUpdate() {
+func (c *ConnectionInfo) sendUpdate(endSession bool) error {
+	if c.sessionID == 0 || c.identity == nil {
+		return nil
+	}
 	curIn, curOut := c.counters.Snapshot()
 	curChannels := c.GetChannelInfo()
 
-	sendIn := int64(0)
-	sendOut := int64(0)
-	if curIn != c.prevIn {
-		sendIn = curIn
-	}
-	if curOut != c.prevOut {
-		sendOut = curOut
+	if err := c.identity.UpdateSSHSession(
+		c.ctx, c.userStr.Username, c.sessionID, curIn, curOut, "", curChannels,
+	); err != nil {
+		// log
 	}
 
-	var sendChannels []string
-	if !slices.Equal(curChannels, c.prevChannelInfo) {
-		sendChannels = append([]string(nil), curChannels...)
-	} else {
-		sendChannels = []string{}
+	if endSession {
+		if err := c.identity.EndSSHSession(c.ctx, c.userStr.Username, c.sessionID); err != nil {
+			return fmt.Errorf("failed to end SSH session %d for user %s: %w", c.sessionID, c.userStr.Username, err)
+		}
 	}
-
-	c.prevIn, c.prevOut = curIn, curOut
-	c.prevChannelInfo = append([]string(nil), curChannels...)
-
-	_ = c.identity.UpdateSSHSession(
-		c.ctx, c.userStr.Username, c.sessionID, sendIn, sendOut, "", sendChannels,
-	)
+	return nil
 }
 
 func (c *ConnectionInfo) reportSessionData() {
-	defer c.reportWg.Done()
-
 	t := time.NewTicker(10 * time.Second)
 	defer t.Stop()
+	defer c.reportWg.Done()
 
 	for {
 		select {
-		case <-c.ctx.Done():
-			c.sendUpdate()
+		case <-c.reportStopCh:
 			return
 		case <-t.C:
-			c.sendUpdate()
+			c.sendUpdate(false)
 		}
 	}
 }
