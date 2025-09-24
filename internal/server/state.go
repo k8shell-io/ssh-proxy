@@ -152,9 +152,6 @@ func (c *ConnectionInfo) Close() {
 	if c.cancel != nil {
 		c.cancel()
 	}
-	if c.sessionID != 0 {
-		c.identity.EndSSHSession(context.Background(), c.userStr.Username, c.sessionID)
-	}
 }
 
 func (c *ConnectionInfo) reportSessionData(ctx context.Context) {
@@ -170,7 +167,7 @@ func (c *ConnectionInfo) reportSessionData(ctx context.Context) {
 		return c.sessionID
 	}
 
-	sendUpdate := func(sessionID int32) {
+	sendUpdate := func(reqCtx context.Context, sessionID int32) {
 		curIn, curOut := c.counters.Snapshot()
 		curChannels := c.GetChannelInfo()
 
@@ -194,7 +191,7 @@ func (c *ConnectionInfo) reportSessionData(ctx context.Context) {
 		prevChannelInfo = append([]string(nil), curChannels...)
 
 		_ = c.identity.UpdateSSHSession(
-			ctx, c.userStr.Username, sessionID, sendIn, sendOut, "", sendChannels,
+			reqCtx, c.userStr.Username, sessionID, sendIn, sendOut, "", sendChannels,
 		)
 	}
 
@@ -202,12 +199,16 @@ func (c *ConnectionInfo) reportSessionData(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			if sid := getSessionID(); sid != 0 {
-				sendUpdate(sid)
+				cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+
+				sendUpdate(cleanupCtx, sid)
+				_ = c.identity.EndSSHSession(cleanupCtx, c.userStr.Username, sid)
 			}
 			return
 		case <-t.C:
 			if sid := getSessionID(); sid != 0 {
-				sendUpdate(sid)
+				sendUpdate(ctx, sid)
 			}
 		}
 	}
