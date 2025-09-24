@@ -7,6 +7,7 @@ import (
 	"github.com/k8shell-io/common/apiclient"
 	"github.com/k8shell-io/common/config"
 	"github.com/k8shell-io/ssh-proxy/internal/nats"
+	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -20,11 +21,11 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Forking                   bool `yaml:"forking"`
-	ProxyProtocol             bool `yaml:"proxyProtocol"`
-	ShowProvisionInfo         bool `yaml:"showProvisionInfo"`
-	SSHHandshakeTimeout       int  `yaml:"SSHHandshakeTimeout"`
-	MaxDirectTCPIPConnections int  `yaml:"maxDirectTCPIPConnections"`
+	Forking                   bool                        `yaml:"forking"`
+	ProxyProtocol             bool                        `yaml:"proxyProtocol"`
+	SSHHandshakeTimeout       int                         `yaml:"SSHHandshakeTimeout"`
+	MaxDirectTCPIPConnections int                         `yaml:"maxDirectTCPIPConnections"`
+	WriterOptions             workspace.InfoWriterOptions `yaml:"writerOptions"`
 }
 
 // SshConfig represents the SSH server configuration.

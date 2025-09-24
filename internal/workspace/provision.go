@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	"github.com/k8shell-io/common/models"
@@ -20,8 +21,139 @@ func (e *ProvisionError) Error() string {
 	return e.Message
 }
 
+type InfoWriterOptions struct {
+	ShowProvisionInfo bool `yaml:"showProvisionInfo"`
+	ShowPulse         bool `yaml:"showPulse"`
+	ShowPercentage    bool `yaml:"showPercentage"`
+	ShowErrors        bool `yaml:"showErrors"`
+	ShowSystemErrors  bool `yaml:"showSystemErrors"`
+	TotalEvents       int  `yaml:"totalEvents"`
+}
+
+type InfoWriter struct {
+	io.Writer
+	otps        *InfoWriterOptions
+	progress    int
+	provStarted bool
+}
+
+func NewInfoWriter(w io.Writer, opts *InfoWriterOptions) *InfoWriter {
+	if opts == nil {
+		opts = &InfoWriterOptions{
+			ShowProvisionInfo: false,
+			ShowPulse:         false,
+			ShowPercentage:    false,
+			ShowErrors:        false,
+			ShowSystemErrors:  false,
+			TotalEvents:       12,
+		}
+	}
+	if opts.TotalEvents == 0 {
+		opts.TotalEvents = 12
+	}
+	return &InfoWriter{Writer: w, otps: opts, progress: 0}
+}
+
+func (w *InfoWriter) StartProvisioning() {
+	if w.Writer == nil {
+		return
+	}
+	if w.otps.ShowProvisionInfo {
+		w.Writer.Write([]byte("Starting workspace...\r\n"))
+	} else {
+		w.progress = 0
+		w.drawPulseAndPercentage(0)
+	}
+	w.provStarted = true
+}
+
+func (w *InfoWriter) EndProvisioning(hasError bool) {
+	if w.Writer == nil {
+		return
+	}
+	if w.provStarted {
+		w.drawPulseAndPercentage(100, hasError)
+		fmt.Fprintf(w.Writer, "\r\n")
+	}
+}
+
+// drawPulseAndPercentage draws pulse and/or percentage based on options
+func (w *InfoWriter) drawPulseAndPercentage(percentage int, hasError ...bool) {
+	if w.Writer == nil {
+		return
+	}
+
+	var output strings.Builder
+	output.WriteString("\r")
+
+	if w.otps.ShowPulse {
+		if percentage < 100 {
+			pulseChars := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+			pulseIndex := (w.progress) % len(pulseChars)
+			output.WriteString(pulseChars[pulseIndex])
+		} else {
+			if len(hasError) > 0 && hasError[0] {
+				output.WriteString("✗")
+			} else {
+				output.WriteString("✓")
+			}
+		}
+		output.WriteString(" ")
+	}
+
+	output.WriteString("Starting workspace...")
+
+	if w.otps.ShowPercentage {
+		output.WriteString(fmt.Sprintf(" %d%%", percentage))
+	}
+
+	fmt.Fprint(w.Writer, output.String())
+}
+
+func (w *InfoWriter) WriteEvent(p string) {
+	if w.Writer == nil {
+		return
+	}
+	if w.otps.ShowProvisionInfo {
+		w.Writer.Write([]byte(p + "\r\n"))
+	} else {
+		w.progress++
+		perc := min((w.progress*100)/w.otps.TotalEvents, 100)
+		w.drawPulseAndPercentage(perc) // No error parameter for progress updates
+	}
+}
+
+func (w *InfoWriter) WriteMessage(p string) {
+	if w.Writer == nil {
+		return
+	}
+	fmt.Fprintf(w.Writer, "%s\r\n", p)
+}
+
+func (w *InfoWriter) WriteError(p string) {
+	if w.Writer != nil && w.otps.ShowErrors {
+		fmt.Fprintf(w.Writer, "%s\r\n", p)
+	}
+}
+
+func (w *InfoWriter) WriteSystemError(p string) {
+	if w.Writer != nil && w.otps.ShowSystemErrors {
+		fmt.Fprintf(w.Writer, "%s\r\n", p)
+	}
+}
+
+func (w *InfoWriter) WriteSplash(splash string) {
+	if w.Writer != nil {
+		w.Writer.Write([]byte("\r\n"))
+		lines := strings.Split(splash, "\n")
+		for _, line := range lines {
+			fmt.Fprintf(w.Writer, "%s\r\n", line)
+		}
+	}
+}
+
 // EnsureWorkspace checks if a workspace exists for the user and provisions it if not.
-func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Writer, showProvisionInfo bool,
+func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoWriter,
 	client *provisioner.Client) (*provModels.WorkspaceStatus, error) {
 
 	workspaces, err := client.GetWorkspaces(ctx, userStr.Username, userStr.Blueprint)
@@ -42,7 +174,7 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Wri
 		}
 	}
 
-	name, err := provisionWorkspace(ctx, userStr, writer, showProvisionInfo, client)
+	name, err := provisionWorkspace(ctx, userStr, writer, client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.Username, err)
 	}
@@ -60,15 +192,13 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Wri
 }
 
 // provisionWorkspace provisions a new workspace for the user.
-func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.Writer, showProvisionInfo bool,
+func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoWriter,
 	client *provisioner.Client) (string, error) {
 	events := make(chan provModels.StreamEvent, 100)
 
 	var name string
 	var provisionErr error
 	var eventErr error
-	var eventCount int
-	const totalEvents = 12
 
 	var wg sync.WaitGroup
 
@@ -95,26 +225,11 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.
 		defer wg.Done()
 
 		for event := range events {
-			eventCount++
-
 			if event.Type == "status" && event.Status == "Starting" {
-				if writer != nil && !showProvisionInfo {
-					writer.Write([]byte("Starting workspace (0%)..."))
-				} else {
-					writer.Write([]byte("Starting workspace...\r\n"))
-				}
+				writer.StartProvisioning()
 				continue
 			}
-
-			percentage := min((eventCount*100)/totalEvents, 100)
-
-			if writer != nil {
-				if showProvisionInfo {
-					fmt.Fprintf(writer, "%s\r\n", event.String())
-				} else {
-					fmt.Fprintf(writer, "\rStarting workspace (%d%%)...", percentage)
-				}
-			}
+			writer.WriteEvent(event.String())
 
 			if event.Status == "Running" {
 				name = event.ObjectName
@@ -124,10 +239,8 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer io.
 				eventErr = fmt.Errorf("%s", event.Message)
 			}
 		}
-
-		if writer != nil && !showProvisionInfo {
-			fmt.Fprintf(writer, "\rStarting workspace (%d%%)...\r\n", 100)
-		}
+		hasError := eventErr != nil || provisionErr != nil
+		writer.EndProvisioning(hasError)
 	}()
 
 	wg.Wait()

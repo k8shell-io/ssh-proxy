@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"slices"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -238,8 +237,9 @@ func (c *ConnectionInfo) GetOnboardCap() *models.OnboardCapability {
 	return c.onboardCap
 }
 
-func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Writer, showProvisionInfo bool,
-	client *provisioner.Client, envVars []string) (*workspace.K8shelld, error) {
+func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Writer,
+	writerOptions *workspace.InfoWriterOptions, client *provisioner.Client,
+	envVars []string) (*workspace.K8shelld, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -247,39 +247,37 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 		return c.k8shelld, nil
 	}
 
-	status, err := workspace.EnsureWorkspace(ctx, c.userStr, writer, showProvisionInfo, client)
+	infoWriter := workspace.NewInfoWriter(writer, writerOptions)
+
+	status, err := workspace.EnsureWorkspace(ctx, c.userStr, infoWriter, client)
 	if err != nil {
 		var provisionErr *workspace.ProvisionError
-		if errors.As(err, &provisionErr) && writer != nil {
-			writer.Write([]byte(fmt.Sprintf("%s\r\n", provisionErr.Message)))
+		if errors.As(err, &provisionErr) {
+			infoWriter.WriteError(provisionErr.Message)
 		}
 		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.userStr.Username, err)
 	}
-	if writer != nil {
-		writer.Write([]byte(fmt.Sprintf("Connecting to the workspace at %s...\r\n", status.Host)))
-	}
+	infoWriter.WriteMessage(fmt.Sprintf("Connecting to the workspace at %s...", status.Host))
 
 	k8shelld, err := workspace.NewK8shelld(status.Host, status.PodIP, status.Port, status.AccessKey, status.TLSCert)
 	if err != nil {
+		infoWriter.WriteSystemError(err.Error())
 		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.user.Username, err)
 	}
 
 	handshake, err := k8shelld.Handshake(ctx, c.user, envVars)
 	if err != nil {
+		infoWriter.WriteSystemError(err.Error())
 		return nil, fmt.Errorf("handshake with k8shelld failed for user %s: %w", c.user.Username, err)
 	}
 	if !handshake.Accepted {
+		infoWriter.WriteSystemError("Connection to the workspace was rejected.")
 		return nil, fmt.Errorf("handshake with k8shelld failed for user %s", c.user.Username)
 	}
 	if writer != nil {
-		fmt.Fprintf(writer, "Connected to k8shelld (version: %s)\r\n",
-			handshake.ServerVersion)
+		infoWriter.WriteMessage(fmt.Sprintf("Connected to k8shelld (version: %s)\r\n", handshake.ServerVersion))
 		if status.Splash != "" {
-			writer.Write([]byte("\r\n"))
-			lines := strings.SplitSeq(status.Splash, "\n")
-			for line := range lines {
-				writer.Write([]byte(line + "\r\n"))
-			}
+			infoWriter.WriteSplash(status.Splash)
 		}
 	}
 	c.k8shelld = k8shelld

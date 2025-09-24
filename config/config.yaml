@@ -8,8 +8,13 @@ server:
   # set to false when proxy protocol is not used
   proxyProtocol: true
 
-  # true to show provision info when starting a shell
-  showProvisionInfo: true
+  # options for the provision info writer
+  writerOptions:
+    showProvisionInfo: false
+    showPulse: true
+    showPercentage: true
+    showErrors: true
+    showSystemErrors: false
 
   # SSH handshake timeout in seconds
   SSHHandshakeTimeout: 15
