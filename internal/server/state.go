@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -151,9 +152,19 @@ func (c *ConnectionInfo) AddChannelInfo(info string) {
 func (c *ConnectionInfo) GetChannelInfo() []string {
 	c.channelInfoMu.RLock()
 	defer c.channelInfoMu.RUnlock()
-	out := make([]string, len(c.channelInfo))
-	copy(out, c.channelInfo)
-	return out
+
+	seen := make(map[string]bool)
+	unique := make([]string, 0, len(c.channelInfo))
+
+	for _, item := range c.channelInfo {
+		if !seen[item] {
+			seen[item] = true
+			unique = append(unique, item)
+		}
+	}
+
+	sort.Strings(unique)
+	return unique
 }
 
 func (c *ConnectionInfo) Close() error {
