@@ -202,11 +202,11 @@ func (c *ConnectionInfo) reportSessionData() {
 	defer func() {
 		fmt.Printf("DEBUG: reportSessionData cleanup starting for user %s\n", c.userStr.Username)
 		if sid := getSessionID(); sid != 0 {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
+			// cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			// defer cancel()
 
-			sendUpdate(cleanupCtx, sid)
-			_ = c.identity.EndSSHSession(cleanupCtx, c.userStr.Username, sid)
+			sendUpdate(context.Background(), sid)
+			_ = c.identity.EndSSHSession(context.Background(), c.userStr.Username, sid)
 			fmt.Printf("**** Session %d for user %s ended and reported final data\n", sid, c.userStr.Username)
 		}
 		t.Stop()
