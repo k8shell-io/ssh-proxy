@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
@@ -143,8 +144,10 @@ func HandleConnectionChildProcess(configPath string) error {
 	logger := log.NewLogger("ssh-server")
 	logger.Info().Msg("Handling connection in the child process")
 
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	server := &Server{
 		Config:     config,
@@ -167,9 +170,26 @@ func HandleConnectionChildProcess(configPath string) error {
 		return fmt.Errorf("failed to initialize SSH config: %w", err)
 	}
 
-	server.handleConnection(conn, true)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		server.handleConnection(conn, true)
+	}()
 
-	cancel()
+	select {
+	case <-done:
+		cancel()
+	case sig := <-sigChan:
+		logger.Info().Msgf("Received signal %v, shutting down gracefully", sig)
+		cancel()
+
+		select {
+		case <-done:
+			logger.Info().Msg("Connection cleanup completed")
+		case <-time.After(5 * time.Second):
+			logger.Warn().Msg("Cleanup timeout, forcing exit")
+		}
+	}
 
 	return nil
 }
