@@ -339,12 +339,13 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *ConnectionInfo
 	s.log.Debug().Msgf("Starting sftp for user %s, exec ID: %s, command: %s",
 		session.username, execID, SFTP_BINARY)
 
-	_, err = k8shelld.StartExec(connInfo.ctx, channel, execID, SFTP_BINARY, "", []string{}, session.signalChan)
+	exitcode, err := k8shelld.StartExec(connInfo.ctx, channel, execID, SFTP_BINARY, "", []string{}, session.signalChan)
 	if err != nil {
 		s.log.Error().Msgf("Sftp exec failed for command '%s': %v", SFTP_BINARY, err)
 	} else {
-		s.log.Debug().Msgf("Sftp exec completed for user %s, exec ID: %s", session.username, execID)
+		s.log.Debug().Msgf("Sftp exec completed for user %s, exitcode=%d, exec ID: %s", session.username, exitcode, execID)
 	}
+	s.sendExitStatus(channel, exitcode)
 }
 
 // ** SSH Exec
