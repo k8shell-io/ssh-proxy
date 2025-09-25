@@ -26,6 +26,7 @@ type ServerConfig struct {
 	SSHHandshakeTimeout       int                         `yaml:"SSHHandshakeTimeout"`
 	MaxDirectTCPIPConnections int                         `yaml:"maxDirectTCPIPConnections"`
 	WriterOptions             workspace.InfoWriterOptions `yaml:"writerOptions"`
+	SftpBinary                string                      `yaml:"sftpBinary"`
 }
 
 // SshConfig represents the SSH server configuration.
@@ -37,6 +38,7 @@ type SshConfig struct {
 const (
 	DEFAULT_SSH_HANDSHAKE_TIMEOUT        = 30
 	DEFAULT_MAX_DIRECT_TCPIP_CONNECTIONS = 15
+	DEFAULT_SFTP_BINARY                  = "/usr/local/bin/sftp"
 )
 
 // NewConfig creates a new Config instance by loading the configuration from the specified file.
@@ -54,6 +56,10 @@ func NewConfig(configFile string) (*Config, error) {
 
 	if cfg.Server.MaxDirectTCPIPConnections == 0 {
 		cfg.Server.MaxDirectTCPIPConnections = DEFAULT_MAX_DIRECT_TCPIP_CONNECTIONS
+	}
+
+	if cfg.Server.SftpBinary == "" {
+		cfg.Server.SftpBinary = DEFAULT_SFTP_BINARY
 	}
 
 	if cfg.Ssh.Port == 0 || cfg.Identity.APIKey == "" {

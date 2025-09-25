@@ -12,7 +12,6 @@ import (
 )
 
 var SSH_AUTH_SOCK_TEMP = "/var/run/ssh-agent-%s.sock"
-var SFTP_BINARY = "/usr/bin/sftp"
 
 func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, newChannel ssh.NewChannel) {
 	channel, requests, err := newChannel.Accept()
@@ -337,14 +336,15 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *ConnectionInfo
 
 	execID := fmt.Sprintf("sf-%s-%d-%d", connInfo.proxyFullID, channel.LocalID(), connInfo.ExecSeqNumber())
 	s.log.Debug().Msgf("Starting sftp for user %s, exec ID: %s, command: %s",
-		session.username, execID, SFTP_BINARY)
+		session.username, execID, s.Config.Server.SftpBinary)
 
-	exitcode, err := k8shelld.StartExec(connInfo.ctx, channel, execID, SFTP_BINARY, "", []string{}, session.signalChan)
+	exitcode, err := k8shelld.StartExec(connInfo.ctx, channel, execID, s.Config.Server.SftpBinary,
+		"", []string{}, session.signalChan)
 	if err != nil {
-		s.log.Error().Msgf("Sftp exec failed for command '%s': %v", SFTP_BINARY, err)
-	} else {
-		s.log.Debug().Msgf("Sftp exec completed for user %s, exitcode=%d, exec ID: %s", session.username, exitcode, execID)
+		s.log.Error().Msgf("sftp exec failed for command '%s': %v", s.Config.Server.SftpBinary, err)
 	}
+
+	s.log.Debug().Msgf("sftp '%s' executed in the workspace, exit-code=%d", s.Config.Server.SftpBinary, exitcode)
 	s.sendExitStatus(channel, exitcode)
 }
 
@@ -377,29 +377,25 @@ func (s *Server) handleExecRequest(connInfo *ConnectionInfo, channel ssh.Channel
 	s.log.Debug().Msgf("Starting exec for user %s, exec ID: %s, command: %s",
 		session.username, execID, session.command)
 
-	exitCode, err := k8shelld.StartExec(connInfo.ctx, channel, execID, session.command, "/bin/sh",
+	exitcode, err := k8shelld.StartExec(connInfo.ctx, channel, execID, session.command, "/bin/sh",
 		session.env, session.signalChan)
 	if err != nil {
 		s.log.Error().Msgf("Exec failed for command '%s': %v", session.command, err)
 	}
 
-	if exitCode < 0 {
-		s.log.Warn().Msgf("The command exit code is -1 which is incorrect. Setting it to 1")
-		exitCode = 1
-	}
-
-	if exitCode > 0 {
-		s.log.Warn().Msgf("Command error '%s': exit code: %d", session.command, exitCode)
-	}
-
-	s.log.Debug().Msgf("Command '%s' executed in the workspace, exit-code=%d", session.command, exitCode)
-	s.sendExitStatus(channel, exitCode)
+	s.log.Debug().Msgf("Command '%s' executed in the workspace, exit-code=%d", session.command, exitcode)
+	s.sendExitStatus(channel, exitcode)
 }
 
 // sendExitStatus sends SSH exit status to the client
-func (s *Server) sendExitStatus(channel ssh.Channel, exitCode int32) {
+func (s *Server) sendExitStatus(channel ssh.Channel, exitcode int32) {
+	if exitcode < 0 {
+		s.log.Warn().Msgf("The command exit code is negative (%d). Setting it to 1", exitcode)
+		exitcode = 1
+	}
+
 	exitStatus := make([]byte, 4)
-	binary.BigEndian.PutUint32(exitStatus, uint32(exitCode))
+	binary.BigEndian.PutUint32(exitStatus, uint32(exitcode))
 	channel.SendRequest("exit-status", false, exitStatus)
 }
 

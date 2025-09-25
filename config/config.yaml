@@ -22,6 +22,9 @@ server:
   # maximum number of direct TCP/IP connections allowed (per ssh connection)
   maxDirectTCPIPConnections: 15
 
+  # sftp binary path in the workspace
+  sftpBinary: /usr/local/bin/sftp
+
 # ssh proxy configuration
 ssh:
   port: 2022
