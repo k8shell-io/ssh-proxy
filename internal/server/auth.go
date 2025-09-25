@@ -226,11 +226,6 @@ func (s *Server) updateUser(ctx context.Context, connInfo *ConnectionInfo) {
 			}
 		}
 	} else {
-		// if !connInfo.userStr.HasCustomBlueprint && !user.HasBlueprint(connInfo.userStr.Blueprint) {
-		// 	connInfo.AddFailureInfo(fmt.Sprintf("User not allowed to access blueprint %s",
-		// 		connInfo.userStr.Blueprint), nil)
-		// 	return
-		// }
 		connInfo.user = user
 	}
 }

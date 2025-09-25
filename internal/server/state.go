@@ -248,7 +248,7 @@ func (c *ConnectionInfo) GetOnboardCap() *models.OnboardCapability {
 	return c.onboardCap
 }
 
-func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Writer,
+func (c *ConnectionInfo) Handshake(writer io.Writer,
 	writerOptions *workspace.InfoWriterOptions, client *provisioner.Client,
 	envVars []string) (*workspace.K8shelld, error) {
 	c.mu.Lock()
@@ -260,7 +260,24 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 
 	infoWriter := workspace.NewInfoWriter(writer, writerOptions)
 
-	status, err := workspace.EnsureWorkspace(ctx, c.userStr, infoWriter, client)
+	if !c.user.IsValid {
+		infoWriter.WriteError("User is not valid. Please contact the system administrator.")
+		return nil, fmt.Errorf("user %q is not valid", c.user.Username)
+	}
+
+	if c.user.Locked {
+		infoWriter.WriteError("User account is locked. Please contact the system administrator.")
+		return nil, fmt.Errorf("user %q is locked", c.user.Username)
+	}
+
+	if !c.userStr.HasCustomBlueprint && !c.user.HasBlueprint(c.userStr.Blueprint) {
+		infoWriter.WriteError(fmt.Sprintf("Access denied: user %q does not have access to blueprint %q",
+			c.user.Username, c.userStr.Blueprint))
+		return nil, fmt.Errorf("user %s does not have access to blueprint %s",
+			c.user.Username, c.userStr.Blueprint)
+	}
+
+	status, err := workspace.EnsureWorkspace(c.ctx, c.userStr, infoWriter, client)
 	if err != nil {
 		var provisionErr *workspace.ProvisionError
 		if errors.As(err, &provisionErr) {
@@ -277,7 +294,7 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.user.Username, err)
 	}
 
-	handshake, err := k8shelld.Handshake(ctx, c.user, envVars)
+	handshake, err := k8shelld.Handshake(c.ctx, c.user, envVars)
 	if err != nil {
 		infoWriter.WriteSystemError(err.Error())
 		return nil, fmt.Errorf("handshake with k8shelld failed for user %s: %w", c.user.Username, err)
@@ -296,7 +313,7 @@ func (c *ConnectionInfo) CreateK8shelldClient(ctx context.Context, writer io.Wri
 	c.workspaceName = status.Name
 
 	// create session
-	sshSession, err := c.identity.CreateSSHSession(ctx, c.user.Username, c.workspaceName,
+	sshSession, err := c.identity.CreateSSHSession(c.ctx, c.user.Username, c.workspaceName,
 		GetProxyID(), os.Getpid(), c.clientIP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SSH session for user %s: %w", c.user.Username, err)

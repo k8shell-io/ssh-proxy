@@ -56,7 +56,7 @@ func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connectio
 
 	go ssh.DiscardRequests(requests)
 
-	k8shelld, err := connInfo.CreateK8shelldClient(connInfo.ctx, nil, nil, s.provisioner, []string{})
+	k8shelld, err := connInfo.Handshake(nil, nil, s.provisioner, []string{})
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", connInfo.user.Username, err)
 		return
