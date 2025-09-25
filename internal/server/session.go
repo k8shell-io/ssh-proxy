@@ -12,7 +12,7 @@ import (
 )
 
 var SSH_AUTH_SOCK_TEMP = "/var/run/ssh-agent-%s.sock"
-var SFTP_BINARY = "/usr/local/bin/sftp"
+var SFTP_BINARY = "/usr/bin/sftp"
 
 func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, newChannel ssh.NewChannel) {
 	channel, requests, err := newChannel.Accept()
