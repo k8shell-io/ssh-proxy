@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	log "github.com/k8shell-io/common/logger"
 	"github.com/k8shell-io/common/models"
 	pb "github.com/k8shell-io/k8shelld/pkg/api/k8shelldpb"
 	"github.com/rs/zerolog"
@@ -87,6 +88,7 @@ func NewK8shelld(host string, address string, port int, accessKey string, tlsCer
 	}
 
 	return &K8shelld{
+		log:              log.NewLogger("k8shelld.client"),
 		conn:             conn,
 		systemClient:     pb.NewSystemServiceClient(conn),
 		shellClient:      pb.NewShellServiceClient(conn),
