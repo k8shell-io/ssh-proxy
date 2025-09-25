@@ -590,5 +590,7 @@ func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID st
 		return exitCode, readerErr
 	}
 
+	c.log.Debug().Msgf("Exit code is %d", exitCode)
+
 	return exitCode, nil
 }
