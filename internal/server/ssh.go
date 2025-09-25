@@ -180,12 +180,12 @@ func HandleConnectionChildProcess(configPath string) error {
 	case <-done:
 		cancel()
 	case sig := <-sigChan:
-		logger.Info().Msgf("Received signal %v, shutting down gracefully", sig)
+		logger.Debug().Msgf("Received signal %v, shutting down gracefully", sig)
 		cancel()
 
 		select {
 		case <-done:
-			logger.Info().Msg("Connection cleanup completed")
+			logger.Debug().Msg("Connection cleanup completed")
 		case <-time.After(5 * time.Second):
 			logger.Warn().Msg("Cleanup timeout, forcing exit")
 		}
