@@ -267,11 +267,11 @@ func (c *ConnectionInfo) Handshake(writer io.Writer,
 
 	if c.user.Locked {
 		infoWriter.WriteError("User account is locked. Please contact the system administrator.")
-		return nil, fmt.Errorf("user %q is locked", c.user.Username)
+		return nil, fmt.Errorf("user %s is locked", c.user.Username)
 	}
 
 	if !c.userStr.HasCustomBlueprint && !c.user.HasBlueprint(c.userStr.Blueprint) {
-		infoWriter.WriteError(fmt.Sprintf("Access denied: user %q does not have access to blueprint %q",
+		infoWriter.WriteError(fmt.Sprintf("Access denied: user %s does not have access to blueprint %s.",
 			c.user.Username, c.userStr.Blueprint))
 		return nil, fmt.Errorf("user %s does not have access to blueprint %s",
 			c.user.Username, c.userStr.Blueprint)
