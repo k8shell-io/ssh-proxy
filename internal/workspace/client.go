@@ -582,9 +582,11 @@ func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID st
 	}
 
 	if writerErr != nil {
+		c.log.Debug().Msgf("Exit code is %d, there is writeErr: %v", exitCode, writerErr)
 		return exitCode, writerErr
 	}
 	if readerErr != nil {
+		c.log.Debug().Msgf("Exit code is %d, there is readerErr: %v", exitCode, readerErr)
 		return exitCode, readerErr
 	}
 
