@@ -251,6 +251,7 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer *In
 	var name string
 	var provisionErr error
 	var eventErr error
+	var systemErr error
 
 	var wg sync.WaitGroup
 
@@ -261,7 +262,7 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer *In
 
 		select {
 		case <-ctx.Done():
-			provisionErr = ctx.Err()
+			systemErr = ctx.Err()
 			return
 		default:
 			provisionErr = client.ProvisionWorkspaceStream(ctx, &provisioner.ProvisionOptions{
@@ -291,12 +292,15 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer *In
 				eventErr = fmt.Errorf("%s", event.Message)
 			}
 		}
-		hasError := eventErr != nil || provisionErr != nil
+		hasError := eventErr != nil || provisionErr != nil || systemErr != nil
 		writer.EndProvisioning(hasError)
 	}()
 
 	wg.Wait()
 
+	if systemErr != nil {
+		return "", systemErr
+	}
 	if eventErr != nil {
 		return "", &ProvisionError{Message: eventErr.Error()}
 	}

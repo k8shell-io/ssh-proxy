@@ -282,6 +282,8 @@ func (c *ConnectionInfo) Handshake(writer io.Writer,
 		var provisionErr *workspace.ProvisionError
 		if errors.As(err, &provisionErr) {
 			infoWriter.WriteError(provisionErr.Message)
+		} else {
+			infoWriter.WriteSystemError(err.Error())
 		}
 		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.userStr.Username, err)
 	}
