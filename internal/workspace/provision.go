@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/k8shell-io/common/models"
 	provisioner "github.com/k8shell-io/provisioner/pkg/client"
@@ -32,9 +33,13 @@ type InfoWriterOptions struct {
 
 type InfoWriter struct {
 	io.Writer
-	otps        *InfoWriterOptions
-	progress    int
-	provStarted bool
+	otps          *InfoWriterOptions
+	progress      int
+	provStarted   bool
+	pulseProgress int          // Add this for pulse animation
+	pulseTicker   *time.Ticker // Add this for pulse timer
+	pulseStop     chan bool    // Add this to stop pulse animation
+	pulseMutex    sync.Mutex   // Add this to protect pulse updates
 }
 
 func NewInfoWriter(w io.Writer, opts *InfoWriterOptions) *InfoWriter {
@@ -51,29 +56,48 @@ func NewInfoWriter(w io.Writer, opts *InfoWriterOptions) *InfoWriter {
 	if opts.TotalEvents == 0 {
 		opts.TotalEvents = 12
 	}
-	return &InfoWriter{Writer: w, otps: opts, progress: 0}
+	return &InfoWriter{
+		Writer:    w,
+		otps:      opts,
+		progress:  0,
+		pulseStop: make(chan bool, 1),
+	}
 }
 
-func (w *InfoWriter) StartProvisioning() {
-	if w.Writer == nil {
+// startPulseAnimation starts the pulse animation timer
+func (w *InfoWriter) startPulseAnimation() {
+	if w.pulseTicker != nil {
 		return
 	}
-	if w.otps.ShowProvisionInfo {
-		w.Writer.Write([]byte("Starting workspace...\r\n"))
-	} else {
-		w.progress = 0
-		w.drawPulseAndPercentage(0)
-	}
-	w.provStarted = true
+
+	w.pulseTicker = time.NewTicker(100 * time.Millisecond)
+	go func() {
+		for {
+			select {
+			case <-w.pulseTicker.C:
+				w.pulseMutex.Lock()
+				w.pulseProgress++
+				perc := min((w.progress*100)/w.otps.TotalEvents, 100)
+				if perc < 100 {
+					w.drawPulseAndPercentage(perc)
+				}
+				w.pulseMutex.Unlock()
+			case <-w.pulseStop:
+				return
+			}
+		}
+	}()
 }
 
-func (w *InfoWriter) EndProvisioning(hasError bool) {
-	if w.Writer == nil {
-		return
-	}
-	if w.provStarted {
-		w.drawPulseAndPercentage(100, hasError)
-		fmt.Fprintf(w.Writer, "\r\n")
+// stopPulseAnimation stops the pulse animation timer
+func (w *InfoWriter) stopPulseAnimation() {
+	if w.pulseTicker != nil {
+		w.pulseTicker.Stop()
+		w.pulseTicker = nil
+		select {
+		case w.pulseStop <- true:
+		default:
+		}
 	}
 }
 
@@ -89,7 +113,7 @@ func (w *InfoWriter) drawPulseAndPercentage(percentage int, hasError ...bool) {
 	if w.otps.ShowPulse {
 		if percentage < 100 {
 			pulseChars := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
-			pulseIndex := (w.progress) % len(pulseChars)
+			pulseIndex := w.pulseProgress % len(pulseChars)
 			output.WriteString(pulseChars[pulseIndex])
 		} else {
 			if len(hasError) > 0 && hasError[0] {
@@ -117,9 +141,11 @@ func (w *InfoWriter) WriteEvent(p string) {
 	if w.otps.ShowProvisionInfo {
 		w.Writer.Write([]byte(p + "\r\n"))
 	} else {
+		w.pulseMutex.Lock()
 		w.progress++
 		perc := min((w.progress*100)/w.otps.TotalEvents, 100)
-		w.drawPulseAndPercentage(perc) // No error parameter for progress updates
+		w.drawPulseAndPercentage(perc)
+		w.pulseMutex.Unlock()
 	}
 }
 
@@ -148,6 +174,33 @@ func (w *InfoWriter) WriteSplash(splash string) {
 		for _, line := range lines {
 			fmt.Fprintf(w.Writer, "%s\r\n", line)
 		}
+	}
+}
+
+func (w *InfoWriter) StartProvisioning() {
+	if w.Writer == nil {
+		return
+	}
+	if w.otps.ShowProvisionInfo {
+		w.Writer.Write([]byte("Starting workspace...\r\n"))
+	} else if w.otps.ShowPulse || w.otps.ShowPercentage {
+		w.progress = 0
+		w.drawPulseAndPercentage(0)
+		if w.otps.ShowPulse {
+			w.startPulseAnimation()
+		}
+	}
+	w.provStarted = true
+}
+
+func (w *InfoWriter) EndProvisioning(hasError bool) {
+	if w.Writer == nil {
+		return
+	}
+	if w.provStarted {
+		w.stopPulseAnimation()
+		w.drawPulseAndPercentage(100, hasError)
+		fmt.Fprintf(w.Writer, "\r\n")
 	}
 }
 
