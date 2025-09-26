@@ -8,7 +8,7 @@ import (
 )
 
 // handleDirectTCPIPChannel handles a new direct TCP/IP channel request
-func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *ConnectionInfo, newChannel ssh.NewChannel) {
+func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connection, newChannel ssh.NewChannel) {
 	if !connInfo.IncrementDirectTCPIPCount(s.Config.Server.MaxDirectTCPIPConnections) {
 		s.log.Warn().Msgf("User %s exceeded max direct-tcpip connections (limit: %d)",
 			connInfo.user.Username, s.Config.Server.MaxDirectTCPIPConnections)
@@ -74,7 +74,7 @@ func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connectio
 }
 
 // parseDirectTCPIPPayload parses the direct-tcpip channel request payload
-func parseDirectTCPIPPayload(payload []byte) (*DirectTCPIPInfo, error) {
+func parseDirectTCPIPPayload(payload []byte) (*DirectTCPIP, error) {
 	if len(payload) < 4 {
 		return nil, fmt.Errorf("payload too short")
 	}
@@ -110,7 +110,7 @@ func parseDirectTCPIPPayload(payload []byte) (*DirectTCPIPInfo, error) {
 	}
 	originPort := binary.BigEndian.Uint32(payload[offset : offset+4])
 
-	return &DirectTCPIPInfo{
+	return &DirectTCPIP{
 		destHost:   destHost,
 		destPort:   destPort,
 		originHost: originHost,

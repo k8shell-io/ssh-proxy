@@ -6,7 +6,7 @@ import (
 )
 
 // handleChannels handles SSH channel requests.
-func (s *Server) handleChannels(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, channels <-chan ssh.NewChannel) {
+func (s *Server) handleChannels(sshConn *ssh.ServerConn, connInfo *Connection, channels <-chan ssh.NewChannel) {
 	for {
 		select {
 		case <-s.ctx.Done():

@@ -1,3 +1,7 @@
+// Copyright 2025 The K8shell Authors. All rights reserved.
+// Use of this source code is governed by a AGPLv3
+// license that can be found in the LICENSE file.
+
 package server
 
 import (
@@ -15,22 +19,25 @@ import (
 	identity "github.com/k8shell-io/identity/pkg/client"
 	provisioner "github.com/k8shell-io/provisioner/pkg/client"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
+	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
 )
 
-// ConnectionInfo represents the connection information for a user
-type ConnectionInfo struct {
+// Connection represents the connection information for a user
+type Connection struct {
 	clientIP         string
 	clientPort       int
+	log              *zerolog.Logger
 	proxyFullID      string                    // identifier of the proxy with a PID where connection is established
 	identity         *identity.Client          // identity client for interacting with the identity service
 	k8shelld         *workspace.K8shelld       // k8shelld client for interacting with the workspace k8shelld daemon
 	userStr          *models.UserStr           // user string information
+	onboardMu        sync.RWMutex              // mutex for synchronizing access to onboardInfo and onboardCap
 	onboardCap       *models.OnboardCapability // onboarding capabilities
 	onboardInfo      *models.OnboardUser       // onboarding information
 	user             *models.User              // user information
 	mu               sync.RWMutex              // mutex for synchronizing access
-	session          *SessionInfo              // SSH session information
+	session          *Session                  // SSH session information
 	directTCPIP      *sync.Map                 // direct TCP/IP connection information
 	directTCPIPCount int64                     // current count of direct TCP/IP connections
 	counters         *workspace.ConnCounters   // connection counters
@@ -45,8 +52,8 @@ type ConnectionInfo struct {
 	reportWg         sync.WaitGroup            // wait group for report goroutine
 }
 
-// SessionInfo holds information about a user's SSH session
-type SessionInfo struct {
+// Session holds information about a user's SSH session
+type Session struct {
 	username    string      // username of the user
 	termWidth   uint32      // terminal width
 	termHeight  uint32      // terminal height
@@ -60,7 +67,8 @@ type SessionInfo struct {
 	signalChan  chan string `json:"-"`
 }
 
-type DirectTCPIPInfo struct {
+// DirectTCPIP holds information about a direct TCP/IP connection
+type DirectTCPIP struct {
 	username      string // username of the user
 	directTCPIPId string // unique identifier for the direct TCP/IP connection
 	destHost      string // destination host
@@ -70,16 +78,21 @@ type DirectTCPIPInfo struct {
 }
 
 // Global state storage
-var connStates = make(map[string]*ConnectionInfo)
+var connStates = make(map[string]*Connection)
 var connStatesMutex sync.RWMutex
 var execSeqNumber int64 // sequence number for exec commands
 
+// SESSION_UPDATE_INTERVAL defines the interval for session updates
+const SESSION_UPDATE_INTERVAL = 10 * time.Second
+
+// getConnectionID generates a connection ID based on the remote address
 func getConnectionID(remoteAddr string) string {
 	connID := fmt.Sprintf("connid-%s", remoteAddr)
 	return connID
 }
 
-func GetConnectionInfoByAddress(remoteAddr string) *ConnectionInfo {
+// GetConnectionByAddress retrieves the Connection object based on the remote address
+func GetConnectionByAddress(remoteAddr string) *Connection {
 	connID := getConnectionID(remoteAddr)
 	connStatesMutex.RLock()
 	defer connStatesMutex.RUnlock()
@@ -88,13 +101,15 @@ func GetConnectionInfoByAddress(remoteAddr string) *ConnectionInfo {
 	return connInfo
 }
 
-func RemoveState(state *ConnectionInfo) {
+// RemoveState removes the connection state for a given Connection object
+func RemoveState(state *Connection) {
 	connStatesMutex.Lock()
 	defer connStatesMutex.Unlock()
-	delete(connStates, fmt.Sprintf("12345-%s", state.userStr.Username))
+	delete(connStates, fmt.Sprintf("connid-%s", state.userStr.Username))
 }
 
-func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
+// GetConnInfo retrieves or creates a Connection object for the given ssh.ConnMetadata
+func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 	userStr, err := models.NewUserStr(conn.User())
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse user string: %w", err)
@@ -112,7 +127,8 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
 		if connInfo == nil {
 			ctx, cancel := context.WithCancel(context.Background())
 			proxyID := GetProxyID()
-			connInfo = &ConnectionInfo{
+			connInfo = &Connection{
+				log:          s.log,
 				identity:     s.identity,
 				proxyFullID:  fmt.Sprintf("%s-%d", proxyID, os.Getpid()),
 				userStr:      userStr,
@@ -122,6 +138,7 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
 				cancel:       cancel,
 				sessionID:    0,
 				reportStopCh: make(chan struct{}),
+				onboardMu:    sync.RWMutex{},
 			}
 			connInfo.reportWg.Add(1)
 			connStates[connID] = connInfo
@@ -135,7 +152,8 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*ConnectionInfo, error) {
 	return connInfo, nil
 }
 
-func (c *ConnectionInfo) AddFailureInfo(info string, err error) {
+// AddFailureInfo appends failure information to the Connection object
+func (c *Connection) AddFailureInfo(info string, err error) {
 	if err != nil {
 		c.failureInfo = append(c.failureInfo, fmt.Sprintf("%s: %v", info, err))
 	} else {
@@ -143,13 +161,15 @@ func (c *ConnectionInfo) AddFailureInfo(info string, err error) {
 	}
 }
 
-func (c *ConnectionInfo) AddChannelInfo(info string) {
+// AddChannelInfo appends channel information to the Connection object
+func (c *Connection) AddChannelInfo(info string) {
 	c.channelInfoMu.Lock()
 	defer c.channelInfoMu.Unlock()
 	c.channelInfo = append(c.channelInfo, info)
 }
 
-func (c *ConnectionInfo) GetChannelInfo() []string {
+// GetChannelInfo retrieves a sorted list of unique channel information
+func (c *Connection) GetChannelInfo() []string {
 	c.channelInfoMu.RLock()
 	defer c.channelInfoMu.RUnlock()
 
@@ -167,7 +187,8 @@ func (c *ConnectionInfo) GetChannelInfo() []string {
 	return unique
 }
 
-func (c *ConnectionInfo) Close() error {
+// Close cleans up the Connection object and sends the final session update
+func (c *Connection) Close() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -188,29 +209,38 @@ func (c *ConnectionInfo) Close() error {
 	return nil
 }
 
-func (c *ConnectionInfo) sendUpdate(endSession bool) error {
-	if c.sessionID == 0 || c.identity == nil {
+// sendUpdate sends the current session update to the identity provider
+func (c *Connection) sendUpdate(endSession bool) error {
+	if c.identity == nil {
 		return nil
 	}
+
+	sessionId := atomic.LoadInt32(&c.sessionID)
+	if sessionId == 0 {
+		return nil
+	}
+
 	curIn, curOut := c.counters.Snapshot()
 	curChannels := c.GetChannelInfo()
 
 	if err := c.identity.UpdateSSHSession(
-		c.ctx, c.userStr.Username, c.sessionID, curIn, curOut, "", curChannels,
+		c.ctx, c.userStr.Username, sessionId, curIn, curOut, "", curChannels,
 	); err != nil {
-		// log
+		c.log.Error().Msgf("Failed to update SSH session %d for user %s: %v",
+			sessionId, c.userStr.Username, err)
 	}
 
 	if endSession {
-		if err := c.identity.EndSSHSession(c.ctx, c.userStr.Username, c.sessionID); err != nil {
-			return fmt.Errorf("failed to end SSH session %d for user %s: %w", c.sessionID, c.userStr.Username, err)
+		if err := c.identity.EndSSHSession(c.ctx, c.userStr.Username, sessionId); err != nil {
+			return fmt.Errorf("failed to end SSH session %d for user %s: %w", sessionId, c.userStr.Username, err)
 		}
 	}
 	return nil
 }
 
-func (c *ConnectionInfo) reportSessionData() {
-	t := time.NewTicker(10 * time.Second)
+// reportSessionData periodically reports session data
+func (c *Connection) reportSessionData() {
+	t := time.NewTicker(SESSION_UPDATE_INTERVAL)
 	defer t.Stop()
 	defer c.reportWg.Done()
 
@@ -224,33 +254,39 @@ func (c *ConnectionInfo) reportSessionData() {
 	}
 }
 
-func (c *ConnectionInfo) SetOnboardInfo(onboardInfo *models.OnboardUser) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+// SetOnboardInfo sets the onboarding information for the Connection object
+func (c *Connection) SetOnboardInfo(onboardInfo *models.OnboardUser) {
+	c.onboardMu.Lock()
+	defer c.onboardMu.Unlock()
 	c.onboardInfo = onboardInfo
 }
 
-func (c *ConnectionInfo) GetOnboardInfo() *models.OnboardUser {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+// GetOnboardInfo retrieves the onboarding information for the Connection object
+func (c *Connection) GetOnboardInfo() *models.OnboardUser {
+	c.onboardMu.RLock()
+	defer c.onboardMu.RUnlock()
 	return c.onboardInfo
 }
 
-func (c *ConnectionInfo) SetOnboardCap(onboardCap *models.OnboardCapability) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+// SetOnboardCap sets the onboarding capabilities for the Connection object
+func (c *Connection) SetOnboardCap(onboardCap *models.OnboardCapability) {
+	c.onboardMu.Lock()
+	defer c.onboardMu.Unlock()
 	c.onboardCap = onboardCap
 }
 
-func (c *ConnectionInfo) GetOnboardCap() *models.OnboardCapability {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
+// GetOnboardCap retrieves the onboarding capabilities for the Connection object
+func (c *Connection) GetOnboardCap() *models.OnboardCapability {
+	c.onboardMu.RLock()
+	defer c.onboardMu.RUnlock()
 	return c.onboardCap
 }
 
-func (c *ConnectionInfo) Handshake(writer io.Writer,
-	writerOptions *workspace.InfoWriterOptions, client *provisioner.Client,
-	envVars []string) (*workspace.K8shelld, error) {
+// Handshake performs the handshake with the k8shelld daemon and ensures the workspace is ready
+// It checks the user validity and access to the specified workspace blueprint and starts
+// the workspace if it is not running. It also creates an SSH session record in the identity service.
+func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWriterOptions,
+	client *provisioner.Client, envVars []string) (*workspace.K8shelld, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -326,7 +362,7 @@ func (c *ConnectionInfo) Handshake(writer io.Writer,
 }
 
 // IncrementDirectTCPIPCount atomically increments the direct TCP/IP count
-func (c *ConnectionInfo) IncrementDirectTCPIPCount(maxLimit int) bool {
+func (c *Connection) IncrementDirectTCPIPCount(maxLimit int) bool {
 	for {
 		current := atomic.LoadInt64(&c.directTCPIPCount)
 		if current >= int64(maxLimit) {
@@ -340,7 +376,7 @@ func (c *ConnectionInfo) IncrementDirectTCPIPCount(maxLimit int) bool {
 }
 
 // DecrementDirectTCPIPCount atomically decrements the direct TCP/IP count
-func (c *ConnectionInfo) DecrementDirectTCPIPCount() {
+func (c *Connection) DecrementDirectTCPIPCount() {
 	for {
 		current := atomic.LoadInt64(&c.directTCPIPCount)
 		if current <= 0 {
@@ -354,10 +390,11 @@ func (c *ConnectionInfo) DecrementDirectTCPIPCount() {
 }
 
 // GetDirectTCPIPCount returns the current direct TCP/IP count
-func (c *ConnectionInfo) GetDirectTCPIPCount() int {
+func (c *Connection) GetDirectTCPIPCount() int {
 	return int(atomic.LoadInt64(&c.directTCPIPCount))
 }
 
-func (c *ConnectionInfo) ExecSeqNumber() int64 {
+// ExecSeqNumber returns a unique sequence number for exec commands
+func (c *Connection) ExecSeqNumber() int64 {
 	return atomic.AddInt64(&execSeqNumber, 1)
 }

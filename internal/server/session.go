@@ -13,7 +13,7 @@ import (
 
 var SSH_AUTH_SOCK_TEMP = "/var/run/ssh-agent-%s.sock"
 
-func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, newChannel ssh.NewChannel) {
+func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connection, newChannel ssh.NewChannel) {
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
 		s.log.Error().Msgf("Failed to accept session channel for user %s: %v", connInfo.user.Username, err)
@@ -21,7 +21,7 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 	}
 	defer channel.Close()
 
-	session := &SessionInfo{
+	session := &Session{
 		username:   connInfo.user.Username,
 		env:        []string{},
 		sessionId:  fmt.Sprintf("sh-%s-%d", connInfo.proxyFullID, channel.LocalID()),
@@ -51,7 +51,7 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 	}
 }
 
-func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *ConnectionInfo,
+func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *Connection,
 	channel ssh.Channel, sessionType chan<- string) {
 	sessionTypeSent := false
 	session := connInfo.session
@@ -238,7 +238,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 // ** SSH Shell
 
 // handleShellRequest handles a shell request for a user
-func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *ConnectionInfo, channel ssh.Channel) {
+func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connection, channel ssh.Channel) {
 	session := connInfo.session
 
 	var stopCtrlC chan struct{}
@@ -276,7 +276,7 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 	}
 }
 
-func (s *Server) cancelOnCtrlC(channel ssh.Channel, connInfo *ConnectionInfo, stopChan chan struct{}) {
+func (s *Server) cancelOnCtrlC(channel ssh.Channel, connInfo *Connection, stopChan chan struct{}) {
 	buffer := make([]byte, 1)
 	for {
 		select {
@@ -313,7 +313,7 @@ func (s *Server) cancelOnCtrlC(channel ssh.Channel, connInfo *ConnectionInfo, st
 
 // ** SFTP
 
-func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *ConnectionInfo, channel ssh.Channel) {
+func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *Connection, channel ssh.Channel) {
 	session := connInfo.session
 	s.log.Info().Msgf("Handling sftp subsystem in channel for user %s, command: %s", session.username, session.command)
 
@@ -351,7 +351,7 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *ConnectionInfo
 // ** SSH Exec
 
 // handleExecRequest handles an exec request for a user
-func (s *Server) handleExecRequest(connInfo *ConnectionInfo, channel ssh.Channel) {
+func (s *Server) handleExecRequest(connInfo *Connection, channel ssh.Channel) {
 	session := connInfo.session
 	s.log.Info().Msgf("Handling exec in channel for user %s, command: %s", session.username, session.command)
 
@@ -403,7 +403,7 @@ func (s *Server) sendExitStatus(channel ssh.Channel, exitcode int32) {
 
 // createAgentChannel creates a server-initiated agent forwarding channel and
 // handles the communication between the SSH agent and the unix socket in the workspace
-func (s *Server) handleAgent(sshConn *ssh.ServerConn, connInfo *ConnectionInfo) (ssh.Channel, error) {
+func (s *Server) handleAgent(sshConn *ssh.ServerConn, connInfo *Connection) (ssh.Channel, error) {
 	s.log.Debug().Msgf("Creating agent channel for user %s", connInfo.userStr.Username)
 
 	k8shelld := connInfo.k8shelld

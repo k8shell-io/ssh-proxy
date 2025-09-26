@@ -153,7 +153,7 @@ func (s *Server) AuthKeyboardInteractive(conn ssh.ConnMetadata,
 
 // checkAuthInteractiveResponse verifies the response from a keyboard-interactive authentication challenge.
 func (s *Server) checkAuthInteractiveResponse(ctx context.Context,
-	auth *ConnectionInfo, _ []string) (*ssh.Permissions, error) {
+	auth *Connection, _ []string) (*ssh.Permissions, error) {
 	onboardInfo := auth.GetOnboardInfo()
 	if onboardInfo == nil {
 		return nil, fmt.Errorf("no onboard info available")
@@ -197,7 +197,7 @@ func (s *Server) authPassword(_ *models.User) bool {
 
 // updateUser fetches user from the identity service and updates user auth
 // When the user is not found, it retrieves the user onboarding capability.
-func (s *Server) updateUser(ctx context.Context, connInfo *ConnectionInfo) {
+func (s *Server) updateUser(ctx context.Context, connInfo *Connection) {
 	connInfo.mu.Lock()
 	defer connInfo.mu.Unlock()
 
@@ -232,7 +232,7 @@ func (s *Server) updateUser(ctx context.Context, connInfo *ConnectionInfo) {
 
 // getAvailableAuthMethods returns the available authentication methods for the user.
 // It returns callbacks for the SSH server authentication process.
-func (s *Server) getAvailableAuthMethods(connInfo *ConnectionInfo) *ssh.PartialSuccessError {
+func (s *Server) getAvailableAuthMethods(connInfo *Connection) *ssh.PartialSuccessError {
 	if connInfo.user == nil {
 		onboardCap := connInfo.GetOnboardCap()
 		if onboardCap != nil && onboardCap.CanOnboard {

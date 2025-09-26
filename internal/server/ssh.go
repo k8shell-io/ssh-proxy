@@ -246,7 +246,7 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 			s.log.Warn().Msgf("SSH handshake timed out for connection from %s:%d", ip, port)
 		}
 
-		connInfo := GetConnectionInfoByAddress(netConn.RemoteAddr().String())
+		connInfo := GetConnectionByAddress(netConn.RemoteAddr().String())
 
 		if connInfo != nil {
 			s.log.Debug().Msgf("Failed connection info: %v", connInfo.failureInfo)
