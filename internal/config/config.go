@@ -1,3 +1,7 @@
+// Copyright 2025 The K8shell Authors. All rights reserved.
+// Use of this source code is governed by a AGPLv3
+// license that can be found in the LICENSE file.
+
 package config
 
 import (
@@ -20,6 +24,7 @@ type Config struct {
 	Nats        nats.Config      `yaml:"nats"`
 }
 
+// ServerConfig represents the SSH server configuration.
 type ServerConfig struct {
 	Forking                   bool                        `yaml:"forking"`
 	ProxyProtocol             bool                        `yaml:"proxyProtocol"`
@@ -36,9 +41,14 @@ type SshConfig struct {
 }
 
 const (
-	DEFAULT_SSH_HANDSHAKE_TIMEOUT        = 30
+	// DefaultSSHHandshakeTimeout is the default timeout for SSH handshakes.
+	DEFAULT_SSH_HANDSHAKE_TIMEOUT = 30
+
+	// DefaultMaxDirectTCPIPConnections is the default maximum number of direct TCP/IP connections
 	DEFAULT_MAX_DIRECT_TCPIP_CONNECTIONS = 15
-	DEFAULT_SFTP_BINARY                  = "/usr/local/bin/sftp"
+
+	// DefaultSftpBinary is the default path to the SFTP binary
+	DEFAULT_SFTP_BINARY = "/usr/local/bin/sftp"
 )
 
 // NewConfig creates a new Config instance by loading the configuration from the specified file.
@@ -69,6 +79,7 @@ func NewConfig(configFile string) (*Config, error) {
 	return &cfg, nil
 }
 
+// GetServerKey loads and returns the SSH server private key as an ssh.Signer
 func (c *Config) GetServerKey() (ssh.Signer, error) {
 	if c.Ssh.ServerKey == "" {
 		return nil, fmt.Errorf("server key path not configured")

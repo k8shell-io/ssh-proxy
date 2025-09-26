@@ -1,3 +1,7 @@
+// Copyright 2025 The K8shell Authors. All rights reserved.
+// Use of this source code is governed by a AGPLv3
+// license that can be found in the LICENSE file.
+
 package nats
 
 import (
@@ -18,6 +22,7 @@ type Config struct {
 	SshFailures SshFailuresConfig `yaml:"sshFailures"`
 }
 
+// SshFailuresConfig represents the configuration for SSH failure reporting
 type SshFailuresConfig struct {
 	Enabled      bool     `yaml:"enabled"`
 	Subject      string   `yaml:"subject"`
@@ -25,6 +30,7 @@ type SshFailuresConfig struct {
 	Whitelist    []string `yaml:"whitelist"`
 }
 
+// Client represents a NATS client for publishing messages
 type Client struct {
 	config    Config
 	conn      *nats.Conn
@@ -42,6 +48,7 @@ type FailedConnectionEvent struct {
 	ProxyID     string   `json:"proxy_id"`
 }
 
+// NewClient creates a new NATS client with the given configuration
 func NewClient(config Config, proxyId string) (*Client, error) {
 	url := fmt.Sprintf("nats://%s:%d", config.Host, config.Port)
 
@@ -78,12 +85,14 @@ func NewClient(config Config, proxyId string) (*Client, error) {
 	}, nil
 }
 
+// Close closes the NATS client connection
 func (c *Client) Close() {
 	if c.conn != nil {
 		c.conn.Close()
 	}
 }
 
+// publish sends a message to the specified NATS subject
 func (c *Client) publish(subject string, data []byte) error {
 	return c.conn.Publish(subject, data)
 }
