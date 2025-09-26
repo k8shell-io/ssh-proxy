@@ -1,3 +1,7 @@
+// Copyright 2025 The K8shell Authors. All rights reserved.
+// Use of this source code is governed by a AGPLv3
+// license that can be found in the LICENSE file.
+
 package workspace
 
 import (
@@ -22,6 +26,7 @@ import (
 	"google.golang.org/grpc/metadata"
 )
 
+// K8shelld is a client for interacting with the k8shelld gRPC service.
 type K8shelld struct {
 	conn             *grpc.ClientConn
 	log              *zerolog.Logger
@@ -34,13 +39,19 @@ type K8shelld struct {
 	counters         *ConnCounters
 }
 
+// ConnCounters holds counters for bytes sent and received.
 type ConnCounters struct {
 	inTotal  int64
 	outTotal int64
 }
 
-func (c *ConnCounters) AddIn(n int)  { atomic.AddInt64(&c.inTotal, int64(n)) }
+// AddIn adds to the incoming byte counter.
+func (c *ConnCounters) AddIn(n int) { atomic.AddInt64(&c.inTotal, int64(n)) }
+
+// AddOut adds to the outgoing byte counter.
 func (c *ConnCounters) AddOut(n int) { atomic.AddInt64(&c.outTotal, int64(n)) }
+
+// Snapshot returns the current values of the incoming and outgoing byte counters.
 func (c *ConnCounters) Snapshot() (in, out int64) {
 	return atomic.LoadInt64(&c.inTotal), atomic.LoadInt64(&c.outTotal)
 }
@@ -51,6 +62,7 @@ var KEEPALIVE_TIME = 5 * time.Minute
 // KEEPALIVE_TIMEOUT defines the timeout for keepalive pings.
 var KEEPALIVE_TIMEOUT = 20 * time.Second
 
+// NewK8shelld creates a new K8shelld client.
 func NewK8shelld(host string, address string, port int, accessKey string, tlsCert string, counters *ConnCounters) (*K8shelld, error) {
 	var creds credentials.TransportCredentials
 	if tlsCert != "" {
@@ -100,10 +112,12 @@ func NewK8shelld(host string, address string, port int, accessKey string, tlsCer
 	}, nil
 }
 
+// Close closes the gRPC connection.
 func (c *K8shelld) Close() error {
 	return c.conn.Close()
 }
 
+// Handshake performs a handshake with the k8shelld service to establish a session.
 func (c *K8shelld) Handshake(ctx context.Context, user *models.User, envVars []string) (*pb.HandshakeResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
@@ -124,8 +138,8 @@ func (c *K8shelld) Handshake(ctx context.Context, user *models.User, envVars []s
 	return c.systemClient.Handshake(ctx, req)
 }
 
-// StartShell creates a PTY shell session over gRPC and bridges it with the SSH channel.
-func (c *K8shelld) StartShell(ctx context.Context, channel ssh.Channel, sessionId string, envVars []string,
+// RunShell creates a PTY shell session over gRPC and bridges it with the SSH channel.
+func (c *K8shelld) RunShell(ctx context.Context, channel ssh.Channel, sessionId string, envVars []string,
 	width, height uint32, usePty bool) error {
 	md := metadata.Pairs(
 		"authorization", c.AccessKey,
@@ -242,7 +256,8 @@ func (c *K8shelld) ResizeTerminal(ctx context.Context, sessionId string, width, 
 	return err
 }
 
-func (c *K8shelld) StartUnixSocket(ctx context.Context, channel ssh.Channel, agentUnixID, socketPath string) error {
+// RunUnixSocket creates a Unix socket connection over gRPC and bridges it with the SSH channel.
+func (c *K8shelld) RunUnixSocket(ctx context.Context, channel ssh.Channel, agentUnixID, socketPath string) error {
 	md := metadata.Pairs(
 		"authorization", c.AccessKey,
 		"unixsocket-id", agentUnixID,
@@ -257,7 +272,6 @@ func (c *K8shelld) StartUnixSocket(ctx context.Context, channel ssh.Channel, age
 		return fmt.Errorf("failed to create UnixSocket stream: %w", err)
 	}
 
-	// send initial start request
 	startReq := &pb.UnixSocketRequest{
 		Request: &pb.UnixSocketRequest_StartRequest{
 			StartRequest: &pb.UnixSocketStartRequest{
@@ -332,7 +346,8 @@ func (c *K8shelld) StartUnixSocket(ctx context.Context, channel ssh.Channel, age
 	return err
 }
 
-func (c *K8shelld) StartPortForward(ctx context.Context, channel ssh.Channel, portForwardID, destinationIP string, destinationPort uint32) error {
+// RunPortForward sets up a port forward over gRPC and bridges it with the SSH channel.
+func (c *K8shelld) RunPortForward(ctx context.Context, channel ssh.Channel, portForwardID, destinationIP string, destinationPort uint32) error {
 	if destinationIP == "" {
 		destinationIP = "localhost"
 	}
@@ -425,14 +440,13 @@ func (c *K8shelld) StartPortForward(ctx context.Context, channel ssh.Channel, po
 	return err
 }
 
-// StartExec executes a command in a remote shell over gRPC.
-func (c *K8shelld) StartExec(ctx context.Context, channel ssh.Channel, execID string,
+// RunExec executes a command in a remote shell over gRPC.
+func (c *K8shelld) RunExec(ctx context.Context, channel ssh.Channel, execID string,
 	command string, shellBinary string, envVars []string, signalChan <-chan string) (int32, error) {
 
 	md := metadata.Pairs("authorization", c.AccessKey, "exec-id", execID)
 	ctx = metadata.NewOutgoingContext(ctx, md)
 
-	// Create cancellable context
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 

@@ -1,3 +1,7 @@
+// Copyright 2025 The K8shell Authors. All rights reserved.
+// Use of this source code is governed by a AGPLv3
+// license that can be found in the LICENSE file.
+
 package server
 
 import (
@@ -268,7 +272,7 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 
 	s.log.Debug().Msgf("Starting shell session for user %s, session ID: %s", session.username, session.sessionId)
 
-	if err := k8shelld.StartShell(connInfo.ctx, channel, session.sessionId,
+	if err := k8shelld.RunShell(connInfo.ctx, channel, session.sessionId,
 		session.env, session.termWidth, session.termHeight, session.hasPTY); err != nil {
 		s.log.Error().Msgf("Shell session error: %v", err)
 	} else {
@@ -338,7 +342,7 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *Connection, ch
 	s.log.Debug().Msgf("Starting sftp for user %s, exec ID: %s, command: %s",
 		session.username, execID, s.Config.Server.SftpBinary)
 
-	exitcode, err := k8shelld.StartExec(connInfo.ctx, channel, execID, s.Config.Server.SftpBinary,
+	exitcode, err := k8shelld.RunExec(connInfo.ctx, channel, execID, s.Config.Server.SftpBinary,
 		"", []string{}, session.signalChan)
 	if err != nil {
 		s.log.Error().Msgf("sftp exec failed for command '%s': %v", s.Config.Server.SftpBinary, err)
@@ -377,7 +381,7 @@ func (s *Server) handleExecRequest(connInfo *Connection, channel ssh.Channel) {
 	s.log.Debug().Msgf("Starting exec for user %s, exec ID: %s, command: %s",
 		session.username, execID, session.command)
 
-	exitcode, err := k8shelld.StartExec(connInfo.ctx, channel, execID, session.command, "/bin/sh",
+	exitcode, err := k8shelld.RunExec(connInfo.ctx, channel, execID, session.command, "/bin/sh",
 		session.env, session.signalChan)
 	if err != nil {
 		s.log.Error().Msgf("Exec failed for command '%s': %v", session.command, err)
@@ -423,7 +427,8 @@ func (s *Server) handleAgent(sshConn *ssh.ServerConn, connInfo *Connection) (ssh
 	go func() {
 		s.log.Debug().Msgf("Starting agent forwarding for user %s, unix socket id: %s", connInfo.userStr.Username,
 			connInfo.session.agentUnixID)
-		err := k8shelld.StartUnixSocket(connInfo.ctx, channel, connInfo.session.agentUnixID, connInfo.session.sshAuthSock)
+		err := k8shelld.RunUnixSocket(connInfo.ctx, channel, connInfo.session.agentUnixID,
+			connInfo.session.sshAuthSock)
 		if err != nil {
 			if statusErr, ok := status.FromError(err); ok && statusErr.Code() == codes.Canceled {
 				s.log.Debug().Msgf("Agent forwarding canceled for user %s", connInfo.userStr.Username)

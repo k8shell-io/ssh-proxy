@@ -1,3 +1,7 @@
+// Copyright 2025 The K8shell Authors. All rights reserved.
+// Use of this source code is governed by a AGPLv3
+// license that can be found in the LICENSE file.
+
 package server
 
 import (
@@ -65,7 +69,7 @@ func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connectio
 	s.log.Debug().Msgf("Starting port forward %s for user %s: %s:%d",
 		tcpipInfo.directTCPIPId, connInfo.user.Username, tcpipInfo.destHost, tcpipInfo.destPort)
 
-	if err := k8shelld.StartPortForward(connInfo.ctx, channel, tcpipInfo.directTCPIPId,
+	if err := k8shelld.RunPortForward(connInfo.ctx, channel, tcpipInfo.directTCPIPId,
 		tcpipInfo.destHost, tcpipInfo.destPort); err != nil {
 		s.log.Error().Msgf("Port forward failed for user %s: %v", connInfo.user.Username, err)
 	} else {

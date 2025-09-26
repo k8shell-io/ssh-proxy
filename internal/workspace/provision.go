@@ -1,3 +1,7 @@
+// Copyright 2025 The K8shell Authors. All rights reserved.
+// Use of this source code is governed by a AGPLv3
+// license that can be found in the LICENSE file.
+
 package workspace
 
 import (
@@ -14,14 +18,17 @@ import (
 	provModels "github.com/k8shell-io/provisioner/pkg/models"
 )
 
+// ProvisionError represents an error that occurred during provisioning.
 type ProvisionError struct {
 	Message string
 }
 
+// Error returns the error message.
 func (e *ProvisionError) Error() string {
 	return e.Message
 }
 
+// InfoWriterOptions defines options for the InfoWriter.
 type InfoWriterOptions struct {
 	ShowProvisionInfo bool `yaml:"showProvisionInfo"`
 	ShowPulse         bool `yaml:"showPulse"`
@@ -31,6 +38,7 @@ type InfoWriterOptions struct {
 	TotalEvents       int  `yaml:"totalEvents"`
 }
 
+// InfoWriter writes information to the channel during provisioning.
 type InfoWriter struct {
 	io.Writer
 	otps          *InfoWriterOptions
@@ -42,6 +50,7 @@ type InfoWriter struct {
 	pulseMutex    sync.Mutex   // Add this to protect pulse updates
 }
 
+// NewInfoWriter creates a new InfoWriter with the given options.
 func NewInfoWriter(w io.Writer, opts *InfoWriterOptions) *InfoWriter {
 	if opts == nil {
 		opts = &InfoWriterOptions{
@@ -134,6 +143,7 @@ func (w *InfoWriter) drawPulseAndPercentage(percentage int, hasError ...bool) {
 	fmt.Fprint(w.Writer, output.String())
 }
 
+// WriteEvent writes a provisioning event to the channel
 func (w *InfoWriter) WriteEvent(p string) {
 	if w.Writer == nil {
 		return
@@ -149,6 +159,7 @@ func (w *InfoWriter) WriteEvent(p string) {
 	}
 }
 
+// WriteMessage writes a general message to the channel
 func (w *InfoWriter) WriteMessage(p string) {
 	if w.Writer == nil {
 		return
@@ -156,18 +167,21 @@ func (w *InfoWriter) WriteMessage(p string) {
 	fmt.Fprintf(w.Writer, "%s\r\n", p)
 }
 
+// WriteError writes an error message to the channel if enabled
 func (w *InfoWriter) WriteError(p string) {
 	if w.Writer != nil && w.otps.ShowErrors {
 		fmt.Fprintf(w.Writer, "%s\r\n", p)
 	}
 }
 
+// WriteSystemError writes a system error message to the channel if enabled
 func (w *InfoWriter) WriteSystemError(p string) {
 	if w.Writer != nil && w.otps.ShowSystemErrors {
 		fmt.Fprintf(w.Writer, "%s\r\n", p)
 	}
 }
 
+// WriteSplash writes a splash message to the channel
 func (w *InfoWriter) WriteSplash(splash string) {
 	if w.Writer != nil {
 		lines := strings.Split(splash, "\n")
@@ -177,6 +191,7 @@ func (w *InfoWriter) WriteSplash(splash string) {
 	}
 }
 
+// StartProvisioning indicates the start of the provisioning process
 func (w *InfoWriter) StartProvisioning() {
 	if w.Writer == nil {
 		return
@@ -193,6 +208,7 @@ func (w *InfoWriter) StartProvisioning() {
 	w.provStarted = true
 }
 
+// EndProvisioning indicates the end of the provisioning process
 func (w *InfoWriter) EndProvisioning(hasError bool) {
 	if w.Writer == nil {
 		return
