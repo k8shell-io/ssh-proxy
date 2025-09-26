@@ -22,6 +22,7 @@ import (
 	"time"
 
 	log "github.com/k8shell-io/common/logger"
+	"github.com/k8shell-io/common/models"
 	identity "github.com/k8shell-io/identity/pkg/client"
 	provisioner "github.com/k8shell-io/provisioner/pkg/client"
 	"github.com/k8shell-io/ssh-proxy/internal/config"
@@ -290,6 +291,52 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 	s.log.Info().Msgf("Connection closed for user %s from %s", sshConn.User(), sshConn.RemoteAddr())
 }
 
+// handleChannels handles SSH channel requests.
+func (s *Server) handleChannels(sshConn *ssh.ServerConn, connInfo *Connection, channels <-chan ssh.NewChannel) {
+	for {
+		select {
+		case <-s.ctx.Done():
+			s.log.Info().Msg("Channel handler stopping due to context cancellation")
+			return
+		case channel := <-channels:
+			if channel == nil {
+				return
+			}
+			s.log.Debug().Msgf("Received channel request: type=%s", channel.ChannelType())
+			switch channel.ChannelType() {
+			case "session":
+				go s.handleSessionChannel(sshConn, connInfo, channel)
+			case "direct-tcpip":
+				connInfo.AddChannelInfo(models.ChannelShortPf)
+				go s.handleDirectTCPIPChannel(sshConn, connInfo, channel)
+			default:
+				s.log.Warn().Msgf("Unsupported channel type: %s", channel.ChannelType())
+				channel.Reject(ssh.UnknownChannelType, "channel type not supported")
+			}
+		}
+	}
+}
+
+// handleGlobalRequests processes SSH global requests
+func (s *Server) handleGlobalRequests(requests <-chan *ssh.Request) {
+	for {
+		select {
+		case <-s.ctx.Done():
+			s.log.Info().Msg("Global request handler stopping due to context cancellation")
+			return
+		case req := <-requests:
+			if req == nil {
+				return
+			}
+			s.log.Debug().Msgf("Received global request: type=%s, want_reply=%t", req.Type, req.WantReply)
+
+			if req.WantReply {
+				req.Reply(false, nil)
+			}
+		}
+	}
+}
+
 // Start begins listening for SSH connections on the configured port
 func (s *Server) Start() error {
 	address := fmt.Sprintf(":%d", s.Config.Ssh.Port)
@@ -412,6 +459,8 @@ func (s *Server) Stop() {
 	s.wg.Wait()
 	s.log.Info().Msg("SSH server stopped")
 }
+
+// *** Helpers
 
 // GetProxyID generates a unique proxy identifier based on hostname
 // If hostname matches Kubernetes deployment pod pattern, it uses the pod hash as proxy-id.
