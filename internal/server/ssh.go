@@ -33,7 +33,6 @@ import (
 var (
 	SSHPROXY_VERSION = "0.0.0"
 	SSHPROXY_COMMIT  = "0000000"
-	SERVER_VERSION   = fmt.Sprintf("SSH-2.0-ssh-proxy_%s/%s k8shell.io", SSHPROXY_VERSION, SSHPROXY_COMMIT)
 )
 
 // Server represents the SSH server that handles incoming connections and authentication.
@@ -107,9 +106,9 @@ func NewServer(configPath string) (*Server, error) {
 
 // initSSHConfig initializes the SSH server configuration with callbacks and host key.
 func (s *Server) initSSHConfig() error {
+	version := fmt.Sprintf("SSH-2.0-ssh-proxy_%s/%s_k8shell.io", SSHPROXY_VERSION, SSHPROXY_COMMIT)
 	s.sshConfig = &ssh.ServerConfig{
-		// SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10
-		ServerVersion:               SERVER_VERSION,
+		ServerVersion:               version,
 		KeyboardInteractiveCallback: s.AuthKeyboardInteractive,
 		PublicKeyCallback:           s.AuthPublicKey,
 		PasswordCallback:            s.AuthPassword,
@@ -122,6 +121,8 @@ func (s *Server) initSSHConfig() error {
 		return fmt.Errorf("failed to load server key: %w", err)
 	}
 	s.sshConfig.AddHostKey(serverKey)
+
+	s.log.Info().Msgf("SSH server version: %s", s.sshConfig.ServerVersion)
 	s.log.Info().Msgf("SSH server initialized with server key: %s", serverKey.PublicKey().Type())
 
 	return nil
@@ -130,7 +131,6 @@ func (s *Server) initSSHConfig() error {
 // HandleConnectionChildProcess handles a connection from a file descriptor
 // It is called when a new connection is accepted and processed in a subprocess when forking is enabled.
 func HandleConnectionChildProcess(configPath string) error {
-	// get the connection from file descriptor, fd 3 should be the connection
 	file := os.NewFile(uintptr(3), "connection")
 	defer file.Close()
 
