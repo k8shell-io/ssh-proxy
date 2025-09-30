@@ -351,7 +351,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	c.workspaceName = status.Name
 
 	// create session
-	sshSession, err := c.identity.CreateSSHSession(c.ctx, c.user.Username, c.workspaceName,
+	sshSession, err := c.identity.CreateSSHSession(c.ctx, c.user.Username, c.workspaceName, c.userStr.Blueprint,
 		GetProxyID(), os.Getpid(), c.clientIP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SSH session for user %s: %w", c.user.Username, err)
