@@ -429,7 +429,7 @@ func (s *Server) startSubProcess(netConn net.Conn) {
 	cmd.Env = os.Environ()
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
+		Pdeathsig: syscall.SIGTERM, // Send SIGTERM when parent dies
 	}
 
 	err = cmd.Start()
