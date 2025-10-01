@@ -25,13 +25,15 @@ import (
 
 // Connection represents the connection information for a user
 type Connection struct {
+	ctx              context.Context           // context for managing the connection
+	cancel           context.CancelFunc        // function to cancel the context
+	log              *zerolog.Logger           // logger instance, reused from server
+	userStr          *models.UserStr           // user string information
 	clientIP         string                    // client IP address (detected from proxy protocol if available)
 	clientPort       int                       // client port (detected from proxy protocol if available)
-	log              *zerolog.Logger           // logger instance, reused from server
 	proxyFullID      string                    // identifier of the proxy with a PID where connection is established
 	identity         *identity.Client          // identity client for interacting with the identity service
 	k8shelld         *workspace.K8shelld       // k8shelld client for interacting with the workspace k8shelld daemon
-	userStr          *models.UserStr           // user string information
 	onboardMu        sync.RWMutex              // mutex for synchronizing access to onboardInfo and onboardCap
 	onboardCap       *models.OnboardCapability // onboarding capabilities
 	onboardInfo      *models.OnboardUser       // onboarding information
@@ -41,8 +43,6 @@ type Connection struct {
 	directTCPIP      *sync.Map                 // direct TCP/IP connection information
 	directTCPIPCount int64                     // current count of direct TCP/IP connections
 	counters         *workspace.ConnCounters   // connection counters
-	ctx              context.Context           // context for managing lifecycle
-	cancel           context.CancelFunc        // function to cancel
 	sessionID        int32                     // SSH session ID
 	workspaceName    string                    // name of the workspace
 	channelInfoMu    sync.RWMutex              // mutex for synchronizing access to channelInfo
