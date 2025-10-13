@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/k8shell-io/common/models"
+	"github.com/k8shell-io/common/pkg/models"
 	"golang.org/x/crypto/ssh"
 )
 

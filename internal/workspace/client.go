@@ -14,8 +14,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	log "github.com/k8shell-io/common/logger"
-	"github.com/k8shell-io/common/models"
+	log "github.com/k8shell-io/common/pkg/logger"
+	"github.com/k8shell-io/common/pkg/models"
 	pb "github.com/k8shell-io/k8shelld/pkg/api/k8shelldpb"
 	"github.com/rs/zerolog"
 

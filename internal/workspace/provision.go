@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/k8shell-io/common/models"
+	"github.com/k8shell-io/common/pkg/models"
 	provisioner "github.com/k8shell-io/provisioner/pkg/client"
 	provModels "github.com/k8shell-io/provisioner/pkg/models"
 )

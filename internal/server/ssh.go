@@ -21,10 +21,11 @@ import (
 	"syscall"
 	"time"
 
-	log "github.com/k8shell-io/common/logger"
-	"github.com/k8shell-io/common/models"
+	log "github.com/k8shell-io/common/pkg/logger"
+	"github.com/k8shell-io/common/pkg/models"
 	identity "github.com/k8shell-io/identity/pkg/client"
 	provisioner "github.com/k8shell-io/provisioner/pkg/client"
+	session "github.com/k8shell-io/session/pkg/api"
 	"github.com/k8shell-io/ssh-proxy/internal/config"
 	"github.com/k8shell-io/ssh-proxy/internal/nats"
 	"github.com/rs/zerolog"
@@ -46,6 +47,7 @@ type Server struct {
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
 	identity    *identity.Client
+	session     *session.Client
 	provisioner *provisioner.Client
 	nats        *nats.Client
 	configPath  string
@@ -100,6 +102,11 @@ func NewServer(configPath string) (*Server, error) {
 		identityClient, provisionerClient := NewClients(config)
 		server.identity = identityClient
 		server.provisioner = provisionerClient
+
+		server.session, err = session.NewClient(config.Session)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create session client: %w", err)
+		}
 	}
 
 	return server, nil

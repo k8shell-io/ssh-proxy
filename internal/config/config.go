@@ -8,8 +8,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/k8shell-io/common/apiclient"
-	"github.com/k8shell-io/common/config"
+	"github.com/k8shell-io/common/pkg/apiclient"
+	"github.com/k8shell-io/common/pkg/config"
+	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/ssh-proxy/internal/nats"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"golang.org/x/crypto/ssh"
@@ -17,11 +18,12 @@ import (
 
 // Config represents the server configuration
 type Config struct {
-	Server      ServerConfig     `yaml:"server"`
-	Ssh         SshConfig        `yaml:"ssh"`
-	Identity    apiclient.Config `yaml:"identity"`
-	Provisioner apiclient.Config `yaml:"provisioner"`
-	Nats        nats.Config      `yaml:"nats"`
+	Server      ServerConfig      `yaml:"server"`
+	Ssh         SshConfig         `yaml:"ssh"`
+	Identity    apiclient.Config  `yaml:"identity"`
+	Session     gapi.ClientConfig `yaml:"session"`
+	Provisioner apiclient.Config  `yaml:"provisioner"`
+	Nats        nats.Config       `yaml:"nats"`
 }
 
 // ServerConfig represents the SSH server configuration.

@@ -15,9 +15,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/k8shell-io/common/models"
+	"github.com/k8shell-io/common/pkg/models"
 	identity "github.com/k8shell-io/identity/pkg/client"
 	provisioner "github.com/k8shell-io/provisioner/pkg/client"
+	session "github.com/k8shell-io/session/pkg/api"
+	"github.com/k8shell-io/session/pkg/api/sessionpb"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
@@ -33,6 +35,7 @@ type Connection struct {
 	clientPort       int                       // client port (detected from proxy protocol if available)
 	proxyFullID      string                    // identifier of the proxy with a PID where connection is established
 	identity         *identity.Client          // identity client for interacting with the identity service
+	scli             *session.Client           // session client for interacting with the session service
 	k8shelld         *workspace.K8shelld       // k8shelld client for interacting with the workspace k8shelld daemon
 	onboardMu        sync.RWMutex              // mutex for synchronizing access to onboardInfo and onboardCap
 	onboardCap       *models.OnboardCapability // onboarding capabilities
@@ -130,6 +133,7 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 			connInfo = &Connection{
 				log:          s.log,
 				identity:     s.identity,
+				scli:         s.session,
 				proxyFullID:  fmt.Sprintf("%s-%d", proxyID, os.Getpid()),
 				userStr:      userStr,
 				directTCPIP:  &sync.Map{},
@@ -223,16 +227,14 @@ func (c *Connection) sendUpdate(endSession bool) error {
 	curIn, curOut := c.counters.Snapshot()
 	curChannels := c.GetChannelInfo()
 
-	if err := c.identity.UpdateSSHSession(
-		c.ctx, c.userStr.Username, sessionId, curIn, curOut, "", curChannels,
-	); err != nil {
-		c.log.Error().Msgf("Failed to update SSH session %d for user %s: %v",
-			sessionId, c.userStr.Username, err)
+	if _, err := c.scli.UpdateSession(c.ctx, &sessionpb.UpdateSessionRequest{SessionId: sessionId, BytesIn: curIn,
+		BytesOut: curOut, Channels: curChannels}); err != nil {
+		return fmt.Errorf("failed to update session %d for user %s: %w", sessionId, c.userStr.Username, err)
 	}
 
 	if endSession {
-		if err := c.identity.EndSSHSession(c.ctx, c.userStr.Username, sessionId); err != nil {
-			return fmt.Errorf("failed to end SSH session %d for user %s: %w", sessionId, c.userStr.Username, err)
+		if _, err := c.scli.EndSession(c.ctx, &sessionpb.EndSessionRequest{SessionId: sessionId}); err != nil {
+			return fmt.Errorf("failed to end session %d for user %s: %w", sessionId, c.userStr.Username, err)
 		}
 	}
 	return nil
@@ -351,12 +353,14 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	c.workspaceName = status.Name
 
 	// create session
-	sshSession, err := c.identity.CreateSSHSession(c.ctx, c.user.Username, c.workspaceName, c.userStr.Blueprint,
-		GetProxyID(), os.Getpid(), c.clientIP)
+	sshSession, err := c.scli.CreateSession(c.ctx, &sessionpb.Session{Username: c.user.Username,
+		Workspace: c.workspaceName, Blueprint: c.userStr.Blueprint, ProxyId: GetProxyID(), ProxyPid: int32(os.Getpid()),
+		ClientIp: c.clientIP,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SSH session for user %s: %w", c.user.Username, err)
 	}
-	atomic.StoreInt32(&c.sessionID, sshSession.SessionID)
+	atomic.StoreInt32(&c.sessionID, sshSession.SessionId)
 
 	return c.k8shelld, nil
 }

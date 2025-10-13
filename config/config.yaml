@@ -36,6 +36,10 @@ identity:
   APIKey: !file ${SECRET_FILES}/identity_key
   timeout: 1000 
 
+session:
+  address: session:9010
+  tokenFilePath: /var/run/secrets/k8shell.io/session
+
 provisioner:
   baseURL: http://${PROVISIONER_SERVICE_HOST}:9201
   APIKey: !file ${SECRET_FILES}/provisioner_key
