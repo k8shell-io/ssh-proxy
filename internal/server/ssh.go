@@ -177,6 +177,10 @@ func HandleConnectionChildProcess(configPath string) error {
 	identityClient, provisionerClient := NewClients(config)
 	server.identity = identityClient
 	server.provisioner = provisionerClient
+	server.session, err = session.NewClient(config.Session)
+	if err != nil {
+		return fmt.Errorf("failed to create session client: %w", err)
+	}
 
 	if err := server.initSSHConfig(); err != nil {
 		return fmt.Errorf("failed to initialize SSH config: %w", err)
