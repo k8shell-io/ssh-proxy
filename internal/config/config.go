@@ -20,7 +20,7 @@ import (
 type Config struct {
 	Server      ServerConfig      `yaml:"server"`
 	Ssh         SshConfig         `yaml:"ssh"`
-	Identity    apiclient.Config  `yaml:"identity"`
+	Identity    gapi.ClientConfig `yaml:"identity"`
 	Session     gapi.ClientConfig `yaml:"session"`
 	Provisioner apiclient.Config  `yaml:"provisioner"`
 	Nats        nats.Config       `yaml:"nats"`
@@ -74,8 +74,8 @@ func NewConfig(configFile string) (*Config, error) {
 		cfg.Server.SftpBinary = DEFAULT_SFTP_BINARY
 	}
 
-	if cfg.Ssh.Port == 0 || cfg.Identity.APIKey == "" {
-		return nil, fmt.Errorf("missing required configuration values: port and APIKey must be set")
+	if cfg.Ssh.Port == 0 {
+		return nil, fmt.Errorf("missing required configuration values: port must be set")
 	}
 
 	return &cfg, nil

@@ -30,11 +30,9 @@ ssh:
   port: 2022
   serverKey: ${SECRET_FILES}/server_key
 
-# Identity service configuration
 identity:
-  baseURL: http://${IDENTITY_SERVICE_HOST}:9090
-  APIKey: !file ${SECRET_FILES}/identity_key
-  timeout: 1000 
+  address: identity:9020
+  tokenFilePath: /var/run/secrets/k8shell.io/identity
 
 session:
   address: session:9010

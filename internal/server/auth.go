@@ -11,7 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
+	"github.com/k8shell-io/identity/pkg/api/identitypb"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -124,12 +126,13 @@ func (s *Server) AuthKeyboardInteractive(conn ssh.ConnMetadata,
 		return nil, fmt.Errorf("user %s is not allowed to onboard", connInfo.userStr.Username)
 	}
 
-	onboardInfo, err := s.identity.OnboardUser(ctx, connInfo.userStr.Username)
+	onboardInfo, err := s.identity.OnboardUserDeviceFlow(ctx,
+		&identitypb.Username{Username: connInfo.userStr.Username})
 	if err != nil {
 		s.log.Error().Msgf("Failed to get onboard info for user %s: %v", connInfo.userStr.Username, err)
 		return nil, fmt.Errorf("onboarding failed")
 	}
-	connInfo.SetOnboardInfo(onboardInfo)
+	connInfo.SetOnboardInfo(gapi.ProtoToOnboardUserDeviceFlow(onboardInfo))
 
 	prompt := fmt.Sprintf(
 		"Onboarding user %s via %s.\n"+
@@ -180,13 +183,14 @@ func (s *Server) authPublicKey(user *models.User, pubKey ssh.PublicKey) bool {
 	pubKeyHash := ssh.FingerprintSHA256(pubKey)
 
 	s.log.Debug().Msgf("Authenticating user %s with public key: %s", user.Username, pubKeyHash)
-	authResponse, err := s.identity.AuthPublicKey(s.ctx, user.Username, pubKeyString)
+	authResponse, err := s.identity.AuthUserPublicKey(s.ctx, &identitypb.AuthUserPublicKeyRequest{
+		Username: user.Username, PublicKey: pubKeyString})
 	if err != nil || authResponse == nil {
 		s.log.Error().Msgf("Failed to get authentication response for user %s: %v", user.Username, err)
 		return false
 	}
 
-	if !authResponse.Authenticated {
+	if !authResponse.Valid {
 		s.log.Warn().Msgf("Public key authentication failed for user %s", user.Username)
 		return false
 	}
@@ -209,28 +213,28 @@ func (s *Server) updateUser(ctx context.Context, connInfo *Connection) {
 		return // User already loaded
 	}
 
-	user, err := s.identity.GetUser(ctx, connInfo.userStr.Username)
+	user, err := s.identity.FindUser(ctx, &identitypb.FindUserRequest{Username: connInfo.userStr.Username})
 	if err != nil {
 		connInfo.AddFailureInfo("Failed to get user", err)
 	}
 
 	if user == nil {
 		if connInfo.onboardCap == nil {
-			var onboardCap *models.OnboardCapability
-			onboardCap, err = s.identity.GetOnboardCapability(ctx, connInfo.userStr.Username)
+			onboardCap, err := s.identity.GetUserOnboardCapability(ctx, &identitypb.Username{
+				Username: connInfo.userStr.Username})
 			if err != nil {
 				s.log.Error().Msgf("Failed to get onboarding capability for user %s: %v",
 					connInfo.userStr.Username, err)
 				return
 			}
-			connInfo.onboardCap = onboardCap
+			connInfo.onboardCap = gapi.ProtoToUserOnboardCapability(onboardCap)
 			if onboardCap == nil || !onboardCap.CanOnboard {
 				s.log.Warn().Msgf("User %s is not onboarded and has no onboarding capability", connInfo.userStr.Username)
 				connInfo.AddFailureInfo("User is not onboarded and has no onboarding capability", nil)
 			}
 		}
 	} else {
-		connInfo.user = user
+		connInfo.user = gapi.ProtoToUser(user)
 	}
 }
 

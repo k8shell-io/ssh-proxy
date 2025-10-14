@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/k8shell-io/common/pkg/models"
-	identity "github.com/k8shell-io/identity/pkg/client"
+	identity "github.com/k8shell-io/identity/pkg/api"
 	provisioner "github.com/k8shell-io/provisioner/pkg/client"
 	session "github.com/k8shell-io/session/pkg/api"
 	"github.com/k8shell-io/session/pkg/api/sessionpb"
@@ -27,32 +27,32 @@ import (
 
 // Connection represents the connection information for a user
 type Connection struct {
-	ctx              context.Context           // context for managing the connection
-	cancel           context.CancelFunc        // function to cancel the context
-	log              *zerolog.Logger           // logger instance, reused from server
-	userStr          *models.UserStr           // user string information
-	clientIP         string                    // client IP address (detected from proxy protocol if available)
-	clientPort       int                       // client port (detected from proxy protocol if available)
-	proxyFullID      string                    // identifier of the proxy with a PID where connection is established
-	identity         *identity.Client          // identity client for interacting with the identity service
-	scli             *session.Client           // session client for interacting with the session service
-	k8shelld         *workspace.K8shelld       // k8shelld client for interacting with the workspace k8shelld daemon
-	onboardMu        sync.RWMutex              // mutex for synchronizing access to onboardInfo and onboardCap
-	onboardCap       *models.OnboardCapability // onboarding capabilities
-	onboardInfo      *models.OnboardUser       // onboarding information
-	user             *models.User              // user information
-	mu               sync.RWMutex              // mutex for synchronizing access
-	session          *Session                  // SSH session information
-	directTCPIP      *sync.Map                 // direct TCP/IP connection information
-	directTCPIPCount int64                     // current count of direct TCP/IP connections
-	counters         *workspace.ConnCounters   // connection counters
-	sessionID        int32                     // SSH session ID
-	workspaceName    string                    // name of the workspace
-	channelInfoMu    sync.RWMutex              // mutex for synchronizing access to channelInfo
-	channelInfo      []string                  // channel information
-	failureInfo      []string                  // failure information
-	reportStopCh     chan struct{}             // channel to signal report goroutine to stop
-	reportWg         sync.WaitGroup            // wait group for report goroutine
+	ctx              context.Context               // context for managing the connection
+	cancel           context.CancelFunc            // function to cancel the context
+	log              *zerolog.Logger               // logger instance, reused from server
+	userStr          *models.UserStr               // user string information
+	clientIP         string                        // client IP address (detected from proxy protocol if available)
+	clientPort       int                           // client port (detected from proxy protocol if available)
+	proxyFullID      string                        // identifier of the proxy with a PID where connection is established
+	identity         *identity.Client              // identity client for interacting with the identity service
+	scli             *session.Client               // session client for interacting with the session service
+	k8shelld         *workspace.K8shelld           // k8shelld client for interacting with the workspace k8shelld daemon
+	onboardMu        sync.RWMutex                  // mutex for synchronizing access to onboardInfo and onboardCap
+	onboardCap       *models.OnboardCapability     // onboarding capabilities
+	onboardInfo      *models.OnboardUserDeviceFlow // onboarding information
+	user             *models.User                  // user information
+	mu               sync.RWMutex                  // mutex for synchronizing access
+	session          *Session                      // SSH session information
+	directTCPIP      *sync.Map                     // direct TCP/IP connection information
+	directTCPIPCount int64                         // current count of direct TCP/IP connections
+	counters         *workspace.ConnCounters       // connection counters
+	sessionID        int32                         // SSH session ID
+	workspaceName    string                        // name of the workspace
+	channelInfoMu    sync.RWMutex                  // mutex for synchronizing access to channelInfo
+	channelInfo      []string                      // channel information
+	failureInfo      []string                      // failure information
+	reportStopCh     chan struct{}                 // channel to signal report goroutine to stop
+	reportWg         sync.WaitGroup                // wait group for report goroutine
 }
 
 // Session holds information about a user's SSH session
@@ -257,14 +257,14 @@ func (c *Connection) reportSessionData() {
 }
 
 // SetOnboardInfo sets the onboarding information for the Connection object
-func (c *Connection) SetOnboardInfo(onboardInfo *models.OnboardUser) {
+func (c *Connection) SetOnboardInfo(onboardInfo *models.OnboardUserDeviceFlow) {
 	c.onboardMu.Lock()
 	defer c.onboardMu.Unlock()
 	c.onboardInfo = onboardInfo
 }
 
 // GetOnboardInfo retrieves the onboarding information for the Connection object
-func (c *Connection) GetOnboardInfo() *models.OnboardUser {
+func (c *Connection) GetOnboardInfo() *models.OnboardUserDeviceFlow {
 	c.onboardMu.RLock()
 	defer c.onboardMu.RUnlock()
 	return c.onboardInfo

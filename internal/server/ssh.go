@@ -23,7 +23,7 @@ import (
 
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
-	identity "github.com/k8shell-io/identity/pkg/client"
+	identity "github.com/k8shell-io/identity/pkg/api"
 	provisioner "github.com/k8shell-io/provisioner/pkg/client"
 	session "github.com/k8shell-io/session/pkg/api"
 	"github.com/k8shell-io/ssh-proxy/internal/config"
@@ -64,13 +64,6 @@ func (bc *BufferedConn) Read(b []byte) (int, error) {
 	return bc.reader.Read(b)
 }
 
-// NewClients creates new instances of the identity and provisioner clients.
-func NewClients(config *config.Config) (*identity.Client, *provisioner.Client) {
-	identityClient := identity.NewClient(config.Identity)
-	provisionerClient := provisioner.NewClient(config.Provisioner)
-	return identityClient, provisionerClient
-}
-
 // NewServer creates a new SSH server instance.
 func NewServer(configPath string) (*Server, error) {
 	log := log.NewLogger("ssh-server")
@@ -99,9 +92,12 @@ func NewServer(configPath string) (*Server, error) {
 			server.log.Error().Msgf("failed to create NATS client: %v", err)
 		}
 
-		identityClient, provisionerClient := NewClients(config)
-		server.identity = identityClient
-		server.provisioner = provisionerClient
+		server.provisioner = provisioner.NewClient(config.Provisioner)
+
+		server.identity, err = identity.NewClient(config.Identity)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create identity client: %w", err)
+		}
 
 		server.session, err = session.NewClient(config.Session)
 		if err != nil {
@@ -174,9 +170,13 @@ func HandleConnectionChildProcess(configPath string) error {
 		server.log.Error().Msgf("failed to create NATS client: %v", err)
 	}
 
-	identityClient, provisionerClient := NewClients(config)
-	server.identity = identityClient
-	server.provisioner = provisionerClient
+	server.provisioner = provisioner.NewClient(config.Provisioner)
+
+	server.identity, err = identity.NewClient(config.Identity)
+	if err != nil {
+		return fmt.Errorf("failed to create identity client: %w", err)
+	}
+
 	server.session, err = session.NewClient(config.Session)
 	if err != nil {
 		return fmt.Errorf("failed to create session client: %w", err)
