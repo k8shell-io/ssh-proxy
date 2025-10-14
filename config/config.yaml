@@ -30,18 +30,17 @@ ssh:
   port: 2022
   serverKey: ${SECRET_FILES}/server_key
 
-identity:
-  address: identity:9020
-  tokenFilePath: /var/run/secrets/k8shell.io/identity
-
 session:
   address: session:9010
   tokenFilePath: /var/run/secrets/k8shell.io/session
 
+identity:
+  address: identity:9020
+  tokenFilePath: /var/run/secrets/k8shell.io/identity
+
 provisioner:
-  baseURL: http://${PROVISIONER_SERVICE_HOST}:9201
-  APIKey: !file ${SECRET_FILES}/provisioner_key
-  timeout: 30000
+  address: provisioner:9030
+  tokenFilePath: /var/run/secrets/k8shell.io/provisioner
 
 nats:
   host: ${NATS_HOST}

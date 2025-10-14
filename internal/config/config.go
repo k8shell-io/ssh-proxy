@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/k8shell-io/common/pkg/apiclient"
 	"github.com/k8shell-io/common/pkg/config"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/ssh-proxy/internal/nats"
@@ -22,7 +21,7 @@ type Config struct {
 	Ssh         SshConfig         `yaml:"ssh"`
 	Identity    gapi.ClientConfig `yaml:"identity"`
 	Session     gapi.ClientConfig `yaml:"session"`
-	Provisioner apiclient.Config  `yaml:"provisioner"`
+	Provisioner gapi.ClientConfig `yaml:"provisioner"`
 	Nats        nats.Config       `yaml:"nats"`
 }
 

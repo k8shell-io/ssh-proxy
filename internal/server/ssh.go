@@ -24,7 +24,7 @@ import (
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
 	identity "github.com/k8shell-io/identity/pkg/api"
-	provisioner "github.com/k8shell-io/provisioner/pkg/client"
+	provisioner "github.com/k8shell-io/provisioner/pkg/api"
 	session "github.com/k8shell-io/session/pkg/api"
 	"github.com/k8shell-io/ssh-proxy/internal/config"
 	"github.com/k8shell-io/ssh-proxy/internal/nats"
@@ -92,7 +92,10 @@ func NewServer(configPath string) (*Server, error) {
 			server.log.Error().Msgf("failed to create NATS client: %v", err)
 		}
 
-		server.provisioner = provisioner.NewClient(config.Provisioner)
+		server.provisioner, err = provisioner.NewClient(config.Provisioner)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create provisioner client: %w", err)
+		}
 
 		server.identity, err = identity.NewClient(config.Identity)
 		if err != nil {
@@ -170,7 +173,10 @@ func HandleConnectionChildProcess(configPath string) error {
 		server.log.Error().Msgf("failed to create NATS client: %v", err)
 	}
 
-	server.provisioner = provisioner.NewClient(config.Provisioner)
+	server.provisioner, err = provisioner.NewClient(config.Provisioner)
+	if err != nil {
+		return fmt.Errorf("failed to create provisioner client: %w", err)
+	}
 
 	server.identity, err = identity.NewClient(config.Identity)
 	if err != nil {

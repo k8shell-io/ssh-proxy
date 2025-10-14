@@ -13,9 +13,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
-	provisioner "github.com/k8shell-io/provisioner/pkg/client"
-	provModels "github.com/k8shell-io/provisioner/pkg/models"
+	provisioner "github.com/k8shell-io/provisioner/pkg/api"
+	"github.com/k8shell-io/provisioner/pkg/api/provisionerpb"
 )
 
 // ProvisionError represents an error that occurred during provisioning.
@@ -222,22 +223,26 @@ func (w *InfoWriter) EndProvisioning(hasError bool) {
 
 // EnsureWorkspace checks if a workspace exists for the user and provisions it if not.
 func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoWriter,
-	client *provisioner.Client) (*provModels.WorkspaceStatus, error) {
+	client *provisioner.Client) (*models.WorkspaceStatus, error) {
 
-	workspaces, err := client.GetWorkspaces(ctx, userStr.Username, userStr.Blueprint)
+	workspacespb, err := client.GetWorkspaces(ctx, &provisionerpb.GetWorkspacesRequest{
+		Username:  userStr.Username,
+		Blueprint: userStr.Blueprint,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 	}
+	workspaces := workspacespb.GetWorkspaces()
 
 	if len(workspaces) > 0 {
-		status, err := client.GetWorkspaceStatus(ctx, workspaces[0].Name)
+		status, err := client.GetWorkspaceStatus(ctx, &provisionerpb.Workspace{Workspace: workspaces[0].GetName()})
 		if err != nil {
-			if !errors.Is(err, provModels.ErrWorkspaceNotFound) {
+			if !errors.Is(err, models.ErrWorkspaceNotFound) {
 				return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 			}
 		} else {
-			if status.Status == "Running" {
-				return status, nil
+			if status.GetPodStatus().Status == "Running" {
+				return gapi.ProtoToWorkspaceStatus(status), nil
 			}
 		}
 	}
@@ -247,81 +252,81 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.Username, err)
 	}
 
-	status, err := client.GetWorkspaceStatus(ctx, name)
+	status, err := client.GetWorkspaceStatus(ctx, &provisionerpb.Workspace{Workspace: name})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 	}
-	if status.Status == "Running" {
-		return status, nil
+	if status.GetPodStatus().Status == "Running" {
+		return gapi.ProtoToWorkspaceStatus(status), nil
 	}
 
 	return nil, fmt.Errorf("failed to ensure workspace for user %s: workspace status is %q",
-		userStr.Username, status.Status)
+		userStr.Username, status.GetPodStatus().Status)
 }
 
 // provisionWorkspace provisions a new workspace for the user.
 func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoWriter,
 	client *provisioner.Client) (string, error) {
-	events := make(chan provModels.StreamEvent, 100)
+	var (
+		name     string
+		eventErr error
+	)
 
-	var name string
-	var provisionErr error
-	var eventErr error
-	var systemErr error
+	writer.StartProvisioning()
+	defer func() {
+		writer.EndProvisioning(eventErr != nil)
+	}()
 
-	var wg sync.WaitGroup
+	stream, err := client.ProvisionWorkspaceStream(ctx, &provisionerpb.ProvisionWorkspaceRequest{
+		Userstr: userStr.Raw,
+		Timeout: 30,
+	})
+	if err != nil {
+		eventErr = fmt.Errorf("failed to create provision stream: %w", err)
+		return "", eventErr
+	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		defer close(events)
-
+loop:
+	for {
 		select {
 		case <-ctx.Done():
-			systemErr = ctx.Err()
-			return
+			eventErr = ctx.Err()
+			break loop
+
 		default:
-			provisionErr = client.ProvisionWorkspaceStream(ctx, &provisioner.ProvisionOptions{
-				UserStr: *userStr,
-				Timeout: 30,
-				Stream:  true,
-			}, events)
+			event, err := stream.Recv()
+			if err != nil {
+				if err == io.EOF {
+					break loop
+				}
+				eventErr = fmt.Errorf("stream error: %w", err)
+				break loop
+			}
+
+			streamEvent := models.WorkspaceStreamEvent{
+				Type:       event.GetType(),
+				Status:     event.GetStatus(),
+				Message:    event.GetMessage(),
+				ObjectName: event.GetObjectName(),
+				Timestamp:  event.GetTimestamp(),
+			}
+
+			writer.WriteEvent(streamEvent.String())
+
+			switch streamEvent.Status {
+			case "Running":
+				name = streamEvent.ObjectName
+				break loop
+
+			case "Error":
+				eventErr = fmt.Errorf("%s", streamEvent.Message)
+				break loop
+			}
 		}
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		for event := range events {
-			if event.Type == "status" && event.Status == "Starting" {
-				writer.StartProvisioning()
-				continue
-			}
-			writer.WriteEvent(event.String())
-
-			if event.Status == "Running" {
-				name = event.ObjectName
-			}
-
-			if event.Status == "Error" {
-				eventErr = fmt.Errorf("%s", event.Message)
-			}
-		}
-		hasError := eventErr != nil || provisionErr != nil || systemErr != nil
-		writer.EndProvisioning(hasError)
-	}()
-
-	wg.Wait()
-
-	if systemErr != nil {
-		return "", systemErr
 	}
+
 	if eventErr != nil {
 		return "", &ProvisionError{Message: eventErr.Error()}
-	}
-	if provisionErr != nil {
-		return "", &ProvisionError{Message: provisionErr.Error()}
 	}
 	if name == "" {
 		return "", fmt.Errorf("provisioning completed but no running workspace name received")

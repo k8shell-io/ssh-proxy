@@ -17,7 +17,7 @@ import (
 
 	"github.com/k8shell-io/common/pkg/models"
 	identity "github.com/k8shell-io/identity/pkg/api"
-	provisioner "github.com/k8shell-io/provisioner/pkg/client"
+	provisioner "github.com/k8shell-io/provisioner/pkg/api"
 	session "github.com/k8shell-io/session/pkg/api"
 	"github.com/k8shell-io/session/pkg/api/sessionpb"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
