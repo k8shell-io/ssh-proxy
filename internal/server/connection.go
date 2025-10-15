@@ -36,7 +36,7 @@ type Connection struct {
 	proxyFullID      string                        // identifier of the proxy with a PID where connection is established
 	identity         *identity.Client              // identity client for interacting with the identity service
 	scli             *session.Client               // session client for interacting with the session service
-	k8shelld         *workspace.K8shelld           // k8shelld client for interacting with the workspace k8shelld daemon
+	k8shelld         workspace.K8shelldClient      // k8shelld client for interacting with the workspace k8shelld daemon
 	onboardMu        sync.RWMutex                  // mutex for synchronizing access to onboardInfo and onboardCap
 	onboardCap       *models.OnboardCapability     // onboarding capabilities
 	onboardInfo      *models.OnboardUserDeviceFlow // onboarding information
@@ -288,7 +288,7 @@ func (c *Connection) GetOnboardCap() *models.OnboardCapability {
 // It checks the user validity and access to the specified workspace blueprint and starts
 // the workspace if it is not running. It also creates an SSH session record in the identity service.
 func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWriterOptions,
-	client *provisioner.Client, envVars []string) (*workspace.K8shelld, error) {
+	client *provisioner.Client, envVars []string) (workspace.K8shelldClient, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -315,7 +315,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 			c.user.Username, c.userStr.Blueprint)
 	}
 
-	status, err := workspace.EnsureWorkspace(c.ctx, c.userStr, infoWriter, client)
+	status, version, err := workspace.EnsureWorkspace(c.ctx, c.userStr, infoWriter, client)
 	if err != nil {
 		var provisionErr *workspace.ProvisionError
 		if errors.As(err, &provisionErr) {
@@ -327,11 +327,19 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	}
 	infoWriter.WriteMessage(fmt.Sprintf("Connecting to the workspace at %s...", status.Host))
 
-	k8shelld, err := workspace.NewK8shelld(status.Host, status.PodIP, status.Port, status.AccessKey,
-		status.TLSCert, c.counters)
+	k8shelld, err := workspace.NewK8shelld(status, version, c.counters)
 	if err != nil {
 		infoWriter.WriteSystemError(err.Error())
 		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.user.Username, err)
+	}
+
+	c.log.Debug().Msgf("Connecting to k8shelld at %s:%d for user %s, version: %s",
+		status.Host, status.Port, c.user.Username, version)
+
+	err = k8shelld.Connect()
+	if err != nil {
+		infoWriter.WriteSystemError(err.Error())
+		return nil, fmt.Errorf("failed to connect to k8shelld for user %s: %w", c.user.Username, err)
 	}
 
 	handshake, err := k8shelld.Handshake(c.ctx, c.user, envVars)

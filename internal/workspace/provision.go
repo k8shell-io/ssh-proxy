@@ -224,7 +224,7 @@ func (w *InfoWriter) EndProvisioning(hasError bool) {
 
 // EnsureWorkspace checks if a workspace exists for the user and provisions it if not.
 func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoWriter,
-	client *provisioner.Client) (*models.WorkspaceStatus, error) {
+	client *provisioner.Client) (*models.WorkspaceStatus, string, error) {
 
 	// find the workspace for the user and blueprint
 	workspacepb, err := client.GetUserWorkspaceInfo(ctx, &provisionerpb.GetUserWorkspacesRequest{
@@ -234,35 +234,35 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 	if err != nil {
 		st, ok := status.FromError(err)
 		if !ok || st.Code() != codes.NotFound {
-			return nil, fmt.Errorf("failed to get workspace for user %s: %w", userStr.Username, err)
+			return nil, "", fmt.Errorf("failed to get workspace for user %s: %w", userStr.Username, err)
 		}
 	}
 
 	if workspacepb != nil {
 		status, err := client.GetWorkspaceStatus(ctx, &provisionerpb.Workspace{Workspace: workspacepb.Name})
 		if err != nil {
-			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
+			return nil, "", fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 		}
 		if status.GetPodStatus().Status == "Running" {
-			return gapi.ProtoToWorkspaceStatus(status), nil
+			return gapi.ProtoToWorkspaceStatus(status), workspacepb.GetAppVersion(), nil
 		}
 	}
 
 	wsname, err := provisionWorkspace(ctx, userStr, writer, client)
 	if err != nil {
-		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.Username, err)
+		return nil, "", fmt.Errorf("failed to provision workspace for user %s: %w", userStr.Username, err)
 	}
 
 	status, err := client.GetWorkspaceStatus(ctx, &provisionerpb.Workspace{Workspace: wsname})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
+		return nil, "", fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 	}
 
 	if status.GetPodStatus().Status == "Running" {
-		return gapi.ProtoToWorkspaceStatus(status), nil
+		return gapi.ProtoToWorkspaceStatus(status), status.GetAppVersion(), nil
 	}
 
-	return nil, fmt.Errorf("failed to ensure workspace for user %s: workspace status is %q",
+	return nil, "", fmt.Errorf("failed to ensure workspace for user %s: workspace status is %q",
 		userStr.Username, status.GetPodStatus().Status)
 }
 
