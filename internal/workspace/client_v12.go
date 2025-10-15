@@ -15,7 +15,6 @@ import (
 // K8shelld_v12 wraps K8shelld_v11 and overrides specific methods
 type K8shelld_v12 struct {
 	K8shelldClient
-	v12 *api.K8shelld
 }
 
 func NewK8shelld_v12(cfg gapi.ClientConfig, status *models.WorkspaceStatus,
@@ -29,6 +28,5 @@ func NewK8shelld_v12(cfg gapi.ClientConfig, status *models.WorkspaceStatus,
 
 	return &K8shelld_v12{
 		K8shelldClient: v12,
-		v12:            v12,
 	}, nil
 }
