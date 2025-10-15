@@ -21,6 +21,7 @@ type K8shelld_v12 struct {
 
 func NewK8shelld_v12(cfg gapi.ClientConfig, status *models.WorkspaceStatus, counters *ConnCounters) K8shelldClient {
 	v11 := NewK8shelld_v11(status, counters).(*K8shelld_v11)
+	cfg.Address = fmt.Sprintf("%s:%d", status.PodIP, status.Port)
 
 	return &K8shelld_v12{
 		K8shelldClient: v11,
