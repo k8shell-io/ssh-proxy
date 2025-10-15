@@ -18,6 +18,7 @@ import (
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
 	identity "github.com/k8shell-io/identity/pkg/api"
+	"github.com/k8shell-io/k8shelld/pkg/api"
 	provisioner "github.com/k8shell-io/provisioner/pkg/api"
 	session "github.com/k8shell-io/session/pkg/api"
 	"github.com/k8shell-io/session/pkg/api/sessionpb"
@@ -47,7 +48,7 @@ type Connection struct {
 	session          *Session                      // SSH session information
 	directTCPIP      *sync.Map                     // direct TCP/IP connection information
 	directTCPIPCount int64                         // current count of direct TCP/IP connections
-	counters         *workspace.ConnCounters       // connection counters
+	counters         *api.ConnCounters             // connection counters
 	sessionID        int32                         // SSH session ID
 	workspaceName    string                        // name of the workspace
 	channelInfoMu    sync.RWMutex                  // mutex for synchronizing access to channelInfo
@@ -140,7 +141,7 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 				proxyFullID:  fmt.Sprintf("%s-%d", proxyID, os.Getpid()),
 				userStr:      userStr,
 				directTCPIP:  &sync.Map{},
-				counters:     &workspace.ConnCounters{},
+				counters:     &api.ConnCounters{},
 				ctx:          ctx,
 				cancel:       cancel,
 				sessionID:    0,
@@ -338,12 +339,6 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 
 	c.log.Debug().Msgf("Connecting to k8shelld at %s:%d for user %s, version: %s",
 		status.Host, status.Port, c.user.Username, version)
-
-	err = k8shelld.Connect()
-	if err != nil {
-		infoWriter.WriteSystemError(err.Error())
-		return nil, fmt.Errorf("failed to connect to k8shelld for user %s: %w", c.user.Username, err)
-	}
 
 	handshake, err := k8shelld.Handshake(c.ctx, c.user, envVars)
 	if err != nil {

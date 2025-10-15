@@ -18,7 +18,7 @@ import (
 	pb "github.com/k8shell-io/k8shelld/pkg/api/k8shelldpb"
 	"github.com/rs/zerolog"
 
-	"golang.org/x/crypto/ssh"
+	"github.com/k8shell-io/k8shelld/pkg/api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
@@ -35,15 +35,15 @@ type K8shelld_v11 struct {
 	pfClient         pb.PortForwardServiceClient
 	unixSocketClient pb.UnixSocketServiceClient
 	AccessKey        string
-	counters         *ConnCounters
+	counters         *api.ConnCounters
 	TLSCert          string
 	Host             string
 	Address          string
 	Port             int
 }
 
-func NewK8shelld_v11(status *models.WorkspaceStatus, counters *ConnCounters) K8shelldClient {
-	return &K8shelld_v11{
+func NewK8shelld_v11(status *models.WorkspaceStatus, counters *api.ConnCounters) (K8shelldClient, error) {
+	c := &K8shelld_v11{
 		log:       log.NewLogger("k8shelld.client"),
 		counters:  counters,
 		AccessKey: status.AccessKey,
@@ -52,19 +52,12 @@ func NewK8shelld_v11(status *models.WorkspaceStatus, counters *ConnCounters) K8s
 		Address:   status.PodIP,
 		Port:      status.Port,
 	}
-}
 
-// Close closes the gRPC connection.
-func (c *K8shelld_v11) Close() error {
-	return c.conn.Close()
-}
-
-func (c *K8shelld_v11) Connect() error {
 	var creds credentials.TransportCredentials
 	if c.TLSCert != "" {
 		pool := x509.NewCertPool()
 		if !pool.AppendCertsFromPEM([]byte(c.TLSCert)) {
-			return fmt.Errorf("failed to append TLS certificate to pool")
+			return nil, fmt.Errorf("failed to append TLS certificate to pool")
 		}
 		creds = credentials.NewTLS(&tls.Config{
 			ServerName: c.Host,
@@ -93,7 +86,7 @@ func (c *K8shelld_v11) Connect() error {
 	target := fmt.Sprintf("%s:%d", c.Address, c.Port)
 	c.conn, err = grpc.NewClient(target, opts...)
 	if err != nil {
-		return fmt.Errorf("failed to connect to gRPC server: %w", err)
+		return nil, fmt.Errorf("failed to connect to gRPC server: %w", err)
 	}
 
 	c.systemClient = pb.NewSystemServiceClient(c.conn)
@@ -102,7 +95,12 @@ func (c *K8shelld_v11) Connect() error {
 	c.pfClient = pb.NewPortForwardServiceClient(c.conn)
 	c.unixSocketClient = pb.NewUnixSocketServiceClient(c.conn)
 
-	return nil
+	return c, nil
+}
+
+// Close closes the gRPC connection.
+func (c *K8shelld_v11) Close() error {
+	return c.conn.Close()
 }
 
 // Handshake performs a handshake with the k8shelld service to establish a session.
@@ -127,7 +125,8 @@ func (c *K8shelld_v11) Handshake(ctx context.Context, user *models.User, envVars
 }
 
 // RunShell creates a PTY shell session over gRPC and bridges it with the SSH channel.
-func (c *K8shelld_v11) RunShell(ctx context.Context, channel ssh.Channel, sessionId string, envVars []string,
+func (c *K8shelld_v11) RunShell(ctx context.Context, upstream api.BufferedReadWriter,
+	sessionId string, envVars []string,
 	width, height uint32, usePty bool) error {
 	md := metadata.Pairs(
 		"authorization", c.AccessKey,
@@ -166,7 +165,7 @@ func (c *K8shelld_v11) RunShell(ctx context.Context, channel ssh.Channel, sessio
 
 		buf := make([]byte, 32*1024)
 		for {
-			n, rerr := channel.Read(buf)
+			n, rerr := upstream.Read(buf)
 			if rerr != nil {
 				if rerr == io.EOF {
 					errCh <- nil
@@ -205,7 +204,7 @@ func (c *K8shelld_v11) RunShell(ctx context.Context, channel ssh.Channel, sessio
 
 			switch r := resp.Response.(type) {
 			case *pb.ShellResponse_Data:
-				if _, werr := channel.Write(r.Data); werr != nil {
+				if _, werr := upstream.Write(r.Data); werr != nil {
 					errCh <- fmt.Errorf("ssh write: %w", werr)
 					return
 				}
@@ -245,7 +244,8 @@ func (c *K8shelld_v11) ResizeTerminal(ctx context.Context, sessionId string, wid
 }
 
 // RunUnixSocket creates a Unix socket connection over gRPC and bridges it with the SSH channel.
-func (c *K8shelld_v11) RunUnixSocket(ctx context.Context, channel ssh.Channel, agentUnixID, socketPath string) error {
+func (c *K8shelld_v11) RunUnixSocket(ctx context.Context, upstream api.BufferedReadWriter,
+	agentUnixID, socketPath string) error {
 	md := metadata.Pairs(
 		"authorization", c.AccessKey,
 		"unixsocket-id", agentUnixID,
@@ -279,7 +279,7 @@ func (c *K8shelld_v11) RunUnixSocket(ctx context.Context, channel ssh.Channel, a
 
 		buf := make([]byte, 32*1024)
 		for {
-			n, rerr := channel.Read(buf)
+			n, rerr := upstream.Read(buf)
 			if rerr != nil {
 				if rerr == io.EOF {
 					errCh <- nil
@@ -315,7 +315,7 @@ func (c *K8shelld_v11) RunUnixSocket(ctx context.Context, channel ssh.Channel, a
 				}
 				return
 			}
-			if _, werr := channel.Write(resp.Data); werr != nil {
+			if _, werr := upstream.Write(resp.Data); werr != nil {
 				errCh <- fmt.Errorf("ssh write: %w", werr)
 				return
 			}
@@ -335,7 +335,8 @@ func (c *K8shelld_v11) RunUnixSocket(ctx context.Context, channel ssh.Channel, a
 }
 
 // RunPortForward sets up a port forward over gRPC and bridges it with the SSH channel.
-func (c *K8shelld_v11) RunPortForward(ctx context.Context, channel ssh.Channel, portForwardID, destinationIP string, destinationPort uint32) error {
+func (c *K8shelld_v11) RunPortForward(ctx context.Context, upstream api.BufferedReadWriter,
+	portForwardID, destinationIP string, destinationPort uint32) error {
 	if destinationIP == "" {
 		destinationIP = "localhost"
 	}
@@ -374,7 +375,7 @@ func (c *K8shelld_v11) RunPortForward(ctx context.Context, channel ssh.Channel, 
 
 		buf := make([]byte, 32*1024)
 		for {
-			n, rerr := channel.Read(buf)
+			n, rerr := upstream.Read(buf)
 			if rerr != nil {
 				if rerr == io.EOF {
 					errCh <- nil
@@ -410,7 +411,7 @@ func (c *K8shelld_v11) RunPortForward(ctx context.Context, channel ssh.Channel, 
 				}
 				return
 			}
-			if _, werr := channel.Write(resp.Data); werr != nil {
+			if _, werr := upstream.Write(resp.Data); werr != nil {
 				errCh <- fmt.Errorf("ssh write: %w", werr)
 				return
 			}
@@ -429,7 +430,7 @@ func (c *K8shelld_v11) RunPortForward(ctx context.Context, channel ssh.Channel, 
 }
 
 // RunExec executes a command in a remote shell over gRPC.
-func (c *K8shelld_v11) RunExec(ctx context.Context, channel ssh.Channel, execID string,
+func (c *K8shelld_v11) RunExec(ctx context.Context, upstream api.BufferedReadWriter, execID string,
 	command string, shellBinary string, envVars []string, signalChan <-chan string) (int32, error) {
 
 	md := metadata.Pairs("authorization", c.AccessKey, "exec-id", execID)
@@ -490,7 +491,7 @@ func (c *K8shelld_v11) RunExec(ctx context.Context, channel ssh.Channel, execID 
 			default:
 			}
 
-			size, err := channel.ReadBufferSize()
+			size, err := upstream.ReadBufferSize()
 			if err != nil {
 				if err == io.EOF {
 					return
@@ -500,7 +501,7 @@ func (c *K8shelld_v11) RunExec(ctx context.Context, channel ssh.Channel, execID 
 			}
 
 			if size > 0 {
-				n, rerr := channel.Read(buf)
+				n, rerr := upstream.Read(buf)
 				if rerr != nil {
 					if rerr == io.EOF {
 						return
@@ -539,7 +540,7 @@ func (c *K8shelld_v11) RunExec(ctx context.Context, channel ssh.Channel, execID 
 		defer wg.Done()
 		defer cancel()
 
-		stderr := channel.Stderr()
+		stderr := upstream.Stderr()
 
 		for {
 			resp, rerr := stream.Recv()
@@ -553,7 +554,7 @@ func (c *K8shelld_v11) RunExec(ctx context.Context, channel ssh.Channel, execID 
 
 			switch r := resp.Response.(type) {
 			case *pb.ExecResponse_Stdout:
-				if _, err := channel.Write(r.Stdout); err != nil {
+				if _, err := upstream.Write(r.Stdout); err != nil {
 					readerErr = fmt.Errorf("ssh write: %w", err)
 					return
 				}

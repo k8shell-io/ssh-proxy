@@ -9,38 +9,26 @@ import (
 
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
-	pb "github.com/k8shell-io/k8shelld/pkg/api/k8shelldpb"
+	"github.com/k8shell-io/k8shelld/pkg/api"
 )
 
 // K8shelld_v12 wraps K8shelld_v11 and overrides specific methods
 type K8shelld_v12 struct {
 	K8shelldClient
-	cfg gapi.ClientConfig
-	v11 *K8shelld_v11
+	v12 *api.K8shelld
 }
 
-func NewK8shelld_v12(cfg gapi.ClientConfig, status *models.WorkspaceStatus, counters *ConnCounters) K8shelldClient {
-	v11 := NewK8shelld_v11(status, counters).(*K8shelld_v11)
+func NewK8shelld_v12(cfg gapi.ClientConfig, status *models.WorkspaceStatus,
+	counters *api.ConnCounters) (K8shelldClient, error) {
 	cfg.Address = fmt.Sprintf("%s:%d", status.PodIP, status.Port)
 
-	return &K8shelld_v12{
-		K8shelldClient: v11,
-		cfg:            cfg,
-		v11:            v11,
-	}
-}
-
-func (c *K8shelld_v12) Connect() error {
-	gapiClient, err := gapi.NewClient(c.cfg)
+	v12, err := api.NewClient(cfg)
 	if err != nil {
-		return fmt.Errorf("failed to create gRPC client: %w", err)
+		return nil, fmt.Errorf("failed to create v12 client: %w", err)
 	}
 
-	c.v11.systemClient = pb.NewSystemServiceClient(gapiClient.Conn)
-	c.v11.shellClient = pb.NewShellServiceClient(gapiClient.Conn)
-	c.v11.execClient = pb.NewExecServiceClient(gapiClient.Conn)
-	c.v11.pfClient = pb.NewPortForwardServiceClient(gapiClient.Conn)
-	c.v11.unixSocketClient = pb.NewUnixSocketServiceClient(gapiClient.Conn)
-
-	return nil
+	return &K8shelld_v12{
+		K8shelldClient: v12,
+		v12:            v12,
+	}, nil
 }

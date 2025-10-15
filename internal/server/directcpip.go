@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -69,8 +70,8 @@ func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connectio
 	s.log.Debug().Msgf("Starting port forward %s for user %s: %s:%d",
 		tcpipInfo.directTCPIPId, connInfo.user.Username, tcpipInfo.destHost, tcpipInfo.destPort)
 
-	if err := k8shelld.RunPortForward(connInfo.ctx, channel, tcpipInfo.directTCPIPId,
-		tcpipInfo.destHost, tcpipInfo.destPort); err != nil {
+	if err := k8shelld.RunPortForward(connInfo.ctx, &workspace.ChannelAdapter{Channel: channel},
+		tcpipInfo.directTCPIPId, tcpipInfo.destHost, tcpipInfo.destPort); err != nil {
 		s.log.Error().Msgf("Port forward failed for user %s: %v", connInfo.user.Username, err)
 	} else {
 		s.log.Debug().Msgf("Port forward %s completed for user %s", tcpipInfo.directTCPIPId, connInfo.user.Username)
