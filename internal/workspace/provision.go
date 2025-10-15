@@ -237,17 +237,15 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 			return nil, fmt.Errorf("failed to get workspace for user %s: %w", userStr.Username, err)
 		}
 	}
-	if workspacepb == nil {
-		return nil, fmt.Errorf("failed to get workspace for user %s: workspace info is nil", userStr.Username)
-	}
 
-	status, err := client.GetWorkspaceStatus(ctx, &provisionerpb.Workspace{Workspace: workspacepb.Name})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
-	}
-
-	if status.GetPodStatus().Status == "Running" {
-		return gapi.ProtoToWorkspaceStatus(status), nil
+	if workspacepb != nil {
+		status, err := client.GetWorkspaceStatus(ctx, &provisionerpb.Workspace{Workspace: workspacepb.Name})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
+		}
+		if status.GetPodStatus().Status == "Running" {
+			return gapi.ProtoToWorkspaceStatus(status), nil
+		}
 	}
 
 	_, err = provisionWorkspace(ctx, userStr, writer, client)
@@ -255,7 +253,7 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.Username, err)
 	}
 
-	status, err = client.GetWorkspaceStatus(ctx, &provisionerpb.Workspace{Workspace: workspacepb.Name})
+	status, err := client.GetWorkspaceStatus(ctx, &provisionerpb.Workspace{Workspace: workspacepb.Name})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 	}
