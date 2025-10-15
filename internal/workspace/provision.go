@@ -258,9 +258,6 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 		return nil, "", fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 	}
 
-	fmt.Printf("***** Workspace status after provisioning: version=%s, status=%v\n",
-		status.GetAppVersion(), status.GetPodStatus())
-
 	if status.GetPodStatus().Status == "Running" {
 		return gapi.ProtoToWorkspaceStatus(status), status.GetAppVersion(), nil
 	}
