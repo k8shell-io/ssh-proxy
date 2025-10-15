@@ -22,6 +22,7 @@ type Config struct {
 	Identity    gapi.ClientConfig `yaml:"identity"`
 	Session     gapi.ClientConfig `yaml:"session"`
 	Provisioner gapi.ClientConfig `yaml:"provisioner"`
+	K8shelld    gapi.ClientConfig `yaml:"k8shelld"`
 	Nats        nats.Config       `yaml:"nats"`
 }
 

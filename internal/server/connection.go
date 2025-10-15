@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
 	identity "github.com/k8shell-io/identity/pkg/api"
 	provisioner "github.com/k8shell-io/provisioner/pkg/api"
@@ -36,6 +37,7 @@ type Connection struct {
 	proxyFullID      string                        // identifier of the proxy with a PID where connection is established
 	identity         *identity.Client              // identity client for interacting with the identity service
 	scli             *session.Client               // session client for interacting with the session service
+	k8shelldCfg      gapi.ClientConfig             // k8shelld client configuration
 	k8shelld         workspace.K8shelldClient      // k8shelld client for interacting with the workspace k8shelld daemon
 	onboardMu        sync.RWMutex                  // mutex for synchronizing access to onboardInfo and onboardCap
 	onboardCap       *models.OnboardCapability     // onboarding capabilities
@@ -134,6 +136,7 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 				log:          s.log,
 				identity:     s.identity,
 				scli:         s.session,
+				k8shelldCfg:  s.Config.K8shelld,
 				proxyFullID:  fmt.Sprintf("%s-%d", proxyID, os.Getpid()),
 				userStr:      userStr,
 				directTCPIP:  &sync.Map{},
@@ -327,7 +330,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	}
 	infoWriter.WriteMessage(fmt.Sprintf("Connecting to the workspace at %s...", status.Host))
 
-	k8shelld, err := workspace.NewK8shelld(status, version, c.counters)
+	k8shelld, err := workspace.NewK8shelld(c.k8shelldCfg, status, version, c.counters)
 	if err != nil {
 		infoWriter.WriteSystemError(err.Error())
 		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.user.Username, err)

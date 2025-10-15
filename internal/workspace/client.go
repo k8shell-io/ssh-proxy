@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	log "github.com/k8shell-io/common/pkg/logger"
+	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
 	pb "github.com/k8shell-io/k8shelld/pkg/api/k8shelldpb"
 	"golang.org/x/crypto/ssh"
@@ -55,18 +55,15 @@ var KEEPALIVE_TIME = 5 * time.Minute
 var KEEPALIVE_TIMEOUT = 20 * time.Second
 
 // NewK8shelld creates a new K8shelld client.
-func NewK8shelld(status *models.WorkspaceStatus, version string, counters *ConnCounters) (K8shelldClient, error) {
+func NewK8shelld(cfg gapi.ClientConfig, status *models.WorkspaceStatus, version string,
+	counters *ConnCounters) (K8shelldClient, error) {
 	if strings.HasPrefix(version, "0.11") {
-		return &K8shelld_v11{
-			log:       log.NewLogger("k8shelld.client"),
-			counters:  counters,
-			AccessKey: status.AccessKey,
-			TLSCert:   status.TLSCert,
-			Host:      status.Host,
-			Address:   status.PodIP,
-			Port:      status.Port,
-		}, nil
-	} else {
-		return nil, fmt.Errorf("unsupported k8shelld version: %s", version)
+		return NewK8shelld_v11(status, counters), nil
 	}
+
+	if strings.HasPrefix(version, "0.12") {
+		return NewK8shelld_v12(cfg, status, counters), nil
+	}
+
+	return nil, fmt.Errorf("unsupported k8shelld version: %s", version)
 }

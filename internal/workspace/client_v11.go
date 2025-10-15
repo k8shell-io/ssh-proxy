@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
 	pb "github.com/k8shell-io/k8shelld/pkg/api/k8shelldpb"
 	"github.com/rs/zerolog"
@@ -39,6 +40,18 @@ type K8shelld_v11 struct {
 	Host             string
 	Address          string
 	Port             int
+}
+
+func NewK8shelld_v11(status *models.WorkspaceStatus, counters *ConnCounters) K8shelldClient {
+	return &K8shelld_v11{
+		log:       log.NewLogger("k8shelld.client"),
+		counters:  counters,
+		AccessKey: status.AccessKey,
+		TLSCert:   status.TLSCert,
+		Host:      status.Host,
+		Address:   status.PodIP,
+		Port:      status.Port,
+	}
 }
 
 // Close closes the gRPC connection.
