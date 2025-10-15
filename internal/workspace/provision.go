@@ -248,12 +248,12 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 		}
 	}
 
-	_, err = provisionWorkspace(ctx, userStr, writer, client)
+	wsname, err := provisionWorkspace(ctx, userStr, writer, client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.Username, err)
 	}
 
-	status, err := client.GetWorkspaceStatus(ctx, &provisionerpb.Workspace{Workspace: workspacepb.Name})
+	status, err := client.GetWorkspaceStatus(ctx, &provisionerpb.Workspace{Workspace: wsname})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 	}
