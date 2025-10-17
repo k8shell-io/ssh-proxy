@@ -22,12 +22,11 @@ func NewK8shelld_v12(cfg gapi.ClientConfig, status *models.WorkspaceStatus,
 	counters *api.ConnCounters) (K8shelldClient, error) {
 	cfg.Address = fmt.Sprintf("%s:%d", status.PodIP, status.Port)
 	cfg.ServerName = status.Host
-	cfg.CACertPath = "/etc/k8shell/ca/ca.crt"
 
 	// when the server has TLS cert configured, it means the connection is using TLS
 	// so we need to set the CA cert path
 	if status.TLSCert != "" {
-		cfg.CACertPath = "/etc/k8shell/cert/tls.crt"
+		cfg.CACertPath = "/etc/k8shell/ca/ca.crt"
 
 		if _, err := os.Stat(cfg.CACertPath); os.IsNotExist(err) {
 			return nil, fmt.Errorf("the workspace requires TLS but ssh proxy does not have the TLS CA cert at %s",
