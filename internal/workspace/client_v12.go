@@ -20,6 +20,8 @@ type K8shelld_v12 struct {
 func NewK8shelld_v12(cfg gapi.ClientConfig, status *models.WorkspaceStatus,
 	counters *api.ConnCounters) (K8shelldClient, error) {
 	cfg.Address = fmt.Sprintf("%s:%d", status.PodIP, status.Port)
+	cfg.ServerName = status.Host
+	cfg.CACertPath = "/etc/k8shell/ca/ca.crt"
 
 	v12, err := api.NewClient(cfg)
 	if err != nil {
