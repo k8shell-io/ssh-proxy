@@ -3,12 +3,12 @@ module github.com/k8shell-io/ssh-proxy
 go 1.24.5
 
 require (
-	github.com/k8shell-io/common v0.12.52
+	github.com/k8shell-io/common v0.12.65
 	github.com/k8shell-io/identity/pkg/api v0.1.9
 	github.com/k8shell-io/k8shelld/pkg/api v0.12.4
 	github.com/k8shell-io/provisioner/pkg/api v0.1.9
 	github.com/k8shell-io/session/pkg/api v0.1.3
-	github.com/nats-io/nats.go v1.45.0
+	github.com/nats-io/nats.go v1.47.0
 	github.com/rs/zerolog v1.34.0
 	golang.org/x/crypto v0.43.0
 	google.golang.org/grpc v1.76.0
@@ -32,7 +32,6 @@ require (
 	github.com/nats-io/nkeys v0.4.11 // indirect
 	github.com/nats-io/nuid v1.0.1 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
-	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	golang.org/x/net v0.45.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect

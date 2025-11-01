@@ -1,6 +1,12 @@
 # ssh-proxy service configuration
 
 server:
+  # port to bind the ssh-proxy server
+  port: 2022
+  
+  # path to the SSH server private key file
+  serverKey: ${SECRET_FILES}/server_key
+
   # true to start each connection in a new process
   forking: false
 
@@ -25,10 +31,16 @@ server:
   # sftp binary path in the workspace
   sftpBinary: /usr/local/bin/sftp
 
-# ssh proxy configuration
-ssh:
-  port: 2022
-  serverKey: ${SECRET_FILES}/server_key
+  # publish SSH authentication failures to NATS
+  publishFailures:
+    enabled: true
+    subject: ssh.failures
+    publicIPOnly: true
+
+nats:
+  url: nats://${NATS_HOST}:4222
+  username: sshproxy
+  password: !file ${SECRET_FILES}/sshproxy_nats_token
 
 session:
   address: session:9010
@@ -44,16 +56,3 @@ provisioner:
 
 k8shelld:
   tokenFilePath: /var/run/secrets/k8shell.io/k8shelld
-
-nats:
-  host: ${NATS_HOST}
-  port: 4222
-  user: sshproxy
-  password: !file ${SECRET_FILES}/sshproxy_nats_token
-
-  sshFailures:
-    enabled: true
-    subject: ssh.failures
-    publicIPOnly: true
-    whitelist:
-      - 147.32.0.0/0

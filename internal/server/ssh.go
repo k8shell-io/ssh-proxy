@@ -26,8 +26,6 @@ import (
 	identity "github.com/k8shell-io/identity/pkg/api"
 	provisioner "github.com/k8shell-io/provisioner/pkg/api"
 	session "github.com/k8shell-io/session/pkg/api"
-	"github.com/k8shell-io/ssh-proxy/internal/config"
-	"github.com/k8shell-io/ssh-proxy/internal/nats"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
 )
@@ -39,7 +37,7 @@ var (
 
 // Server represents the SSH server that handles incoming connections and authentication.
 type Server struct {
-	Config      *config.Config
+	Config      *Config
 	log         *zerolog.Logger
 	listener    net.Listener
 	sshConfig   *ssh.ServerConfig
@@ -49,7 +47,7 @@ type Server struct {
 	identity    *identity.Client
 	session     *session.Client
 	provisioner *provisioner.Client
-	nats        *nats.Client
+	fpub        *NatsFailuresPublisher
 	configPath  string
 }
 
@@ -68,7 +66,7 @@ func (bc *BufferedConn) Read(b []byte) (int, error) {
 func NewServer(configPath string) (*Server, error) {
 	log := log.NewLogger("ssh-server")
 
-	config, err := config.NewConfig(configPath)
+	config, err := NewConfig(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
@@ -87,7 +85,7 @@ func NewServer(configPath string) (*Server, error) {
 	}
 
 	if !server.Config.Server.Forking {
-		server.nats, err = nats.NewClient(config.Nats, GetProxyID())
+		server.fpub, err = NewNatsFailuresPublisher(config.Nats, config.Server.PublishFailures)
 		if err != nil {
 			server.log.Error().Msgf("failed to create NATS client: %v", err)
 		}
@@ -147,7 +145,7 @@ func HandleConnectionChildProcess(configPath string) error {
 	}
 	defer conn.Close()
 
-	config, err := config.NewConfig(configPath)
+	config, err := NewConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
@@ -168,7 +166,7 @@ func HandleConnectionChildProcess(configPath string) error {
 		configPath: configPath,
 	}
 
-	server.nats, err = nats.NewClient(config.Nats, GetProxyID())
+	server.fpub, err = NewNatsFailuresPublisher(config.Nats, config.Server.PublishFailures)
 	if err != nil {
 		server.log.Error().Msgf("failed to create NATS client: %v", err)
 	}
@@ -196,6 +194,7 @@ func HandleConnectionChildProcess(configPath string) error {
 	go func() {
 		defer close(done)
 		server.handleConnection(conn, true)
+		server.Stop()
 	}()
 
 	select {
@@ -273,11 +272,11 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 		if connInfo != nil {
 			s.log.Debug().Msgf("Failed connection info: %v", connInfo.failureInfo)
 
-			if s.nats != nil {
+			if s.fpub != nil {
 				failureInfo := []string{}
 				failureInfo = append(failureInfo, connInfo.failureInfo...)
 				failureInfo = append(failureInfo, string(err.Error()))
-				s.nats.PublishFailedConnection(ip, port, connInfo.userStr.Username, failureInfo)
+				s.fpub.PublishFailure(ip, port, connInfo.userStr.Username, failureInfo)
 			}
 
 			connInfo.Close()
@@ -356,10 +355,10 @@ func (s *Server) handleGlobalRequests(requests <-chan *ssh.Request) {
 
 // Start begins listening for SSH connections on the configured port
 func (s *Server) Start() error {
-	address := fmt.Sprintf(":%d", s.Config.Ssh.Port)
+	address := fmt.Sprintf(":%d", s.Config.Server.Port)
 
 	s.log.Info().
-		Int("port", s.Config.Ssh.Port).
+		Int("port", s.Config.Server.Port).
 		Msg("Starting SSH proxy server")
 
 	listener, err := net.Listen("tcp", address)
@@ -471,6 +470,10 @@ func (s *Server) Stop() {
 
 	if s.listener != nil {
 		s.listener.Close()
+	}
+
+	if s.fpub != nil {
+		s.fpub.Close()
 	}
 
 	s.wg.Wait()

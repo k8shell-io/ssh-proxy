@@ -2,7 +2,7 @@
 // Use of this source code is governed by a AGPLv3
 // license that can be found in the LICENSE file.
 
-package config
+package server
 
 import (
 	"fmt"
@@ -10,36 +10,41 @@ import (
 
 	"github.com/k8shell-io/common/pkg/config"
 	"github.com/k8shell-io/common/pkg/gapi"
-	"github.com/k8shell-io/ssh-proxy/internal/nats"
+	natsc "github.com/k8shell-io/common/pkg/nats"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"golang.org/x/crypto/ssh"
 )
 
 // Config represents the server configuration
 type Config struct {
-	Server      ServerConfig      `yaml:"server"`
-	Ssh         SshConfig         `yaml:"ssh"`
-	Identity    gapi.ClientConfig `yaml:"identity"`
-	Session     gapi.ClientConfig `yaml:"session"`
-	Provisioner gapi.ClientConfig `yaml:"provisioner"`
-	K8shelld    gapi.ClientConfig `yaml:"k8shelld"`
-	Nats        nats.Config       `yaml:"nats"`
+	Server      ServerConfig           `yaml:"server"`
+	Nats        natsc.NATSClientConfig `yaml:"nats"`
+	Identity    gapi.ClientConfig      `yaml:"identity"`
+	Session     gapi.ClientConfig      `yaml:"session"`
+	Provisioner gapi.ClientConfig      `yaml:"provisioner"`
+	K8shelld    gapi.ClientConfig      `yaml:"k8shelld"`
 }
 
 // ServerConfig represents the SSH server configuration.
 type ServerConfig struct {
+	Port                      int                         `yaml:"port"`
+	ServerKey                 string                      `yaml:"serverKey"`
 	Forking                   bool                        `yaml:"forking"`
 	ProxyProtocol             bool                        `yaml:"proxyProtocol"`
 	SSHHandshakeTimeout       int                         `yaml:"SSHHandshakeTimeout"`
 	MaxDirectTCPIPConnections int                         `yaml:"maxDirectTCPIPConnections"`
 	WriterOptions             workspace.InfoWriterOptions `yaml:"writerOptions"`
 	SftpBinary                string                      `yaml:"sftpBinary"`
+	PublishFailures           PublishFailuresConfig       `yaml:"publishFailures"`
 }
 
-// SshConfig represents the SSH server configuration.
-type SshConfig struct {
-	Port      int    `yaml:"port"`
-	ServerKey string `yaml:"serverKey"`
+// PublishFailuresConfig represents the configuration for SSH failure reporting
+// This requires NATS to be configured.
+type PublishFailuresConfig struct {
+	Enabled      bool     `yaml:"enabled"`
+	Subject      string   `yaml:"subject"`
+	PublicIPOnly bool     `yaml:"publicIPOnly"`
+	Whitelist    []string `yaml:"whitelist"`
 }
 
 const (
@@ -74,7 +79,7 @@ func NewConfig(configFile string) (*Config, error) {
 		cfg.Server.SftpBinary = DEFAULT_SFTP_BINARY
 	}
 
-	if cfg.Ssh.Port == 0 {
+	if cfg.Server.Port == 0 {
 		return nil, fmt.Errorf("missing required configuration values: port must be set")
 	}
 
@@ -83,18 +88,18 @@ func NewConfig(configFile string) (*Config, error) {
 
 // GetServerKey loads and returns the SSH server private key as an ssh.Signer
 func (c *Config) GetServerKey() (ssh.Signer, error) {
-	if c.Ssh.ServerKey == "" {
+	if c.Server.ServerKey == "" {
 		return nil, fmt.Errorf("server key path not configured")
 	}
 
-	privateKeyBytes, err := os.ReadFile(c.Ssh.ServerKey)
+	privateKeyBytes, err := os.ReadFile(c.Server.ServerKey)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read host key file '%s': %w", c.Ssh.ServerKey, err)
+		return nil, fmt.Errorf("failed to read host key file '%s': %w", c.Server.ServerKey, err)
 	}
 
 	signer, err := ssh.ParsePrivateKey(privateKeyBytes)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse host key from '%s': %w", c.Ssh.ServerKey, err)
+		return nil, fmt.Errorf("failed to parse host key from '%s': %w", c.Server.ServerKey, err)
 	}
 
 	return signer, nil
