@@ -15,7 +15,7 @@ import (
 type NatsFailuresPublisher struct {
 	log            *zerolog.Logger
 	natsConfig     natsc.NATSClientConfig
-	failuresConfig PublishFailuresConfig
+	failuresConfig PublishSshFailuresConfig
 	conn           *nats.Conn
 	proxyId        string
 }
@@ -31,7 +31,7 @@ type FailureEvent struct {
 }
 
 // NewNatsFailuresPublisher creates a new NATS failures publisher with the given configuration
-func NewNatsFailuresPublisher(natsConfig natsc.NATSClientConfig, failuresConfig PublishFailuresConfig) (*NatsFailuresPublisher, error) {
+func NewNatsFailuresPublisher(natsConfig natsc.NATSClientConfig, failuresConfig PublishSshFailuresConfig) (*NatsFailuresPublisher, error) {
 	opts := natsc.NatsOptionsFromConfig("ssh-proxy", natsConfig)
 
 	conn, err := nats.Connect(natsConfig.URL, opts...)

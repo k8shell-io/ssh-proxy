@@ -35,12 +35,12 @@ type ServerConfig struct {
 	MaxDirectTCPIPConnections int                         `yaml:"maxDirectTCPIPConnections"`
 	WriterOptions             workspace.InfoWriterOptions `yaml:"writerOptions"`
 	SftpBinary                string                      `yaml:"sftpBinary"`
-	PublishFailures           PublishFailuresConfig       `yaml:"publishFailures"`
+	PublishSshFailures        PublishSshFailuresConfig    `yaml:"publishSshFailures"`
 }
 
-// PublishFailuresConfig represents the configuration for SSH failure reporting
+// PublishSshFailuresConfig represents the configuration for SSH failure reporting
 // This requires NATS to be configured.
-type PublishFailuresConfig struct {
+type PublishSshFailuresConfig struct {
 	Enabled      bool     `yaml:"enabled"`
 	Subject      string   `yaml:"subject"`
 	PublicIPOnly bool     `yaml:"publicIPOnly"`

@@ -85,7 +85,7 @@ func NewServer(configPath string) (*Server, error) {
 	}
 
 	if !server.Config.Server.Forking {
-		server.fpub, err = NewNatsFailuresPublisher(config.Nats, config.Server.PublishFailures)
+		server.fpub, err = NewNatsFailuresPublisher(config.Nats, config.Server.PublishSshFailures)
 		if err != nil {
 			server.log.Error().Msgf("failed to create NATS client: %v", err)
 		}
@@ -166,7 +166,7 @@ func HandleConnectionChildProcess(configPath string) error {
 		configPath: configPath,
 	}
 
-	server.fpub, err = NewNatsFailuresPublisher(config.Nats, config.Server.PublishFailures)
+	server.fpub, err = NewNatsFailuresPublisher(config.Nats, config.Server.PublishSshFailures)
 	if err != nil {
 		server.log.Error().Msgf("failed to create NATS client: %v", err)
 	}
