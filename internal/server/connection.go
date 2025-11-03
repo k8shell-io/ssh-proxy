@@ -217,6 +217,22 @@ func (c *Connection) Close() error {
 	return nil
 }
 
+// reportSessionData periodically reports session data
+func (c *Connection) reportSessionData() {
+	t := time.NewTicker(SESSION_UPDATE_INTERVAL)
+	defer t.Stop()
+	defer c.reportWg.Done()
+
+	for {
+		select {
+		case <-c.reportStopCh:
+			return
+		case <-t.C:
+			c.sendUpdate(false)
+		}
+	}
+}
+
 // sendUpdate sends the current session update to the identity provider
 func (c *Connection) sendUpdate(endSession bool) error {
 	if c.identity == nil {
@@ -242,22 +258,6 @@ func (c *Connection) sendUpdate(endSession bool) error {
 		}
 	}
 	return nil
-}
-
-// reportSessionData periodically reports session data
-func (c *Connection) reportSessionData() {
-	t := time.NewTicker(SESSION_UPDATE_INTERVAL)
-	defer t.Stop()
-	defer c.reportWg.Done()
-
-	for {
-		select {
-		case <-c.reportStopCh:
-			return
-		case <-t.C:
-			c.sendUpdate(false)
-		}
-	}
 }
 
 // SetOnboardInfo sets the onboarding information for the Connection object

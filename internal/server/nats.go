@@ -33,6 +33,7 @@ type FailureEvent struct {
 // NewNatsFailuresPublisher creates a new NATS failures publisher with the given configuration
 func NewNatsFailuresPublisher(natsConfig natsc.NATSClientConfig, failuresConfig PublishSshFailuresConfig) (*NatsFailuresPublisher, error) {
 	opts := natsc.NatsOptionsFromConfig("ssh-proxy", natsConfig)
+	log := logger.NewLogger("ssh-failures")
 
 	conn, err := nats.Connect(natsConfig.URL, opts...)
 	if err != nil {
@@ -40,13 +41,13 @@ func NewNatsFailuresPublisher(natsConfig natsc.NATSClientConfig, failuresConfig 
 	}
 
 	if failuresConfig.Enabled {
-		logger.NewLogger("ssh-failures").Info().Msg("NATS SSH failures publishing is enabled")
+		log.Info().Msg("NATS SSH failures publishing is enabled")
 	} else {
-		logger.NewLogger("ssh-failures").Info().Msg("NATS SSH failures publishing is disabled")
+		log.Info().Msg("NATS SSH failures publishing is disabled")
 	}
 
 	return &NatsFailuresPublisher{
-		log:            logger.NewLogger("ssh-failures"),
+		log:            log,
 		natsConfig:     natsConfig,
 		failuresConfig: failuresConfig,
 		conn:           conn,

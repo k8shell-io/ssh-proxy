@@ -32,7 +32,7 @@ server:
   sftpBinary: /usr/local/bin/sftp
 
   # publish SSH authentication failures to NATS
-  publishFailures:
+  publishSshFailures:
     enabled: true
     subject: ssh.failures
     publicIPOnly: true
