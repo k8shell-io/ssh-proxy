@@ -6,11 +6,14 @@ import (
 	"net"
 	"time"
 
+	"github.com/k8shell-io/common/pkg/logger"
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	"github.com/nats-io/nats.go"
+	"github.com/rs/zerolog"
 )
 
 type NatsFailuresPublisher struct {
+	log            *zerolog.Logger
 	natsConfig     natsc.NATSClientConfig
 	failuresConfig PublishFailuresConfig
 	conn           *nats.Conn
@@ -36,7 +39,14 @@ func NewNatsFailuresPublisher(natsConfig natsc.NATSClientConfig, failuresConfig 
 		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
 	}
 
+	if failuresConfig.Enabled {
+		logger.NewLogger("ssh-failures").Info().Msg("NATS SSH failures publishing is enabled")
+	} else {
+		logger.NewLogger("ssh-failures").Info().Msg("NATS SSH failures publishing is disabled")
+	}
+
 	return &NatsFailuresPublisher{
+		log:            logger.NewLogger("ssh-failures"),
 		natsConfig:     natsConfig,
 		failuresConfig: failuresConfig,
 		conn:           conn,
@@ -59,12 +69,9 @@ func (c *NatsFailuresPublisher) PublishFailure(clientIP string, clientPort int, 
 	}
 
 	if c.failuresConfig.PublicIPOnly && !isPublicIP(clientIP) {
+		c.log.Debug().Msgf("Ignoring failed connection event (public IP only): ip=%s, failure-info=%+v",
+			clientIP, failureInfo)
 		return nil
-	}
-
-	ip := net.ParseIP(clientIP)
-	if ip == nil {
-		return fmt.Errorf("failed to parse client IP: %s", clientIP)
 	}
 
 	event := FailureEvent{
@@ -82,6 +89,7 @@ func (c *NatsFailuresPublisher) PublishFailure(clientIP string, clientPort int, 
 	}
 
 	subject := c.failuresConfig.Subject
+	c.log.Debug().Msgf("Publishing failed connection event: subject=%s, event=%+v", subject, event)
 	err = c.conn.Publish(subject, eventBytes)
 	if err != nil {
 		return fmt.Errorf("failed to publish failed connection event to NATS subject: %w", err)
