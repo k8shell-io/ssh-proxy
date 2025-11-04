@@ -217,15 +217,15 @@ func (c *Connection) reportSessionData() {
 	t := time.NewTicker(SESSION_UPDATE_INTERVAL)
 	defer t.Stop()
 	defer c.reportWg.Done()
-	c.updateSession(false)
+	c.updateSession("create")
 
 	for {
 		select {
 		case <-c.reportStopCh:
-			c.updateSession(true)
+			c.updateSession("delete")
 			return
 		case <-t.C:
-			closed, err := c.updateSession(false)
+			closed, err := c.updateSession("update")
 			if err != nil {
 				c.log.Debug().Msgf("Failed to update session data for user %s: %v", c.user.Username, err)
 			}
@@ -237,7 +237,7 @@ func (c *Connection) reportSessionData() {
 }
 
 // updateSession sends the current session update to the identity provider
-func (c *Connection) updateSession(delete bool) (bool, error) {
+func (c *Connection) updateSession(action string) (bool, error) {
 	curIn, curOut := c.counters.Snapshot()
 	curChannels := c.GetChannelInfo()
 
@@ -258,7 +258,7 @@ func (c *Connection) updateSession(delete bool) (bool, error) {
 	key := fmt.Sprintf("%s-%s", c.proxyFullID, c.connID)
 
 	e, err := c.cache.Get(key)
-	if errors.Is(err, nats.ErrKeyNotFound) {
+	if errors.Is(err, nats.ErrKeyNotFound) && action == "create" {
 		_, err = c.cache.Create(key, payload)
 	} else if err == nil {
 		_, err = c.cache.Update(key, payload, e.Revision())
@@ -271,7 +271,7 @@ func (c *Connection) updateSession(delete bool) (bool, error) {
 		c.log.Debug().Msgf("Failed to update session data in cache: key=%s, data=%+v, err=%v", key, d, err)
 	}
 
-	if delete {
+	if action == "delete" {
 		c.cache.Delete(key)
 	}
 
