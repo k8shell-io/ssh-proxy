@@ -21,11 +21,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/k8shell-io/common/pkg/cache"
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
 	identity "github.com/k8shell-io/identity/pkg/api"
 	provisioner "github.com/k8shell-io/provisioner/pkg/api"
-	session "github.com/k8shell-io/session/pkg/api"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
 )
@@ -39,13 +39,13 @@ var (
 type Server struct {
 	Config      *Config
 	log         *zerolog.Logger
+	cache       *cache.JetStreamCache
 	listener    net.Listener
 	sshConfig   *ssh.ServerConfig
 	ctx         context.Context
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
 	identity    *identity.Client
-	session     *session.Client
 	provisioner *provisioner.Client
 	fpub        *NatsFailuresPublisher
 	configPath  string
@@ -100,9 +100,12 @@ func NewServer(configPath string) (*Server, error) {
 			return nil, fmt.Errorf("failed to create identity client: %w", err)
 		}
 
-		server.session, err = session.NewClient(config.Session)
+		server.cache, err = cache.NewJetStreamCache(config.Nats, cache.BucketOptions{
+			Bucket:    "sessions-ssh-proxy",
+			BucketTTL: SESSION_UPDATE_INTERVAL * 2,
+		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to create session client: %w", err)
+			return nil, fmt.Errorf("create jetstream cache: %w", err)
 		}
 	}
 
@@ -181,9 +184,12 @@ func HandleConnectionChildProcess(configPath string) error {
 		return fmt.Errorf("failed to create identity client: %w", err)
 	}
 
-	server.session, err = session.NewClient(config.Session)
+	server.cache, err = cache.NewJetStreamCache(config.Nats, cache.BucketOptions{
+		Bucket:    "sessions-ssh-proxy",
+		BucketTTL: time.Duration(60) * time.Second,
+	})
 	if err != nil {
-		return fmt.Errorf("failed to create session client: %w", err)
+		return fmt.Errorf("create jetstream cache: %w", err)
 	}
 
 	if err := server.initSSHConfig(); err != nil {

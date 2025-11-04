@@ -38,7 +38,7 @@ func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connectio
 	}
 
 	tcpipInfo.username = connInfo.user.Username
-	tcpipInfo.directTCPIPId = fmt.Sprintf("pf-%s-%d", connInfo.proxyFullID, channel.LocalID())
+	tcpipInfo.directTCPIPId = fmt.Sprintf("pf-%s-%s", connInfo.proxyFullID, connInfo.connID)
 
 	connInfo.directTCPIP.Store(tcpipInfo.directTCPIPId, tcpipInfo)
 	s.log.Debug().Msgf("Stored port forward %s in storage (count: %d)",

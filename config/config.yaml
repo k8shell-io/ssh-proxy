@@ -42,10 +42,6 @@ nats:
   username: sshproxy
   password: !file ${SECRET_FILES}/sshproxy_nats_token
 
-session:
-  address: session:9010
-  tokenFilePath: /var/run/secrets/k8shell.io/session
-
 identity:
   address: identity:9020
   tokenFilePath: /var/run/secrets/k8shell.io/identity

@@ -29,7 +29,7 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 	session := &Session{
 		username:   connInfo.user.Username,
 		env:        []string{},
-		sessionId:  fmt.Sprintf("sh-%s-%d", connInfo.proxyFullID, channel.LocalID()),
+		sessionId:  fmt.Sprintf("sh-%s-%s", connInfo.proxyFullID, connInfo.connID),
 		termWidth:  80,
 		termHeight: 24,
 		hasPTY:     false,
@@ -219,7 +219,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 		case "auth-agent-req@openssh.com":
 			accepted = true
 			session.hasAgent = true
-			session.agentUnixID = fmt.Sprintf("ux-%s-%d", connInfo.proxyFullID, channel.LocalID())
+			session.agentUnixID = fmt.Sprintf("ux-%s-%s", connInfo.proxyFullID, connInfo.connID)
 			session.sshAuthSock = fmt.Sprintf(SSH_AUTH_SOCK_TEMP, session.agentUnixID)
 			s.log.Debug().Msgf("SSH agent forwarding request accepted for user %s", session.username)
 			session.env = append(session.env, fmt.Sprintf("SSH_AUTH_SOCK=%s",
@@ -339,7 +339,7 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *Connection, ch
 		session.signalChan = nil
 	}()
 
-	execID := fmt.Sprintf("sf-%s-%d-%d", connInfo.proxyFullID, channel.LocalID(), connInfo.ExecSeqNumber())
+	execID := fmt.Sprintf("sf-%s-%s-%d", connInfo.proxyFullID, connInfo.connID, connInfo.ExecSeqNumber())
 	s.log.Debug().Msgf("Starting sftp for user %s, exec ID: %s, command: %s",
 		session.username, execID, s.Config.Server.SftpBinary)
 
@@ -378,7 +378,7 @@ func (s *Server) handleExecRequest(connInfo *Connection, channel ssh.Channel) {
 		session.signalChan = nil
 	}()
 
-	execID := fmt.Sprintf("ex-%s-%d-%d", connInfo.proxyFullID, channel.LocalID(), connInfo.ExecSeqNumber())
+	execID := fmt.Sprintf("ex-%s-%s-%d", connInfo.proxyFullID, connInfo.connID, connInfo.ExecSeqNumber())
 	s.log.Debug().Msgf("Starting exec for user %s, exec ID: %s, command: %s",
 		session.username, execID, session.command)
 

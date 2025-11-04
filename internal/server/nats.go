@@ -12,6 +12,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// NatsFailuresPublisher is responsible for publishing SSH failure events to NATS
 type NatsFailuresPublisher struct {
 	log            *zerolog.Logger
 	natsConfig     natsc.NATSClientConfig

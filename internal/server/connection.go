@@ -6,6 +6,8 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,31 +17,32 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/k8shell-io/common/pkg/cache"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
 	identity "github.com/k8shell-io/identity/pkg/api"
 	"github.com/k8shell-io/k8shelld/pkg/api"
 	provisioner "github.com/k8shell-io/provisioner/pkg/api"
-	session "github.com/k8shell-io/session/pkg/api"
-	"github.com/k8shell-io/session/pkg/api/sessionpb"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
+	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
 )
 
 // Connection represents the connection information for a user
 type Connection struct {
+	connID           string                        // unique connection identifier
 	ctx              context.Context               // context for managing the connection
 	cancel           context.CancelFunc            // function to cancel the context
 	log              *zerolog.Logger               // logger instance, reused from server
 	userStr          *models.UserStr               // user string information
 	clientIP         string                        // client IP address (detected from proxy protocol if available)
 	clientPort       int                           // client port (detected from proxy protocol if available)
-	proxyFullID      string                        // identifier of the proxy with a PID where connection is established
+	proxyFullID      string                        // identifier of the proxy with a PID suffix
 	identity         *identity.Client              // identity client for interacting with the identity service
-	scli             *session.Client               // session client for interacting with the session service
+	cache            *cache.JetStreamCache         // cache instance for storing session data
 	k8shelldCfg      gapi.ClientConfig             // k8shelld client configuration
-	k8shelld         workspace.K8shelldClient      // k8shelld client for interacting with the workspace k8shelld daemon
+	k8shelld         workspace.K8shelldClient      // client for interacting with the workspace k8shelld daemon
 	onboardMu        sync.RWMutex                  // mutex for synchronizing access to onboardInfo and onboardCap
 	onboardCap       *models.OnboardCapability     // onboarding capabilities
 	onboardInfo      *models.OnboardUserDeviceFlow // onboarding information
@@ -49,7 +52,6 @@ type Connection struct {
 	directTCPIP      *sync.Map                     // direct TCP/IP connection information
 	directTCPIPCount int64                         // current count of direct TCP/IP connections
 	counters         *api.ConnCounters             // connection counters
-	sessionID        int32                         // SSH session ID
 	workspaceName    string                        // name of the workspace
 	channelInfoMu    sync.RWMutex                  // mutex for synchronizing access to channelInfo
 	channelInfo      []string                      // channel information
@@ -134,9 +136,10 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 			ctx, cancel := context.WithCancel(context.Background())
 			proxyID := GetProxyID()
 			connInfo = &Connection{
+				connID:       rand.Text()[0:5],
 				log:          s.log,
 				identity:     s.identity,
-				scli:         s.session,
+				cache:        s.cache,
 				k8shelldCfg:  s.Config.K8shelld,
 				proxyFullID:  fmt.Sprintf("%s-%d", proxyID, os.Getpid()),
 				userStr:      userStr,
@@ -144,7 +147,6 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 				counters:     &api.ConnCounters{},
 				ctx:          ctx,
 				cancel:       cancel,
-				sessionID:    0,
 				reportStopCh: make(chan struct{}),
 				onboardMu:    sync.RWMutex{},
 			}
@@ -208,11 +210,6 @@ func (c *Connection) Close() error {
 	close(c.reportStopCh)
 	c.reportWg.Wait()
 
-	if err := c.sendUpdate(true); err != nil {
-		return fmt.Errorf("failed to send final session update for user %s and session id %d: %w",
-			c.userStr.Username, c.sessionID, err)
-	}
-
 	c.cancel()
 	return nil
 }
@@ -228,35 +225,46 @@ func (c *Connection) reportSessionData() {
 		case <-c.reportStopCh:
 			return
 		case <-t.C:
-			c.sendUpdate(false)
+			c.updateSession()
 		}
 	}
 }
 
-// sendUpdate sends the current session update to the identity provider
-func (c *Connection) sendUpdate(endSession bool) error {
-	if c.identity == nil {
-		return nil
-	}
-
-	sessionId := atomic.LoadInt32(&c.sessionID)
-	if sessionId == 0 {
-		return nil
-	}
-
+// updateSession sends the current session update to the identity provider
+func (c *Connection) updateSession() error {
 	curIn, curOut := c.counters.Snapshot()
 	curChannels := c.GetChannelInfo()
 
-	if _, err := c.scli.UpdateSession(c.ctx, &sessionpb.UpdateSessionRequest{SessionId: sessionId, BytesIn: curIn,
-		BytesOut: curOut, Channels: curChannels}); err != nil {
-		return fmt.Errorf("failed to update session %d for user %s: %w", sessionId, c.userStr.Username, err)
+	d := models.SSHSession{
+		ClientIP:  c.clientIP,
+		Client:    "",
+		Username:  c.user.Username,
+		Workspace: c.workspaceName,
+		BytesIn:   curIn,
+		BytesOut:  curOut,
+		Channels:  curChannels,
+	}
+	payload, err := json.Marshal(d)
+	if err != nil {
+		return fmt.Errorf("failed to marshal session data: %w", err)
 	}
 
-	if endSession {
-		if _, err := c.scli.EndSession(c.ctx, &sessionpb.EndSessionRequest{SessionId: sessionId}); err != nil {
-			return fmt.Errorf("failed to end session %d for user %s: %w", sessionId, c.userStr.Username, err)
-		}
+	key := fmt.Sprintf("%s-%s", c.proxyFullID, c.connID)
+
+	e, err := c.cache.Get(key)
+	if errors.Is(err, nats.ErrKeyNotFound) {
+		_, err = c.cache.Create(key, payload)
+	} else if err == nil {
+		_, err = c.cache.Update(key, payload, e.Revision())
 	}
+
+	if errors.Is(err, nats.ErrKeyNotFound) {
+		// deleted by admin/session-service purge -> close locally
+		// TODO: end the ssh session
+	} else if err != nil {
+		c.log.Debug().Msgf("Failed to update session data in cache: key=%s, data=%+v, err=%v", key, d, err)
+	}
+
 	return nil
 }
 
@@ -357,16 +365,6 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	}
 	c.k8shelld = k8shelld
 	c.workspaceName = status.Name
-
-	// create session
-	sshSession, err := c.scli.CreateSession(c.ctx, &sessionpb.Session{Username: c.user.Username,
-		Workspace: c.workspaceName, Blueprint: c.userStr.Blueprint, ProxyId: GetProxyID(), ProxyPid: int32(os.Getpid()),
-		ClientIp: c.clientIP,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to create SSH session for user %s: %w", c.user.Username, err)
-	}
-	atomic.StoreInt32(&c.sessionID, sshSession.SessionId)
 
 	return c.k8shelld, nil
 }
