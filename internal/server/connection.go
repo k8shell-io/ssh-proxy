@@ -208,7 +208,7 @@ func (c *Connection) Close() error {
 	close(c.reportStopCh)
 	c.reportWg.Wait()
 
-	c.cancel()
+	//c.cancel()
 	return nil
 }
 
@@ -265,7 +265,8 @@ func (c *Connection) updateSession(action string) (bool, error) {
 	}
 
 	if errors.Is(err, nats.ErrKeyNotFound) {
-		c.Close()
+		// Key not found on update; close the connection
+		c.cancel()
 		return true, nil
 	} else if err != nil {
 		c.log.Debug().Msgf("Failed to update session data in cache: key=%s, data=%+v, err=%v", key, d, err)
