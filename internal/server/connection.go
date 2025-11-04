@@ -228,13 +228,19 @@ func (c *Connection) reportSessionData() {
 			c.updateSession(true)
 			return
 		case <-t.C:
-			c.updateSession(false)
+			closed, err := c.updateSession(false)
+			if err != nil {
+				c.log.Debug().Msgf("Failed to update session data for user %s: %v", c.user.Username, err)
+			}
+			if closed {
+				return
+			}
 		}
 	}
 }
 
 // updateSession sends the current session update to the identity provider
-func (c *Connection) updateSession(delete bool) error {
+func (c *Connection) updateSession(delete bool) (bool, error) {
 	curIn, curOut := c.counters.Snapshot()
 	curChannels := c.GetChannelInfo()
 
@@ -249,7 +255,7 @@ func (c *Connection) updateSession(delete bool) error {
 	}
 	payload, err := json.Marshal(d)
 	if err != nil {
-		return fmt.Errorf("failed to marshal session data: %w", err)
+		return false, fmt.Errorf("failed to marshal session data: %w", err)
 	}
 
 	key := fmt.Sprintf("%s-%s", c.proxyFullID, c.connID)
@@ -262,8 +268,8 @@ func (c *Connection) updateSession(delete bool) error {
 	}
 
 	if errors.Is(err, nats.ErrKeyNotFound) {
-		// deleted by admin/session-service purge -> close locally
-		// TODO: end the ssh session
+		c.Close()
+		return true, nil
 	} else if err != nil {
 		c.log.Debug().Msgf("Failed to update session data in cache: key=%s, data=%+v, err=%v", key, d, err)
 	}
@@ -272,7 +278,7 @@ func (c *Connection) updateSession(delete bool) error {
 		c.cache.Delete(key)
 	}
 
-	return nil
+	return false, nil
 }
 
 // SetOnboardInfo sets the onboarding information for the Connection object
