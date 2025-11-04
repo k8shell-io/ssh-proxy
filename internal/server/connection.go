@@ -242,26 +242,47 @@ func (c *Connection) updateSession(action string) (bool, error) {
 	curChannels := c.GetChannelInfo()
 
 	key := fmt.Sprintf("%s-%s", c.proxyFullID, c.connID)
-
-	d := models.SSHSession{
-		SessionID: key,
-		ClientIP:  c.clientIP,
-		Client:    "",
-		Username:  c.user.Username,
-		Workspace: c.workspaceName,
-		BytesIn:   curIn,
-		BytesOut:  curOut,
-		Channels:  curChannels,
-	}
-	payload, err := json.Marshal(d)
-	if err != nil {
-		return false, fmt.Errorf("failed to marshal session data: %w", err)
-	}
+	t := time.Now().UTC()
 
 	e, err := c.cache.Get(key)
 	if errors.Is(err, nats.ErrKeyNotFound) && action == "create" {
+		d := models.SSHSession{
+			SessionID: key,
+			ClientIP:  c.clientIP,
+			Client:    "",
+			ProxyID:   GetProxyID(),
+			ProxyPID:  os.Getppid(),
+			Username:  c.user.Username,
+			Workspace: c.workspaceName,
+			BytesIn:   curIn,
+			BytesOut:  curOut,
+			Channels:  curChannels,
+			StartTime: &t,
+			UpdatedAt: &t,
+		}
+		var payload []byte
+		payload, err = json.Marshal(d)
+		if err != nil {
+			return false, fmt.Errorf("failed to marshal session data: %w", err)
+		}
 		_, err = c.cache.Create(key, payload)
 	} else if err == nil {
+		var d models.SSHSession
+		err = json.Unmarshal(e.Value(), &d)
+		if err != nil {
+			return false, fmt.Errorf("failed to unmarshal session data: %w", err)
+		}
+
+		d.BytesIn = curIn
+		d.BytesOut = curOut
+		d.Channels = curChannels
+		d.UpdatedAt = &t
+
+		var payload []byte
+		payload, err = json.Marshal(d)
+		if err != nil {
+			return false, fmt.Errorf("failed to marshal session data: %w", err)
+		}
 		_, err = c.cache.Update(key, payload, e.Revision())
 	}
 
@@ -270,7 +291,7 @@ func (c *Connection) updateSession(action string) (bool, error) {
 		c.cancel()
 		return true, nil
 	} else if err != nil {
-		c.log.Debug().Msgf("Failed to update session data in cache: key=%s, data=%+v, err=%v", key, d, err)
+		c.log.Debug().Msgf("Failed to update session data in cache: key=%s, err=%v", key, err)
 	}
 
 	if action == "delete" {
