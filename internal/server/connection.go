@@ -251,7 +251,7 @@ func (c *Connection) updateSession(action string) (bool, error) {
 			ClientIP:  c.clientIP,
 			Client:    "",
 			ProxyID:   GetProxyID(),
-			ProxyPID:  os.Getppid(),
+			ProxyPID:  os.Getpid(),
 			Username:  c.user.Username,
 			Workspace: c.workspaceName,
 			BytesIn:   curIn,
