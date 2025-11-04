@@ -155,9 +155,6 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 			connStates[connID] = connInfo
 		}
 		connStatesMutex.Unlock()
-		if connInfo != nil {
-			go connInfo.reportSessionData()
-		}
 	}
 
 	return connInfo, nil
@@ -217,10 +214,10 @@ func (c *Connection) Close() error {
 
 // reportSessionData periodically reports session data
 func (c *Connection) reportSessionData() {
-	c.updateSession(false)
 	t := time.NewTicker(SESSION_UPDATE_INTERVAL)
 	defer t.Stop()
 	defer c.reportWg.Done()
+	c.updateSession(false)
 
 	for {
 		select {
@@ -378,6 +375,8 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	}
 	c.k8shelld = k8shelld
 	c.workspaceName = status.Name
+
+	go c.reportSessionData()
 
 	return c.k8shelld, nil
 }
