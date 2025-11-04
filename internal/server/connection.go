@@ -241,7 +241,10 @@ func (c *Connection) updateSession(action string) (bool, error) {
 	curIn, curOut := c.counters.Snapshot()
 	curChannels := c.GetChannelInfo()
 
+	key := fmt.Sprintf("%s-%s", c.proxyFullID, c.connID)
+
 	d := models.SSHSession{
+		SessionID: key,
 		ClientIP:  c.clientIP,
 		Client:    "",
 		Username:  c.user.Username,
@@ -254,8 +257,6 @@ func (c *Connection) updateSession(action string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("failed to marshal session data: %w", err)
 	}
-
-	key := fmt.Sprintf("%s-%s", c.proxyFullID, c.connID)
 
 	e, err := c.cache.Get(key)
 	if errors.Is(err, nats.ErrKeyNotFound) && action == "create" {
