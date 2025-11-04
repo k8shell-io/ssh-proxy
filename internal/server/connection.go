@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -136,7 +137,7 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 			ctx, cancel := context.WithCancel(context.Background())
 			proxyID := GetProxyID()
 			connInfo = &Connection{
-				connID:       rand.Text()[0:5],
+				connID:       strings.ToLower(rand.Text()[0:5]),
 				log:          s.log,
 				identity:     s.identity,
 				cache:        s.cache,
@@ -216,6 +217,7 @@ func (c *Connection) Close() error {
 
 // reportSessionData periodically reports session data
 func (c *Connection) reportSessionData() {
+	c.updateSession(false)
 	t := time.NewTicker(SESSION_UPDATE_INTERVAL)
 	defer t.Stop()
 	defer c.reportWg.Done()
@@ -223,15 +225,16 @@ func (c *Connection) reportSessionData() {
 	for {
 		select {
 		case <-c.reportStopCh:
+			c.updateSession(true)
 			return
 		case <-t.C:
-			c.updateSession()
+			c.updateSession(false)
 		}
 	}
 }
 
 // updateSession sends the current session update to the identity provider
-func (c *Connection) updateSession() error {
+func (c *Connection) updateSession(delete bool) error {
 	curIn, curOut := c.counters.Snapshot()
 	curChannels := c.GetChannelInfo()
 
@@ -263,6 +266,10 @@ func (c *Connection) updateSession() error {
 		// TODO: end the ssh session
 	} else if err != nil {
 		c.log.Debug().Msgf("Failed to update session data in cache: key=%s, data=%+v, err=%v", key, d, err)
+	}
+
+	if delete {
+		c.cache.Delete(key)
 	}
 
 	return nil
