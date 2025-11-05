@@ -260,6 +260,7 @@ func (c *Connection) updateSession(action string) (bool, error) {
 			Channels:  curChannels,
 			StartTime: &t,
 			UpdatedAt: &t,
+			Blueprint: c.userStr.Blueprint,
 		}
 		var payload []byte
 		payload, err = json.Marshal(d)
