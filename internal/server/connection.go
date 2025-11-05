@@ -214,6 +214,11 @@ func (c *Connection) Close() error {
 
 // reportSessionData periodically reports session data
 func (c *Connection) reportSessionData() {
+	if c.cache == nil {
+		c.reportWg.Done()
+		return
+	}
+
 	t := time.NewTicker(SESSION_UPDATE_INTERVAL)
 	defer t.Stop()
 	defer c.reportWg.Done()
@@ -399,7 +404,9 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	c.k8shelld = k8shelld
 	c.workspaceName = status.Name
 
-	go c.reportSessionData()
+	if c.cache != nil {
+		go c.reportSessionData()
+	}
 
 	return c.k8shelld, nil
 }
