@@ -351,6 +351,7 @@ func (s *Server) handleChannels(sshConn *ssh.ServerConn, connInfo *Connection, c
 				connInfo.AddChannelInfo(models.ChannelShortPf)
 				go s.handleDirectTCPIPChannel(sshConn, connInfo, channel)
 			case "direct-streamlocal@openssh.com":
+				connInfo.AddChannelInfo("ux")
 				go s.handleDirectStreamLocal(sshConn, connInfo, channel)
 			default:
 				s.log.Warn().Msgf("Unsupported channel type: %s", channel.ChannelType())
