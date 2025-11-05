@@ -245,10 +245,10 @@ func (c *K8shelld_v11) ResizeTerminal(ctx context.Context, sessionId string, wid
 
 // RunUnixSocket creates a Unix socket connection over gRPC and bridges it with the SSH channel.
 func (c *K8shelld_v11) RunUnixSocket(ctx context.Context, upstream api.BufferedReadWriter,
-	agentUnixID, socketPath string) error {
+	unixSocketId, socketPath, mode string) error {
 	md := metadata.Pairs(
 		"authorization", c.AccessKey,
-		"unixsocket-id", agentUnixID,
+		"unixsocket-id", unixSocketId,
 	)
 	ctx = metadata.NewOutgoingContext(ctx, md)
 

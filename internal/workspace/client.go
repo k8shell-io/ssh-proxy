@@ -23,7 +23,7 @@ type K8shelldClient interface {
 	RunShell(ctx context.Context, upstream api.BufferedReadWriter, sessionId string, envVars []string,
 		width, height uint32, usePty bool) error
 	ResizeTerminal(ctx context.Context, sessionId string, width, height uint32) error
-	RunUnixSocket(ctx context.Context, upstream api.BufferedReadWriter, agentUnixID, socketPath string) error
+	RunUnixSocket(ctx context.Context, upstream api.BufferedReadWriter, unixSocketId, socketPath, mode string) error
 	RunPortForward(ctx context.Context, upstream api.BufferedReadWriter, portForwardID, destinationIP string,
 		destinationPort uint32) error
 	RunExec(ctx context.Context, upstream api.BufferedReadWriter, execID string, command string, shellBinary string,

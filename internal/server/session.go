@@ -429,7 +429,7 @@ func (s *Server) handleAgent(sshConn *ssh.ServerConn, connInfo *Connection) (ssh
 		s.log.Debug().Msgf("Starting agent forwarding for user %s, unix socket id: %s", connInfo.userStr.Username,
 			connInfo.session.agentUnixID)
 		err := k8shelld.RunUnixSocket(connInfo.ctx, &workspace.ChannelAdapter{Channel: channel},
-			connInfo.session.agentUnixID, connInfo.session.sshAuthSock)
+			connInfo.session.agentUnixID, connInfo.session.sshAuthSock, "UNIX_SOCKET_MODE_LISTEN")
 		if err != nil {
 			if statusErr, ok := status.FromError(err); ok && statusErr.Code() == codes.Canceled {
 				s.log.Debug().Msgf("Agent forwarding canceled for user %s", connInfo.userStr.Username)
