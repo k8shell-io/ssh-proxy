@@ -20,6 +20,10 @@ func (s *Server) handleDirectStreamLocal(_ *ssh.ServerConn, connInfo *Connection
 	if err != nil {
 		return
 	}
+	defer func() {
+		_ = ch.Close()
+		s.log.Debug().Msgf("Closed direct-streamlocal channel for user %s", connInfo.user.Username)
+	}()
 	go ssh.DiscardRequests(reqs)
 
 	k8shelld, err := connInfo.Handshake(nil, nil, s.provisioner, []string{})
@@ -32,7 +36,6 @@ func (s *Server) handleDirectStreamLocal(_ *ssh.ServerConn, connInfo *Connection
 	if err := k8shelld.RunUnixSocket(connInfo.ctx, &workspace.ChannelAdapter{Channel: ch},
 		uxID, path, "UNIX_SOCKET_MODE_DIAL"); err != nil {
 		s.log.Error().Err(err).Msg("unix socket connect failed")
-		_ = ch.Close()
 		return
 	}
 }
