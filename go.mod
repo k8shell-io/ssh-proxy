@@ -5,7 +5,7 @@ go 1.24.5
 require (
 	github.com/k8shell-io/common v0.12.74
 	github.com/k8shell-io/identity/pkg/api v0.1.9
-	github.com/k8shell-io/k8shelld/pkg/api v0.12.12
+	github.com/k8shell-io/k8shelld/pkg/api v0.12.13
 	github.com/k8shell-io/provisioner/pkg/api v0.1.9
 	github.com/nats-io/nats.go v1.47.0
 	github.com/rs/zerolog v1.34.0
