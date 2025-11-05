@@ -44,6 +44,7 @@ type Connection struct {
 	sessionKV        *natsc.JetStreamKV            // KV instance for storing session data
 	k8shelldCfg      gapi.ClientConfig             // k8shelld client configuration
 	k8shelld         workspace.K8shelldClient      // client for interacting with the workspace k8shelld daemon
+	k8shelldVer      string                        // version of the k8shelld daemon
 	onboardMu        sync.RWMutex                  // mutex for synchronizing access to onboardInfo and onboardCap
 	onboardCap       *models.OnboardCapability     // onboarding capabilities
 	onboardInfo      *models.OnboardUserDeviceFlow // onboarding information
@@ -248,19 +249,18 @@ func (c *Connection) updateSession(action string) (bool, error) {
 	e, err := c.sessionKV.Get(key)
 	if errors.Is(err, nats.ErrKeyNotFound) && action == "create" {
 		d := models.SSHSession{
-			SessionID: key,
-			ClientIP:  c.clientIP,
-			Client:    "",
-			ProxyID:   GetProxyID(),
-			ProxyPID:  os.Getpid(),
-			Username:  c.user.Username,
-			Workspace: c.workspaceName,
-			BytesIn:   curIn,
-			BytesOut:  curOut,
-			Channels:  curChannels,
-			StartTime: &t,
-			UpdatedAt: &t,
-			Blueprint: c.userStr.Blueprint,
+			SessionID:   key,
+			K8shelldVer: c.k8shelldVer,
+			ClientIP:    c.clientIP,
+			Client:      "",
+			Username:    c.user.Username,
+			Workspace:   c.workspaceName,
+			BytesIn:     curIn,
+			BytesOut:    curOut,
+			Channels:    curChannels,
+			StartTime:   &t,
+			UpdatedAt:   &t,
+			Blueprint:   c.userStr.Blueprint,
 		}
 		var payload []byte
 		payload, err = json.Marshal(d)
@@ -399,6 +399,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 		}
 	}
 	c.k8shelld = k8shelld
+	c.k8shelldVer = version
 	c.workspaceName = status.Name
 
 	if c.sessionKV != nil {
