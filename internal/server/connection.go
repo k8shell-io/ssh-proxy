@@ -18,9 +18,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/k8shell-io/common/pkg/cache"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
+	natsc "github.com/k8shell-io/common/pkg/nats"
 	identity "github.com/k8shell-io/identity/pkg/api"
 	"github.com/k8shell-io/k8shelld/pkg/api"
 	provisioner "github.com/k8shell-io/provisioner/pkg/api"
@@ -41,7 +41,7 @@ type Connection struct {
 	clientPort       int                           // client port (detected from proxy protocol if available)
 	proxyFullID      string                        // identifier of the proxy with a PID suffix
 	identity         *identity.Client              // identity client for interacting with the identity service
-	cache            *cache.JetStreamCache         // cache instance for storing session data
+	sessionKV        *natsc.JetStreamKV            // KV instance for storing session data
 	k8shelldCfg      gapi.ClientConfig             // k8shelld client configuration
 	k8shelld         workspace.K8shelldClient      // client for interacting with the workspace k8shelld daemon
 	onboardMu        sync.RWMutex                  // mutex for synchronizing access to onboardInfo and onboardCap
@@ -140,7 +140,7 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 				connID:       strings.ToLower(rand.Text()[0:5]),
 				log:          s.log,
 				identity:     s.identity,
-				cache:        s.cache,
+				sessionKV:    s.sessionKV,
 				k8shelldCfg:  s.Config.K8shelld,
 				proxyFullID:  fmt.Sprintf("%s-%d", proxyID, os.Getpid()),
 				userStr:      userStr,
@@ -214,11 +214,6 @@ func (c *Connection) Close() error {
 
 // reportSessionData periodically reports session data
 func (c *Connection) reportSessionData() {
-	if c.cache == nil {
-		c.reportWg.Done()
-		return
-	}
-
 	t := time.NewTicker(SESSION_UPDATE_INTERVAL)
 	defer t.Stop()
 	defer c.reportWg.Done()
@@ -249,7 +244,7 @@ func (c *Connection) updateSession(action string) (bool, error) {
 	key := fmt.Sprintf("%s-%s", c.proxyFullID, c.connID)
 	t := time.Now().UTC()
 
-	e, err := c.cache.Get(key)
+	e, err := c.sessionKV.Get(key)
 	if errors.Is(err, nats.ErrKeyNotFound) && action == "create" {
 		d := models.SSHSession{
 			SessionID: key,
@@ -270,7 +265,7 @@ func (c *Connection) updateSession(action string) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("failed to marshal session data: %w", err)
 		}
-		_, err = c.cache.Create(key, payload)
+		_, err = c.sessionKV.Create(key, payload)
 	} else if err == nil {
 		var d models.SSHSession
 		err = json.Unmarshal(e.Value(), &d)
@@ -288,7 +283,7 @@ func (c *Connection) updateSession(action string) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("failed to marshal session data: %w", err)
 		}
-		_, err = c.cache.Update(key, payload, e.Revision())
+		_, err = c.sessionKV.Update(key, payload, e.Revision())
 	}
 
 	if errors.Is(err, nats.ErrKeyNotFound) {
@@ -300,7 +295,7 @@ func (c *Connection) updateSession(action string) (bool, error) {
 	}
 
 	if action == "delete" {
-		c.cache.Delete(key)
+		c.sessionKV.Delete(key)
 	}
 
 	return false, nil
@@ -404,7 +399,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	c.k8shelld = k8shelld
 	c.workspaceName = status.Name
 
-	if c.cache != nil {
+	if c.sessionKV != nil {
 		go c.reportSessionData()
 	}
 

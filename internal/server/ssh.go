@@ -21,9 +21,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/k8shell-io/common/pkg/cache"
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
+	natsc "github.com/k8shell-io/common/pkg/nats"
 	identity "github.com/k8shell-io/identity/pkg/api"
 	provisioner "github.com/k8shell-io/provisioner/pkg/api"
 	"github.com/rs/zerolog"
@@ -39,7 +39,8 @@ var (
 type Server struct {
 	Config      *Config
 	log         *zerolog.Logger
-	cache       *cache.JetStreamCache
+	nats        *natsc.NATSClient
+	sessionKV   *natsc.JetStreamKV
 	listener    net.Listener
 	sshConfig   *ssh.ServerConfig
 	ctx         context.Context
@@ -100,12 +101,19 @@ func NewServer(configPath string) (*Server, error) {
 			return nil, fmt.Errorf("failed to create identity client: %w", err)
 		}
 
-		server.cache, err = cache.NewJetStreamCache(config.Nats, cache.BucketOptions{
-			Bucket:    "sessions-ssh-proxy",
-			BucketTTL: SESSION_UPDATE_INTERVAL * 2,
-		})
+		server.nats, err = natsc.NewNATSClient(config.Nats)
 		if err != nil {
-			return nil, fmt.Errorf("create jetstream cache: %w", err)
+			return nil, fmt.Errorf("failed to create NATS client: %w", err)
+		}
+
+		if server.nats != nil {
+			server.sessionKV, err = server.nats.NewKV(natsc.BucketOptions{
+				Bucket:    "sessions-ssh-proxy",
+				BucketTTL: SESSION_UPDATE_INTERVAL * 2,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("create jetstream cache: %w", err)
+			}
 		}
 	}
 
@@ -184,12 +192,19 @@ func HandleConnectionChildProcess(configPath string) error {
 		return fmt.Errorf("failed to create identity client: %w", err)
 	}
 
-	server.cache, err = cache.NewJetStreamCache(config.Nats, cache.BucketOptions{
-		Bucket:    "sessions-ssh-proxy",
-		BucketTTL: time.Duration(60) * time.Second,
-	})
+	server.nats, err = natsc.NewNATSClient(config.Nats)
 	if err != nil {
-		return fmt.Errorf("create jetstream cache: %w", err)
+		return fmt.Errorf("failed to create NATS client: %w", err)
+	}
+
+	if server.nats != nil {
+		server.sessionKV, err = server.nats.NewKV(natsc.BucketOptions{
+			Bucket:    "sessions-ssh-proxy",
+			BucketTTL: SESSION_UPDATE_INTERVAL * 2,
+		})
+		if err != nil {
+			return fmt.Errorf("create jetstream cache: %w", err)
+		}
 	}
 
 	if err := server.initSSHConfig(); err != nil {
