@@ -114,6 +114,8 @@ func NewServer(configPath string) (*Server, error) {
 			if err != nil {
 				return nil, fmt.Errorf("create jetstream cache: %w", err)
 			}
+		} else {
+			server.log.Warn().Msg("NATS client is not configured, session tracking disabled")
 		}
 	}
 
@@ -205,6 +207,8 @@ func HandleConnectionChildProcess(configPath string) error {
 		if err != nil {
 			return fmt.Errorf("create jetstream cache: %w", err)
 		}
+	} else {
+		logger.Warn().Msg("NATS client is not configured, session tracking disabled")
 	}
 
 	if err := server.initSSHConfig(); err != nil {
