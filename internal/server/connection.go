@@ -151,7 +151,6 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 				reportStopCh: make(chan struct{}),
 				onboardMu:    sync.RWMutex{},
 			}
-			connInfo.reportWg.Add(1)
 			connStates[connID] = connInfo
 		}
 		connStatesMutex.Unlock()
@@ -205,8 +204,10 @@ func (c *Connection) Close() error {
 		c.k8shelld = nil
 	}
 
-	close(c.reportStopCh)
-	c.reportWg.Wait()
+	if c.sessionKV != nil {
+		close(c.reportStopCh)
+		c.reportWg.Wait()
+	}
 
 	//c.cancel()
 	return nil
@@ -400,6 +401,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	c.workspaceName = status.Name
 
 	if c.sessionKV != nil {
+		c.reportWg.Add(1)
 		go c.reportSessionData()
 	}
 
