@@ -57,7 +57,7 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 }
 
 func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *Connection,
-	channel ssh.Channel, sessionType chan<- string) {
+	_ ssh.Channel, sessionType chan<- string) {
 	sessionTypeSent := false
 	session := connInfo.session
 

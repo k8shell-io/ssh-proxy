@@ -33,23 +33,28 @@ server:
 
   # publish SSH authentication failures to NATS
   publishSshFailures:
-    enabled: true
+    enabled: false
     subject: ssh.failures
-    publicIPOnly: true
+    publicIPOnly: false
 
 nats:
-  enabled: true
+  enabled: false
   url: nats://${NATS_HOST}:4222
   username: sshproxy
   password: !file ${SECRET_FILES}/sshproxy_nats_token
 
 identity:
-  address: identity:9020
-  tokenFilePath: /var/run/secrets/k8shell.io/identity
+  address: identity.k8shell-test:9020
+  serverName: identity.k8shell-test.svc
+  tokenFilePath: /opt/shared/auth/dummy-token
+  caCertPath: /opt/shared/auth/ca.crt
 
 provisioner:
-  address: provisioner:9030
-  tokenFilePath: /var/run/secrets/k8shell.io/provisioner
+  address: provisioner.k8shell-test:9030
+  serverName: provisioner.k8shell-test.svc
+  tokenFilePath: /opt/shared/auth/dummy-token
+  caCertPath: /opt/shared/auth/ca.crt
 
 k8shelld:
-  tokenFilePath: /var/run/secrets/k8shell.io/k8shelld
+  tokenFilePath: /opt/shared/auth/dummy-token
+  caCertPath: /opt/shared/auth/ca.crt
