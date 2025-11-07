@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,15 +33,15 @@ import (
 
 // Connection represents the connection information for a user
 type Connection struct {
-	ctx              context.Context               // context for managing the connection
-	seqNumberGen     int64                         // sequence number for exec commands
-	connId           string                        // session key for the connection
-	cancel           context.CancelFunc            // function to cancel the context
-	log              *zerolog.Logger               // logger instance, reused from server
-	userStr          *models.UserStr               // user string information
-	clientIP         string                        // client IP address (detected from proxy protocol if available)
-	clientPort       int                           // client port (detected from proxy protocol if available)
-	proxyFullID      string                        // identifier of the proxy with a PID suffix
+	ctx          context.Context    // context for managing the connection
+	seqNumberGen int64              // sequence number for exec commands
+	connId       string             // session key for the connection
+	cancel       context.CancelFunc // function to cancel the context
+	log          *zerolog.Logger    // logger instance, reused from server
+	userStr      *models.UserStr    // user string information
+	clientIP     string             // client IP address (detected from proxy protocol if available)
+	clientPort   int                // client port (detected from proxy protocol if available)
+	// proxyFullID      string                        // identifier of the proxy with a PID suffix
 	identity         *identity.Client              // identity client for interacting with the identity service
 	sessionKV        *natsc.JetStreamKV            // KV instance for storing session data
 	k8shelldCfg      gapi.ClientConfig             // k8shelld client configuration
@@ -126,13 +127,12 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 		connInfo = connStates[connID]
 		if connInfo == nil {
 			ctx, cancel := context.WithCancel(context.Background())
-			proxyID := GetProxyID()
 			connInfo = &Connection{
+				connId:       fmt.Sprintf("%s-%d-%s", GetProxyID(), os.Getpid(), strings.ToLower(rand.Text()[:3])),
 				log:          s.log,
 				identity:     s.identity,
 				sessionKV:    s.sessionKV,
 				k8shelldCfg:  s.Config.K8shelld,
-				proxyFullID:  fmt.Sprintf("%s-%d", proxyID, os.Getpid()),
 				userStr:      userStr,
 				directTCPIP:  &sync.Map{},
 				counters:     &api.ConnCounters{},
@@ -141,7 +141,6 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 				reportStopCh: make(chan struct{}),
 				onboardMu:    sync.RWMutex{},
 			}
-			connInfo.connId = fmt.Sprintf("%s-%s", connInfo.proxyFullID, rand.Text()[:3])
 			connStates[connID] = connInfo
 		}
 		connStatesMutex.Unlock()
