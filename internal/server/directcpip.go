@@ -12,6 +12,16 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// DirectTCPIP holds information about a direct TCP/IP connection
+type DirectTCPIP struct {
+	username      string // username of the user
+	directTCPIPId string // unique identifier for the direct TCP/IP connection
+	destHost      string // destination host
+	destPort      uint32 // destination port
+	originHost    string // origin host
+	originPort    uint32 // origin port
+}
+
 // handleDirectTCPIPChannel handles a new direct TCP/IP channel request
 func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connection, newChannel ssh.NewChannel) {
 	if !connInfo.IncrementDirectTCPIPCount(s.Config.Server.MaxDirectTCPIPConnections) {
@@ -38,7 +48,7 @@ func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connectio
 	}
 
 	tcpipInfo.username = connInfo.user.Username
-	tcpipInfo.directTCPIPId = fmt.Sprintf("pf-%s-%s", connInfo.proxyFullID, connInfo.connID)
+	tcpipInfo.directTCPIPId = fmt.Sprintf("pf-%s%d", connInfo.connId, connInfo.SeqNumber())
 
 	connInfo.directTCPIP.Store(tcpipInfo.directTCPIPId, tcpipInfo)
 	s.log.Debug().Msgf("Stored port forward %s in storage (count: %d)",

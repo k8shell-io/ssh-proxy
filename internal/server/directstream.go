@@ -8,13 +8,21 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+type StreamLocal struct {
+	username      string // username of the user
+	streamLocalId string // unique identifier for the stream local connection
+	destPath      string // destination path
+}
+
 func (s *Server) handleDirectStreamLocal(_ *ssh.ServerConn, connInfo *Connection, newChannel ssh.NewChannel) {
-	// Payload: string path, string reserved (ignored)
-	path, _, ok := readSSHString(newChannel.ExtraData(), 0)
-	if !ok || path == "" {
+	streamLocal, err := parseDirectStreamLocalPayload(newChannel.ExtraData())
+	if err != nil || streamLocal == nil {
 		newChannel.Reject(ssh.Prohibited, "bad direct-streamlocal payload")
 		return
 	}
+
+	streamLocal.username = connInfo.user.Username
+	streamLocal.streamLocalId = fmt.Sprintf("ux-%s%d", connInfo.connId, connInfo.SeqNumber())
 
 	ch, reqs, err := newChannel.Accept()
 	if err != nil {
@@ -32,12 +40,25 @@ func (s *Server) handleDirectStreamLocal(_ *ssh.ServerConn, connInfo *Connection
 		return
 	}
 
-	uxID := fmt.Sprintf("ux-%s-%s-%d", connInfo.proxyFullID, connInfo.connID, connInfo.ExecSeqNumber())
 	if err := k8shelld.RunUnixSocket(connInfo.ctx, &workspace.ChannelAdapter{Channel: ch},
-		uxID, path, "UNIX_SOCKET_MODE_DIAL"); err != nil {
+		streamLocal.streamLocalId, streamLocal.destPath, "UNIX_SOCKET_MODE_DIAL"); err != nil {
 		s.log.Error().Err(err).Msg("unix socket connect failed")
 		return
 	}
+}
+
+// parseDirectStreamLocalPayload parses the direct-streamlocal channel request payload
+func parseDirectStreamLocalPayload(b []byte) (*StreamLocal, error) {
+	off := 0
+
+	p, _, ok := readSSHString(b, off)
+	if !ok || p == "" {
+		return nil, fmt.Errorf("invalid direct-streamlocal payload: missing path")
+	}
+
+	return &StreamLocal{
+		destPath: p,
+	}, nil
 }
 
 // readSSHString parses an SSH "string" from b starting at off.

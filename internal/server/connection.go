@@ -6,17 +6,17 @@ package server
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"crypto/rand"
 
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
@@ -32,8 +32,9 @@ import (
 
 // Connection represents the connection information for a user
 type Connection struct {
-	connID           string                        // unique connection identifier
 	ctx              context.Context               // context for managing the connection
+	seqNumberGen     int64                         // sequence number for exec commands
+	connId           string                        // session key for the connection
 	cancel           context.CancelFunc            // function to cancel the context
 	log              *zerolog.Logger               // logger instance, reused from server
 	userStr          *models.UserStr               // user string information
@@ -77,20 +78,9 @@ type Session struct {
 	signalChan  chan string `json:"-"`
 }
 
-// DirectTCPIP holds information about a direct TCP/IP connection
-type DirectTCPIP struct {
-	username      string // username of the user
-	directTCPIPId string // unique identifier for the direct TCP/IP connection
-	destHost      string // destination host
-	destPort      uint32 // destination port
-	originHost    string // origin host
-	originPort    uint32 // origin port
-}
-
 // Global state storage
 var connStates = make(map[string]*Connection)
 var connStatesMutex sync.RWMutex
-var execSeqNumber int64 // sequence number for exec commands
 
 // SESSION_UPDATE_INTERVAL defines the interval for session updates
 const SESSION_UPDATE_INTERVAL = 10 * time.Second
@@ -138,7 +128,6 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 			ctx, cancel := context.WithCancel(context.Background())
 			proxyID := GetProxyID()
 			connInfo = &Connection{
-				connID:       strings.ToLower(rand.Text()[0:5]),
 				log:          s.log,
 				identity:     s.identity,
 				sessionKV:    s.sessionKV,
@@ -152,6 +141,7 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 				reportStopCh: make(chan struct{}),
 				onboardMu:    sync.RWMutex{},
 			}
+			connInfo.connId = fmt.Sprintf("%s-%s", connInfo.proxyFullID, rand.Text()[:3])
 			connStates[connID] = connInfo
 		}
 		connStatesMutex.Unlock()
@@ -243,13 +233,12 @@ func (c *Connection) updateSession(action string) (bool, error) {
 	curIn, curOut := c.counters.Snapshot()
 	curChannels := c.GetChannelInfo()
 
-	key := fmt.Sprintf("%s-%s", c.proxyFullID, c.connID)
 	t := time.Now().UTC()
 
-	e, err := c.sessionKV.Get(key)
+	e, err := c.sessionKV.Get(c.connId)
 	if errors.Is(err, nats.ErrKeyNotFound) && action == "create" {
 		d := models.SSHSession{
-			SessionID:   key,
+			SessionID:   c.connId,
 			K8shelldVer: c.k8shelldVer,
 			ClientIP:    c.clientIP,
 			Client:      "",
@@ -267,7 +256,7 @@ func (c *Connection) updateSession(action string) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("failed to marshal session data: %w", err)
 		}
-		_, err = c.sessionKV.Create(key, payload)
+		_, err = c.sessionKV.Create(c.connId, payload)
 	} else if err == nil {
 		var d models.SSHSession
 		err = json.Unmarshal(e.Value(), &d)
@@ -285,7 +274,7 @@ func (c *Connection) updateSession(action string) (bool, error) {
 		if err != nil {
 			return false, fmt.Errorf("failed to marshal session data: %w", err)
 		}
-		_, err = c.sessionKV.Update(key, payload, e.Revision())
+		_, err = c.sessionKV.Update(c.connId, payload, e.Revision())
 	}
 
 	if errors.Is(err, nats.ErrKeyNotFound) {
@@ -293,11 +282,11 @@ func (c *Connection) updateSession(action string) (bool, error) {
 		c.cancel()
 		return true, nil
 	} else if err != nil {
-		c.log.Debug().Msgf("Failed to update session data in cache: key=%s, err=%v", key, err)
+		c.log.Debug().Msgf("Failed to update session data in cache: key=%s, err=%v", c.connId, err)
 	}
 
 	if action == "delete" {
-		c.sessionKV.Delete(key)
+		c.sessionKV.Delete(c.connId)
 	}
 
 	return false, nil
@@ -443,7 +432,7 @@ func (c *Connection) GetDirectTCPIPCount() int {
 	return int(atomic.LoadInt64(&c.directTCPIPCount))
 }
 
-// ExecSeqNumber returns a unique sequence number for exec commands
-func (c *Connection) ExecSeqNumber() int64 {
-	return atomic.AddInt64(&execSeqNumber, 1)
+// SeqNumber returns a unique sequence number for exec commands
+func (c *Connection) SeqNumber() int64 {
+	return atomic.AddInt64(&c.seqNumberGen, 1)
 }
