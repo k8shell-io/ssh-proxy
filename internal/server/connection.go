@@ -128,7 +128,7 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 		if connInfo == nil {
 			ctx, cancel := context.WithCancel(context.Background())
 			connInfo = &Connection{
-				connId:       fmt.Sprintf("%s-%d-%s", GetProxyID(), os.Getpid(), strings.ToLower(rand.Text()[:3])),
+				connId:       fmt.Sprintf("%s-%d-%s", GetProxyID(), os.Getpid(), strings.ToLower(rand.Text()[:2])),
 				log:          s.log,
 				identity:     s.identity,
 				sessionKV:    s.sessionKV,
