@@ -37,6 +37,8 @@ github.com/k8shell-io/identity/pkg/api v0.1.9 h1:2VrvDFNetMmuXfblLxyEcB85ROtmjSg
 github.com/k8shell-io/identity/pkg/api v0.1.9/go.mod h1:7MBXrvnAz8KA1kAjfDFlnqCZ+X4yjG0gUaNLoQ3CAFg=
 github.com/k8shell-io/k8shelld/pkg/api v0.12.15 h1:NunHysuiiSo4qsuhJnolYep8X7Vt5WeEoBuQs4/jpRw=
 github.com/k8shell-io/k8shelld/pkg/api v0.12.15/go.mod h1:GmuOOGCQYZU0dkqORKXGYidozL89eDtlxuVtFVf19ZU=
+github.com/k8shell-io/k8shelld/pkg/api v0.12.24 h1:qJLWf31YMlez5LZdO8cZwlh6aTl2b9J/Q44wX5+C/M8=
+github.com/k8shell-io/k8shelld/pkg/api v0.12.24/go.mod h1:GmuOOGCQYZU0dkqORKXGYidozL89eDtlxuVtFVf19ZU=
 github.com/k8shell-io/provisioner/pkg/api v0.1.11 h1:AgqUp4O3YsYeTIFZG7fWF1K78YYwRWP49hIB0pq2a4Y=
 github.com/k8shell-io/provisioner/pkg/api v0.1.11/go.mod h1:aodeyU3/PKpW+nC3exS/LQkjmMj9hhzM1F1HbPwqZsg=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=

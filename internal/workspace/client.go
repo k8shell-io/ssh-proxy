@@ -28,6 +28,7 @@ type K8shelldClient interface {
 		destinationPort uint32) error
 	RunExec(ctx context.Context, upstream api.BufferedReadWriter, execID string, command string, shellBinary string,
 		envVars []string, signalChan <-chan string) (int32, error)
+	RunProcessor(ctx context.Context, handler api.CommandHandler) error
 	Close() error
 }
 
