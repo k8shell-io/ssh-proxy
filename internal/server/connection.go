@@ -389,7 +389,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	}
 
 	go func() {
-		c.log.Debug().Msgf("Starting k8shelld processor for user %s", c.user.Username)
+		c.log.Debug().Msgf("Running k8shelld processor for user %s", c.user.Username)
 		err = k8shelld.RunProcessor(c.ctx, c.getCommandHandler(client, status.Name))
 		if err != nil {
 			c.log.Error().Msgf("Failed to start k8shelld processor for user %s: %v", c.user.Username, err)
