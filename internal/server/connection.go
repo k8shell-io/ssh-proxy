@@ -392,7 +392,9 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 		c.log.Debug().Msgf("Running k8shelld processor for user %s", c.user.Username)
 		err = k8shelld.RunProcessor(c.ctx, c.getCommandHandler(client, status.Name))
 		if err != nil {
-			c.log.Error().Msgf("Failed to start k8shelld processor for user %s: %v", c.user.Username, err)
+			c.log.Error().Msgf("Failed to run k8shelld processor for user %s: %v", c.user.Username, err)
+		} else {
+			c.log.Debug().Msgf("k8shelld processor stopped for user %s", c.user.Username)
 		}
 	}()
 
@@ -412,9 +414,9 @@ func (c *Connection) getCommandHandler(client *provisioner.Client, workspaceName
 	return func(ctx context.Context, command string) (string, error) {
 		switch command {
 		case "shutdown":
-			client.DeleteWorkspace(c.ctx, &provisionerpb.Workspace{Workspace: workspaceName})
 			c.log.Debug().Msgf("Received k8shelld shutdown command for user %s, workspace %s",
 				c.user.Username, workspaceName)
+			client.DeleteWorkspace(c.ctx, &provisionerpb.Workspace{Workspace: workspaceName})
 			return "Workspace shutdown has been initiated.", nil
 		}
 		c.log.Error().Msgf("Received unknown k8shelld command %q for user %s, workspace %s",
