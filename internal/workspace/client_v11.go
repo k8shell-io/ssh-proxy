@@ -104,8 +104,8 @@ func (c *K8shelld_v11) Close() error {
 }
 
 // EnsureWorkspace ensures that a workspace is provisioned and running for the user.
-func (c *K8shelld_v11) RunProcessor(ctx context.Context, handler api.CommandHandler) error {
-	return fmt.Errorf("RunProcessor is not implemented in k8shelld v0.11 client")
+func (c *K8shelld_v11) RunCommandProcessor(ctx context.Context, handler api.CommandHandler) error {
+	return fmt.Errorf("RunCommandProcessor is not implemented in k8shelld v0.11 client")
 }
 
 // Handshake performs a handshake with the k8shelld service to establish a session.

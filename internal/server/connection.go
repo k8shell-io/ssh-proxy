@@ -389,12 +389,12 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	}
 
 	go func() {
-		c.log.Debug().Msgf("Running k8shelld processor for user %s", c.user.Username)
-		err = k8shelld.RunProcessor(c.ctx, c.getCommandHandler(client, status.Name))
+		c.log.Debug().Msgf("Running k8shelld command processor for user %s", c.user.Username)
+		err = k8shelld.RunCommandProcessor(c.ctx, c.getCommandHandler(client, status.Name))
 		if err != nil {
-			c.log.Error().Msgf("Failed to run k8shelld processor for user %s: %v", c.user.Username, err)
+			c.log.Error().Msgf("Failed to run k8shelld command processor for user %s: %v", c.user.Username, err)
 		} else {
-			c.log.Debug().Msgf("k8shelld processor stopped for user %s", c.user.Username)
+			c.log.Debug().Msgf("k8shelld command processor stopped for user %s", c.user.Username)
 		}
 	}()
 
