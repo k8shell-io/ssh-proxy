@@ -103,6 +103,11 @@ func (c *K8shelld_v11) Close() error {
 	return c.conn.Close()
 }
 
+// EnsureWorkspace ensures that a workspace is provisioned and running for the user.
+func (c *K8shelld_v11) RunCommandProcessor(ctx context.Context, handler api.CommandHandler) error {
+	return fmt.Errorf("RunCommandProcessor is not implemented in k8shelld v0.11 client")
+}
+
 // Handshake performs a handshake with the k8shelld service to establish a session.
 func (c *K8shelld_v11) Handshake(ctx context.Context, user *models.User, envVars []string) (*pb.HandshakeResponse, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)

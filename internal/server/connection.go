@@ -25,6 +25,7 @@ import (
 	identity "github.com/k8shell-io/identity/pkg/api"
 	"github.com/k8shell-io/k8shelld/pkg/api"
 	provisioner "github.com/k8shell-io/provisioner/pkg/api"
+	"github.com/k8shell-io/provisioner/pkg/api/provisionerpb"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
@@ -386,6 +387,17 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 			infoWriter.WriteSplash(status.Splash)
 		}
 	}
+
+	go func() {
+		c.log.Debug().Msgf("Running k8shelld command processor for user %s", c.user.Username)
+		err = k8shelld.RunCommandProcessor(c.ctx, c.getCommandHandler(client, status.Name))
+		if err != nil {
+			c.log.Error().Msgf("Failed to run k8shelld command processor for user %s: %v", c.user.Username, err)
+		} else {
+			c.log.Debug().Msgf("k8shelld command processor stopped for user %s", c.user.Username)
+		}
+	}()
+
 	c.k8shelld = k8shelld
 	c.k8shelldVer = version
 	c.workspaceName = status.Name
@@ -396,6 +408,21 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	}
 
 	return c.k8shelld, nil
+}
+
+func (c *Connection) getCommandHandler(client *provisioner.Client, workspaceName string) api.CommandHandler {
+	return func(ctx context.Context, command string) (string, error) {
+		switch command {
+		case "shutdown":
+			c.log.Debug().Msgf("Received k8shelld shutdown command for user %s, workspace %s",
+				c.user.Username, workspaceName)
+			client.DeleteWorkspace(c.ctx, &provisionerpb.Workspace{Workspace: workspaceName})
+			return "Workspace shutdown has been initiated.", nil
+		}
+		c.log.Error().Msgf("Received unknown k8shelld command %q for user %s, workspace %s",
+			command, c.user.Username, workspaceName)
+		return "", fmt.Errorf("unknown command")
+	}
 }
 
 // IncrementDirectTCPIPCount atomically increments the direct TCP/IP count
