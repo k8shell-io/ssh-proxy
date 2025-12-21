@@ -25,7 +25,7 @@ func NewK8shelld_v12(cfg gapi.ClientConfig, status *models.WorkspaceStatus,
 
 	// when the server has TLS cert configured, it means the connection is using TLS
 	// so we need to set the CA cert path
-	if status.TLSCert != "" {
+	if status.TLSEnabled {
 		cfg.CACertPath = "/etc/k8shell/ca/ca.crt"
 
 		if _, err := os.Stat(cfg.CACertPath); os.IsNotExist(err) {

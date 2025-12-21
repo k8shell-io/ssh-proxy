@@ -46,8 +46,8 @@ func NewK8shelld_v11(status *models.WorkspaceStatus, counters *api.ConnCounters)
 	c := &K8shelld_v11{
 		log:       log.NewLogger("k8shelld.client"),
 		counters:  counters,
-		AccessKey: status.AccessKey,
-		TLSCert:   status.TLSCert,
+		AccessKey: "",
+		TLSCert:   "",
 		Host:      status.Host,
 		Address:   status.PodIP,
 		Port:      status.Port,
