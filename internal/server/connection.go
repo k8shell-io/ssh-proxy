@@ -24,7 +24,6 @@ import (
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	identity "github.com/k8shell-io/identity/pkg/api"
 	"github.com/k8shell-io/k8shelld/pkg/api"
-	provisioner "github.com/k8shell-io/provisioner/pkg/api"
 	"github.com/k8shell-io/provisioner/pkg/api/provisionerpb"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"github.com/nats-io/nats.go"
@@ -324,7 +323,7 @@ func (c *Connection) GetOnboardCap() *models.OnboardCapability {
 // It checks the user validity and access to the specified workspace blueprint and starts
 // the workspace if it is not running. It also creates an SSH session record in the identity service.
 func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWriterOptions,
-	client *provisioner.Client, envVars []string) (workspace.K8shelldClient, error) {
+	backends workspace.Backends, envVars []string) (workspace.K8shelldClient, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -344,14 +343,14 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 		return nil, fmt.Errorf("user %s is locked", c.user.Username)
 	}
 
-	if !c.userStr.HasCustomBlueprint && !c.user.HasBlueprint(c.userStr.Blueprint) {
+	if c.userStr.BlueprintKind != models.BlueprintKindCustom && !c.user.HasBlueprint(c.userStr.Blueprint) {
 		infoWriter.WriteError(fmt.Sprintf("Access denied: user %s does not have access to blueprint %s.",
 			c.user.Username, c.userStr.Blueprint))
 		return nil, fmt.Errorf("user %s does not have access to blueprint %s",
 			c.user.Username, c.userStr.Blueprint)
 	}
 
-	status, version, err := workspace.EnsureWorkspace(c.ctx, c.userStr, infoWriter, client)
+	status, version, err := workspace.EnsureWorkspace(c.ctx, c.userStr, infoWriter, backends)
 	if err != nil {
 		var provisionErr *workspace.ProvisionError
 		if errors.As(err, &provisionErr) {
@@ -390,7 +389,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 
 	go func() {
 		c.log.Debug().Msgf("Running k8shelld command processor for user %s", c.user.Username)
-		err = k8shelld.RunCommandProcessor(c.ctx, c.getCommandHandler(client, status.Name))
+		err = k8shelld.RunCommandProcessor(c.ctx, c.getCommandHandler(backends, status.Name))
 		if err != nil {
 			c.log.Error().Msgf("Failed to run k8shelld command processor for user %s: %v", c.user.Username, err)
 		} else {
@@ -410,13 +409,13 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	return c.k8shelld, nil
 }
 
-func (c *Connection) getCommandHandler(client *provisioner.Client, workspaceName string) api.CommandHandler {
+func (c *Connection) getCommandHandler(backends workspace.Backends, workspaceName string) api.CommandHandler {
 	return func(ctx context.Context, command string) (string, error) {
 		switch command {
 		case "shutdown":
 			c.log.Debug().Msgf("Received k8shelld shutdown command for user %s, workspace %s",
 				c.user.Username, workspaceName)
-			client.DeleteWorkspace(c.ctx, &provisionerpb.Workspace{Workspace: workspaceName})
+			backends.Provisioner().DeleteWorkspace(c.ctx, &provisionerpb.Workspace{Workspace: workspaceName})
 			return "Workspace shutdown has been initiated.", nil
 		}
 		c.log.Error().Msgf("Received unknown k8shelld command %q for user %s, workspace %s",

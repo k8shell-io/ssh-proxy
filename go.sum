@@ -33,10 +33,16 @@ github.com/k8shell-io/common v0.12.76 h1:k+FFObBavPw+vWQQu6gBK0OqjQOIXwae/YDk3k4
 github.com/k8shell-io/common v0.12.76/go.mod h1:YXw4JlmSbA29ZxX5MFgcB0wqjuIPWiMCmCnXv/Tkrt8=
 github.com/k8shell-io/common v0.12.96 h1:Ep97DD5SzWjDByVvQuB1vdmE2dOKmcNLz6zgCm3TKFA=
 github.com/k8shell-io/common v0.12.96/go.mod h1:d7evWhWgtd39y+aSi6ukSCk37VJClEfFbaAFDT0zs2s=
+github.com/k8shell-io/common v0.12.102 h1:hYgvoOFx3sn1FMGXN4f2IlHWqPQOcnjbhsnoa+bkOmk=
+github.com/k8shell-io/common v0.12.102/go.mod h1:d7evWhWgtd39y+aSi6ukSCk37VJClEfFbaAFDT0zs2s=
+github.com/k8shell-io/common v0.12.103 h1:rAR2ooQ2kk58DVtoTf0WmPLfidLMDXkISpM8FwjcNH8=
+github.com/k8shell-io/common v0.12.103/go.mod h1:d7evWhWgtd39y+aSi6ukSCk37VJClEfFbaAFDT0zs2s=
 github.com/k8shell-io/crypto v0.41.1-ssh-proxy h1:8+q6Ofc2ky23Oc9iNyiq8aeiQBIP+y3+O6zzHqe1f48=
 github.com/k8shell-io/crypto v0.41.1-ssh-proxy/go.mod h1:RVZeOJCpqtogniULztSXQESKJCfcI8WCxsS0FagMA8U=
 github.com/k8shell-io/identity/pkg/api v0.1.9 h1:2VrvDFNetMmuXfblLxyEcB85ROtmjSgkmYYlK8Eq73Y=
 github.com/k8shell-io/identity/pkg/api v0.1.9/go.mod h1:7MBXrvnAz8KA1kAjfDFlnqCZ+X4yjG0gUaNLoQ3CAFg=
+github.com/k8shell-io/identity/pkg/api v0.1.11 h1:19FgSAZIvwCH03UPO1xKK7ezJrqvVsddgSnJpeCTCWw=
+github.com/k8shell-io/identity/pkg/api v0.1.11/go.mod h1:7MBXrvnAz8KA1kAjfDFlnqCZ+X4yjG0gUaNLoQ3CAFg=
 github.com/k8shell-io/k8shelld/pkg/api v0.12.15 h1:NunHysuiiSo4qsuhJnolYep8X7Vt5WeEoBuQs4/jpRw=
 github.com/k8shell-io/k8shelld/pkg/api v0.12.15/go.mod h1:GmuOOGCQYZU0dkqORKXGYidozL89eDtlxuVtFVf19ZU=
 github.com/k8shell-io/k8shelld/pkg/api v0.12.24 h1:qJLWf31YMlez5LZdO8cZwlh6aTl2b9J/Q44wX5+C/M8=
@@ -47,6 +53,8 @@ github.com/k8shell-io/k8shelld/pkg/api v0.12.26 h1:wotKUFdZy2CCm+4xqatlunt7eiF+M
 github.com/k8shell-io/k8shelld/pkg/api v0.12.26/go.mod h1:GmuOOGCQYZU0dkqORKXGYidozL89eDtlxuVtFVf19ZU=
 github.com/k8shell-io/provisioner/pkg/api v0.1.11 h1:AgqUp4O3YsYeTIFZG7fWF1K78YYwRWP49hIB0pq2a4Y=
 github.com/k8shell-io/provisioner/pkg/api v0.1.11/go.mod h1:aodeyU3/PKpW+nC3exS/LQkjmMj9hhzM1F1HbPwqZsg=
+github.com/k8shell-io/provisioner/pkg/api v0.1.12 h1:TB0OY1iqcRZK9UTNHdg2JQo8XQi2VqtPLxeqCIDBbjk=
+github.com/k8shell-io/provisioner/pkg/api v0.1.12/go.mod h1:aodeyU3/PKpW+nC3exS/LQkjmMj9hhzM1F1HbPwqZsg=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
 github.com/klauspost/compress v1.18.0/go.mod h1:2Pp+KzxcywXVXMr50+X0Q/Lsb43OQHYWRCY2AiWywWQ=
 github.com/kr/pretty v0.2.1/go.mod h1:ipq/a2n7PKx3OHsz4KJII5eveXtPO4qwEXGdVfWzfnI=

@@ -101,6 +101,8 @@ func NewServer(configPath string) (*Server, error) {
 			return nil, fmt.Errorf("failed to create identity client: %w", err)
 		}
 
+		models.SetIssueRepoRefResolver(server)
+
 		server.nats, err = natsc.NewNATSClient(config.Nats)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create NATS client: %w", err)
@@ -120,6 +122,25 @@ func NewServer(configPath string) (*Server, error) {
 	}
 
 	return server, nil
+}
+
+// Provisioner returns the provisioner client.
+// Backends interface implementation.
+func (s *Server) Provisioner() *provisioner.Client {
+	return s.provisioner
+}
+
+// Identity returns the identity client.
+// Backends interface implementation.
+func (s *Server) Identity() *identity.Client {
+	return s.identity
+}
+
+// ResolveIssueRepoRef resolves an issue number to a repository reference.
+// models.IssueRepoRefResolver interface implementation.
+func (r *Server) ResolveIssueRepoRef(username string, repoOwner, repoName string,
+	issueNumber int) (ref string, err error) {
+	return r.ResolveIssueRepoRef(username, repoOwner, repoName, issueNumber)
 }
 
 // initSSHConfig initializes the SSH server configuration with callbacks and host key.
@@ -198,6 +219,8 @@ func HandleConnectionChildProcess(configPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create NATS client: %w", err)
 	}
+
+	models.SetIssueRepoRefResolver(server)
 
 	if server.nats != nil {
 		server.sessionKV, err = server.nats.NewKV(natsc.BucketOptions{

@@ -6,7 +6,6 @@ package workspace
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"strings"
 	"time"
@@ -59,10 +58,5 @@ func NewK8shelld(cfg gapi.ClientConfig, status *models.WorkspaceStatus, version 
 	if strings.HasPrefix(version, "0.11") {
 		return NewK8shelld_v11(status, counters)
 	}
-
-	if strings.HasPrefix(version, "0.12") {
-		return NewK8shelld_v12(cfg, status, counters)
-	}
-
-	return nil, fmt.Errorf("unsupported k8shelld version: %s", version)
+	return NewK8shelld_v12(cfg, status, counters)
 }
