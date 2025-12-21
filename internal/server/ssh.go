@@ -141,6 +141,7 @@ func (s *Server) Identity() *identity.Client {
 // models.IssueRepoRefResolver interface implementation.
 func (s *Server) ResolveIssueRepoRef(username string, repoOwner, repoName string,
 	issueNumber int) (string, error) {
+	t := time.Now()
 	ctx := context.Background()
 	ref, err := s.Identity().ResolveRepoIssueToRef(ctx, &identitypb.RepoIssueRequest{
 		Username:    username,
@@ -151,6 +152,7 @@ func (s *Server) ResolveIssueRepoRef(username string, repoOwner, repoName string
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve issue #%d to ref: %w", issueNumber, err)
 	}
+	s.log.Debug().Msgf("Resolved issue #%d to ref %s in %v", issueNumber, ref.GetRepoRef(), time.Since(t))
 	return ref.GetRepoRef(), nil
 }
 
