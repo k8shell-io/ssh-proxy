@@ -25,6 +25,7 @@ import (
 	"github.com/k8shell-io/common/pkg/models"
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	identity "github.com/k8shell-io/identity/pkg/api"
+	identitypb "github.com/k8shell-io/identity/pkg/api/identitypb"
 	provisioner "github.com/k8shell-io/provisioner/pkg/api"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
@@ -138,9 +139,19 @@ func (s *Server) Identity() *identity.Client {
 
 // ResolveIssueRepoRef resolves an issue number to a repository reference.
 // models.IssueRepoRefResolver interface implementation.
-func (r *Server) ResolveIssueRepoRef(username string, repoOwner, repoName string,
-	issueNumber int) (ref string, err error) {
-	return r.ResolveIssueRepoRef(username, repoOwner, repoName, issueNumber)
+func (s *Server) ResolveIssueRepoRef(username string, repoOwner, repoName string,
+	issueNumber int) (string, error) {
+	ctx := context.Background()
+	ref, err := s.Identity().ResolveRepoIssueToRef(ctx, &identitypb.RepoIssueRequest{
+		Username:    username,
+		RepoOwner:   repoOwner,
+		RepoName:    repoName,
+		IssueNumber: int32(issueNumber),
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve issue #%d to ref: %w", issueNumber, err)
+	}
+	return ref.GetRepoRef(), nil
 }
 
 // initSSHConfig initializes the SSH server configuration with callbacks and host key.
