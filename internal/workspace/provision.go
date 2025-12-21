@@ -17,6 +17,8 @@ import (
 	identity "github.com/k8shell-io/identity/pkg/api"
 	provisioner "github.com/k8shell-io/provisioner/pkg/api"
 	"github.com/k8shell-io/provisioner/pkg/api/provisionerpb"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // ProvisionError represents an error that occurred during provisioning.
@@ -229,37 +231,40 @@ func (w *InfoWriter) EndProvisioning(hasError bool) {
 
 // EnsureWorkspace checks if a workspace exists for the user and provisions it if not.
 func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoWriter,
-	backends Backends) (*models.WorkspaceStatus, string, error) {
+	backends Backends) (*models.WorkspaceStatus, error) {
 
 	canUserStr, err := userStr.Canonicalize()
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to canonicalize user string for user %s: %w", userStr.Username, err)
+		return nil, fmt.Errorf("failed to canonicalize user string for user %s: %w", userStr.Username, err)
 	}
 
-	status, err := backends.Provisioner().GetWorkspaceStatus(ctx, &provisionerpb.Workspace{Workspace: canUserStr.WorkspaceID})
+	wsStatus, err := backends.Provisioner().GetWorkspaceStatus(ctx,
+		&provisionerpb.Workspace{Workspace: canUserStr.WorkspaceID})
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
+		if status.Code(err) != codes.NotFound {
+			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
+		}
 	}
-	if status.GetPodStatus().Status == "Running" {
-		return gapi.ProtoToWorkspaceStatus(status), "0.0.0", nil
+	if wsStatus.GetPodStatus().Status == "Running" {
+		return gapi.ProtoToWorkspaceStatus(wsStatus), nil
 	}
 
 	wsname, err := provisionWorkspace(ctx, userStr, writer, backends)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to provision workspace for user %s: %w", userStr.Username, err)
+		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.Username, err)
 	}
 
-	status, err = backends.Provisioner().GetWorkspaceStatus(ctx, &provisionerpb.Workspace{Workspace: wsname})
+	wsStatus, err = backends.Provisioner().GetWorkspaceStatus(ctx, &provisionerpb.Workspace{Workspace: wsname})
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
+		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 	}
 
-	if status.GetPodStatus().Status == "Running" {
-		return gapi.ProtoToWorkspaceStatus(status), status.GetAppVersion(), nil
+	if wsStatus.GetPodStatus().Status == "Running" {
+		return gapi.ProtoToWorkspaceStatus(wsStatus), nil
 	}
 
-	return nil, "", fmt.Errorf("failed to ensure workspace for user %s: workspace status is %q",
-		userStr.Username, status.GetPodStatus().Status)
+	return nil, fmt.Errorf("failed to ensure workspace for user %s: workspace status is %q",
+		userStr.Username, wsStatus.GetPodStatus().Status)
 }
 
 // provisionWorkspace provisions a new workspace for the user.

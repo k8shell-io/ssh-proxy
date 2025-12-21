@@ -350,7 +350,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 			c.user.Username, c.userStr.Blueprint)
 	}
 
-	status, version, err := workspace.EnsureWorkspace(c.ctx, c.userStr, infoWriter, backends)
+	status, err := workspace.EnsureWorkspace(c.ctx, c.userStr, infoWriter, backends)
 	if err != nil {
 		var provisionErr *workspace.ProvisionError
 		if errors.As(err, &provisionErr) {
@@ -362,14 +362,14 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	}
 	infoWriter.WriteMessage(fmt.Sprintf("Connecting to the workspace at %s...", status.Host))
 
-	k8shelld, err := workspace.NewK8shelld(c.k8shelldCfg, status, version, c.counters)
+	k8shelld, err := workspace.NewK8shelld(c.k8shelldCfg, status, c.counters)
 	if err != nil {
 		infoWriter.WriteSystemError(err.Error())
 		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.user.Username, err)
 	}
 
 	c.log.Debug().Msgf("Connecting to k8shelld at %s:%d for user %s, version: %s",
-		status.Host, status.Port, c.user.Username, version)
+		status.Host, status.Port, c.user.Username, status.AppVersion)
 
 	handshake, err := k8shelld.Handshake(c.ctx, c.user, envVars)
 	if err != nil {
@@ -398,7 +398,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	}()
 
 	c.k8shelld = k8shelld
-	c.k8shelldVer = version
+	c.k8shelldVer = status.AppVersion
 	c.workspaceName = status.Name
 
 	if c.sessionKV != nil {
