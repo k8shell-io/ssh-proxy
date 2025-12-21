@@ -23,6 +23,7 @@ import (
 
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
+	"github.com/k8shell-io/common/pkg/nats"
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	identity "github.com/k8shell-io/identity/pkg/api"
 	identitypb "github.com/k8shell-io/identity/pkg/api/identitypb"
@@ -42,6 +43,7 @@ type Server struct {
 	log         *zerolog.Logger
 	nats        *natsc.NATSClient
 	sessionKV   *natsc.JetStreamKV
+	userstrKV   *natsc.JetStreamKV
 	listener    net.Listener
 	sshConfig   *ssh.ServerConfig
 	ctx         context.Context
@@ -117,8 +119,15 @@ func NewServer(configPath string) (*Server, error) {
 			if err != nil {
 				return nil, fmt.Errorf("create jetstream cache: %w", err)
 			}
+			server.userstrKV, err = server.nats.NewKV(natsc.BucketOptions{
+				Bucket:    "userstr-cache",
+				BucketTTL: 24 * time.Hour,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("create userstr jetstream cache: %w", err)
+			}
 		} else {
-			server.log.Warn().Msg("NATS client is not configured, session tracking disabled")
+			server.log.Warn().Msg("NATS client is not configured, session tracking and userstr cache disabled")
 		}
 	}
 
@@ -139,21 +148,26 @@ func (s *Server) Identity() *identity.Client {
 
 // ResolveIssueRepoRef resolves an issue number to a repository reference.
 // models.IssueRepoRefResolver interface implementation.
-func (s *Server) ResolveIssueRepoRef(username string, repoOwner, repoName string,
-	issueNumber int) (string, error) {
-	t := time.Now()
+func (s *Server) ResolveIssueRepoRef(username string, repoOwner, repoName string, issueNumber int) (string, error) {
 	ctx := context.Background()
-	ref, err := s.Identity().ResolveRepoIssueToRef(ctx, &identitypb.RepoIssueRequest{
-		Username:    username,
-		RepoOwner:   repoOwner,
-		RepoName:    repoName,
-		IssueNumber: int32(issueNumber),
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to resolve issue #%d to ref: %w", issueNumber, err)
-	}
-	s.log.Debug().Msgf("Resolved issue #%d to ref %s in %v", issueNumber, ref.GetRepoRef(), time.Since(t))
-	return ref.GetRepoRef(), nil
+	ref, err := nats.Fetch(ctx, s.userstrKV, fmt.Sprintf("issue-ref-%s-%s-%s-%d",
+		username, repoOwner, repoName, issueNumber),
+		func(ctx context.Context) (string, error) {
+			t := time.Now()
+			ref, err := s.Identity().ResolveRepoIssueToRef(ctx, &identitypb.RepoIssueRequest{
+				Username:    username,
+				RepoOwner:   repoOwner,
+				RepoName:    repoName,
+				IssueNumber: int32(issueNumber),
+			})
+			if err != nil {
+				return "", fmt.Errorf("failed to resolve issue #%d to ref: %w", issueNumber, err)
+			}
+			s.log.Debug().Msgf("Resolved issue #%d to ref %s in %v", issueNumber, ref.GetRepoRef(), time.Since(t))
+			return ref.GetRepoRef(), nil
+		},
+	)
+	return ref, err
 }
 
 // initSSHConfig initializes the SSH server configuration with callbacks and host key.
@@ -243,8 +257,15 @@ func HandleConnectionChildProcess(configPath string) error {
 		if err != nil {
 			return fmt.Errorf("create jetstream cache: %w", err)
 		}
+		server.userstrKV, err = server.nats.NewKV(natsc.BucketOptions{
+			Bucket:    "userstr-cache",
+			BucketTTL: 24 * time.Hour,
+		})
+		if err != nil {
+			return fmt.Errorf("create userstr jetstream cache: %w", err)
+		}
 	} else {
-		logger.Warn().Msg("NATS client is not configured, session tracking disabled")
+		logger.Warn().Msg("NATS client is not configured, session tracking and userstr cache disabled")
 	}
 
 	if err := server.initSSHConfig(); err != nil {
