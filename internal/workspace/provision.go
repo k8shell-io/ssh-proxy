@@ -244,9 +244,10 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 		if status.Code(err) != codes.NotFound {
 			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 		}
-	}
-	if wsStatus.GetPodStatus().Status == "Running" {
-		return gapi.ProtoToWorkspaceStatus(wsStatus), nil
+	} else {
+		if wsStatus.GetPodStatus().Status == "Running" {
+			return gapi.ProtoToWorkspaceStatus(wsStatus), nil
+		}
 	}
 
 	wsname, err := provisionWorkspace(ctx, userStr, writer, backends)
