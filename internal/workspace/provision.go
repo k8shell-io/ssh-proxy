@@ -239,7 +239,7 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 	}
 
 	wsStatus, err := backends.Provisioner().GetWorkspaceStatus(ctx,
-		&provisionerpb.Workspace{Workspace: canUserStr.WorkspaceID})
+		&provisionerpb.Workspace{Workspace: canUserStr.WorkspaceName})
 	if err != nil {
 		if status.Code(err) != codes.NotFound {
 			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
@@ -250,7 +250,7 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 		}
 	}
 
-	wsname, err := provisionWorkspace(ctx, userStr, writer, backends)
+	wsname, err := provisionWorkspace(ctx, canUserStr.CanonicalUserStrObj, writer, backends)
 	if err != nil {
 		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.Username, err)
 	}
