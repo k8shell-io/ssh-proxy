@@ -146,6 +146,7 @@ func (s *Server) Identity() *identity.Client {
 	return s.identity
 }
 
+// ResolvePullRequestRef resolves a pull request number to a git reference string.
 func (s *Server) ResolvePullRequestRef(username string, repoOwner, repoName string, prNumber int) (string, error) {
 	ctx := context.Background()
 	ref, err := nats.Fetch(ctx, s.userstrKV, fmt.Sprintf("pr-ref-%s-%s-%s-%d",
