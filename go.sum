@@ -35,6 +35,8 @@ github.com/k8shell-io/crypto v0.41.1-ssh-proxy h1:8+q6Ofc2ky23Oc9iNyiq8aeiQBIP+y
 github.com/k8shell-io/crypto v0.41.1-ssh-proxy/go.mod h1:RVZeOJCpqtogniULztSXQESKJCfcI8WCxsS0FagMA8U=
 github.com/k8shell-io/identity/pkg/api v0.1.11 h1:19FgSAZIvwCH03UPO1xKK7ezJrqvVsddgSnJpeCTCWw=
 github.com/k8shell-io/identity/pkg/api v0.1.11/go.mod h1:7MBXrvnAz8KA1kAjfDFlnqCZ+X4yjG0gUaNLoQ3CAFg=
+github.com/k8shell-io/identity/pkg/api v0.1.12 h1:cyN4b2V0i8S7OW64Urdg8aBgf/TN5eCsJoHwbCo3bBk=
+github.com/k8shell-io/identity/pkg/api v0.1.12/go.mod h1:7MBXrvnAz8KA1kAjfDFlnqCZ+X4yjG0gUaNLoQ3CAFg=
 github.com/k8shell-io/k8shelld/pkg/api v0.12.26 h1:wotKUFdZy2CCm+4xqatlunt7eiF+MmD6SaY3UR5jQdc=
 github.com/k8shell-io/k8shelld/pkg/api v0.12.26/go.mod h1:GmuOOGCQYZU0dkqORKXGYidozL89eDtlxuVtFVf19ZU=
 github.com/k8shell-io/provisioner/pkg/api v0.1.13 h1:hvaO02l4Ny205yJiYAOR3Spxya+G7LgFH21o0bP/Q60=

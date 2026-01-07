@@ -23,8 +23,10 @@ import (
 
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
+	"github.com/k8shell-io/common/pkg/nats"
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	identity "github.com/k8shell-io/identity/pkg/api"
+	"github.com/k8shell-io/identity/pkg/api/identitypb"
 	provisioner "github.com/k8shell-io/provisioner/pkg/api"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
@@ -168,8 +170,26 @@ func (s *Server) Identity() *identity.Client {
 // 	return ref, err
 // }
 
-func (s *Server) ResolvePullRequestRef(username string, repoOwner, repoName string, issueNumber int) (string, error) {
-	return "", errors.New("not implemented")
+func (s *Server) ResolvePullRequestRef(username string, repoOwner, repoName string, prNumber int) (string, error) {
+	ctx := context.Background()
+	ref, err := nats.Fetch(ctx, s.userstrKV, fmt.Sprintf("pr-ref-%s-%s-%s-%d",
+		username, repoOwner, repoName, prNumber),
+		func(ctx context.Context) (string, error) {
+			t := time.Now()
+			ref, err := s.Identity().ResolvePullRequestToRef(ctx, &identitypb.RepoPullRequestRequest{
+				Username:          username,
+				RepoOwner:         repoOwner,
+				RepoName:          repoName,
+				PullRequestNumber: int32(prNumber),
+			})
+			if err != nil {
+				return "", fmt.Errorf("failed to resolve pull request #%d to ref: %w", prNumber, err)
+			}
+			s.log.Debug().Msgf("Resolved pull request #%d to ref %s in %v", prNumber, ref.GetRepoRef(), time.Since(t))
+			return ref.GetRepoRef(), nil
+		},
+	)
+	return ref, err
 }
 
 // initSSHConfig initializes the SSH server configuration with callbacks and host key.
