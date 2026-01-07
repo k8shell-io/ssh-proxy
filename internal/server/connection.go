@@ -111,7 +111,7 @@ func RemoveState(state *Connection) {
 
 // GetConnInfo retrieves or creates a Connection object for the given ssh.ConnMetadata
 func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
-	userStr, err := models.NewUserStr(conn.User())
+	userStr, err := models.NewUserStr(conn.User(), true)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse user string: %w", err)
 	}
@@ -332,6 +332,12 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	}
 
 	infoWriter := workspace.NewInfoWriter(writer, writerOptions)
+
+	if c.userStr.ValidationError != nil {
+		infoWriter.WriteError(c.userStr.ValidationError.Error())
+		return nil, fmt.Errorf("invalid user string for user %s: %w",
+			c.userStr.Username, c.userStr.ValidationError)
+	}
 
 	if !c.user.IsValid {
 		infoWriter.WriteError("User is not valid. Please contact the system administrator.")
