@@ -104,7 +104,7 @@ func NewServer(configPath string) (*Server, error) {
 			return nil, fmt.Errorf("failed to create identity client: %w", err)
 		}
 
-		models.SetIssueRepoRefResolver(server)
+		models.SetRefResolver(server)
 
 		server.nats, err = natsc.NewNATSClient(config.Nats)
 		if err != nil {
@@ -146,9 +146,9 @@ func (s *Server) Identity() *identity.Client {
 	return s.identity
 }
 
-// ResolveIssueRepoRef resolves an issue number to a repository reference.
-// models.IssueRepoRefResolver interface implementation.
-func (s *Server) ResolveIssueRepoRef(username string, repoOwner, repoName string, issueNumber int) (string, error) {
+// ResolveIssueRef resolves an issue number to a repository reference.
+// models.IssueRefResolver interface implementation.
+func (s *Server) ResolveIssueRef(username string, repoOwner, repoName string, issueNumber int) (string, error) {
 	ctx := context.Background()
 	ref, err := nats.Fetch(ctx, s.userstrKV, fmt.Sprintf("issue-ref-%s-%s-%s-%d",
 		username, repoOwner, repoName, issueNumber),
@@ -168,6 +168,10 @@ func (s *Server) ResolveIssueRepoRef(username string, repoOwner, repoName string
 		},
 	)
 	return ref, err
+}
+
+func (s *Server) ResolvePullRequestRef(username string, repoOwner, repoName string, issueNumber int) (string, error) {
+	return "", errors.New("not implemented")
 }
 
 // initSSHConfig initializes the SSH server configuration with callbacks and host key.
@@ -247,7 +251,7 @@ func HandleConnectionChildProcess(configPath string) error {
 		return fmt.Errorf("failed to create NATS client: %w", err)
 	}
 
-	models.SetIssueRepoRefResolver(server)
+	models.SetRefResolver(server)
 
 	if server.nats != nil {
 		server.sessionKV, err = server.nats.NewKV(natsc.BucketOptions{
