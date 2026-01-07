@@ -23,10 +23,8 @@ import (
 
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
-	"github.com/k8shell-io/common/pkg/nats"
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	identity "github.com/k8shell-io/identity/pkg/api"
-	identitypb "github.com/k8shell-io/identity/pkg/api/identitypb"
 	provisioner "github.com/k8shell-io/provisioner/pkg/api"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
@@ -148,27 +146,27 @@ func (s *Server) Identity() *identity.Client {
 
 // ResolveIssueRef resolves an issue number to a repository reference.
 // models.IssueRefResolver interface implementation.
-func (s *Server) ResolveIssueRef(username string, repoOwner, repoName string, issueNumber int) (string, error) {
-	ctx := context.Background()
-	ref, err := nats.Fetch(ctx, s.userstrKV, fmt.Sprintf("issue-ref-%s-%s-%s-%d",
-		username, repoOwner, repoName, issueNumber),
-		func(ctx context.Context) (string, error) {
-			t := time.Now()
-			ref, err := s.Identity().ResolveRepoIssueToRef(ctx, &identitypb.RepoIssueRequest{
-				Username:    username,
-				RepoOwner:   repoOwner,
-				RepoName:    repoName,
-				IssueNumber: int32(issueNumber),
-			})
-			if err != nil {
-				return "", fmt.Errorf("failed to resolve issue #%d to ref: %w", issueNumber, err)
-			}
-			s.log.Debug().Msgf("Resolved issue #%d to ref %s in %v", issueNumber, ref.GetRepoRef(), time.Since(t))
-			return ref.GetRepoRef(), nil
-		},
-	)
-	return ref, err
-}
+// func (s *Server) ResolveIssueRef(username string, repoOwner, repoName string, issueNumber int) (string, error) {
+// 	ctx := context.Background()
+// 	ref, err := nats.Fetch(ctx, s.userstrKV, fmt.Sprintf("issue-ref-%s-%s-%s-%d",
+// 		username, repoOwner, repoName, issueNumber),
+// 		func(ctx context.Context) (string, error) {
+// 			t := time.Now()
+// 			ref, err := s.Identity().ResolveRepoIssueToRef(ctx, &identitypb.RepoIssueRequest{
+// 				Username:    username,
+// 				RepoOwner:   repoOwner,
+// 				RepoName:    repoName,
+// 				IssueNumber: int32(issueNumber),
+// 			})
+// 			if err != nil {
+// 				return "", fmt.Errorf("failed to resolve issue #%d to ref: %w", issueNumber, err)
+// 			}
+// 			s.log.Debug().Msgf("Resolved issue #%d to ref %s in %v", issueNumber, ref.GetRepoRef(), time.Since(t))
+// 			return ref.GetRepoRef(), nil
+// 		},
+// 	)
+// 	return ref, err
+// }
 
 func (s *Server) ResolvePullRequestRef(username string, repoOwner, repoName string, issueNumber int) (string, error) {
 	return "", errors.New("not implemented")
