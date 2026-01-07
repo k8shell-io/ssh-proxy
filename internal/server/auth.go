@@ -19,7 +19,11 @@ import (
 
 // AllowedAuthsCallback returns the available authentication methods for the user.
 func (s *Server) AllowedAuthsCallback(conn ssh.ConnMetadata) ssh.ServerAuthCallbacks {
-	connInfo, _ := s.GetConnInfo(conn)
+	connInfo, err := s.GetConnInfo(conn)
+	if err != nil {
+		s.log.Error().Msgf("Failed to get connection info: %v", err)
+		return ssh.ServerAuthCallbacks{}
+	}
 	s.updateUser(s.ctx, connInfo)
 	authMethods := s.getAvailableAuthMethods(connInfo)
 	if authMethods == nil {
