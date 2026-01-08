@@ -334,7 +334,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	infoWriter := workspace.NewInfoWriter(writer, writerOptions)
 
 	if c.userStr.ValidationError != nil {
-		infoWriter.WriteError(c.userStr.ValidationError.Error())
+		infoWriter.WriteError("Invalid user string: " + c.userStr.ValidationError.Error())
 		return nil, fmt.Errorf("invalid user string for user %s: %w",
 			c.userStr.Username, c.userStr.ValidationError)
 	}
