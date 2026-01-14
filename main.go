@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 
-	log "github.com/k8shell-io/common/logger"
+	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/ssh-proxy/internal/server"
 )
 
@@ -64,15 +63,7 @@ func main() {
 	logger := log.NewLogger("ssh-proxy")
 
 	if opts.IsChild {
-		ip := os.Getenv("PP_CLIENT_IP")
-		portStr := os.Getenv("PP_CLIENT_PORT")
-		port, err := strconv.Atoi(portStr)
-		if err != nil {
-			logger.Error().Msgf("Invalid port number: %v", err)
-			os.Exit(1)
-		}
-
-		err = server.HandleConnectionChildProcess(opts.ConfigPath, ip, port)
+		err = server.HandleConnectionChildProcess(opts.ConfigPath)
 		if err != nil {
 			logger.Error().Msgf("Error handling connection in the child process: %v", err)
 			os.Exit(1)

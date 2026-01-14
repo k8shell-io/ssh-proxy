@@ -1,26 +1,60 @@
 # ssh-proxy service configuration
 
 server:
+  # port to bind the ssh-proxy server
+  port: 2022
+  
+  # path to the SSH server private key file
+  serverKey: ${SECRET_FILES}/server_key
+
   # true to start each connection in a new process
-  forking: true
+  forking: false
 
   # true to parse proxy protocol to get the real client IP and port
   # set to false when proxy protocol is not used
-  proxyProtocol: false
+  proxyProtocol: true
 
-# ssh proxy configuration
-ssh:
-  port: 2022
-  serverKey: ${SECRET_FILES}/server_key
+  # options for the provision info writer
+  writerOptions:
+    showProvisionInfo: false
+    showPulse: true
+    showPercentage: true
+    showErrors: true
+    showSystemErrors: false
 
-# Identity service configuration
+  # SSH handshake timeout in seconds
+  SSHHandshakeTimeout: 15
+
+  # maximum number of direct TCP/IP connections allowed (per ssh connection)
+  maxDirectTCPIPConnections: 15
+
+  # sftp binary path in the workspace
+  sftpBinary: /usr/local/bin/sftp
+
+  # publish SSH authentication failures to NATS
+  publishSshFailures:
+    enabled: false
+    subject: ssh.failures
+    publicIPOnly: false
+
+nats:
+  enabled: false
+  url: nats://${NATS_HOST}:4222
+  username: sshproxy
+  password: !file ${SECRET_FILES}/sshproxy_nats_token
+
 identity:
-  baseURL: http://10.42.3.4:9090
-  APIKey: !file ${SECRET_FILES}/identity_key
-  timeout: 1000 
+  address: identity.k8shell-test:9020
+  serverName: identity.k8shell-test.svc
+  tokenFilePath: /opt/shared/auth/dummy-token
+  caCertPath: /opt/shared/auth/ca.crt
 
 provisioner:
-  baseURL: http://10.42.2.240:9201
-  APIKey: !file ${SECRET_FILES}/provisioner_key
-  timeout: 30000
+  address: provisioner.k8shell-test:9030
+  serverName: provisioner.k8shell-test.svc
+  tokenFilePath: /opt/shared/auth/dummy-token
+  caCertPath: /opt/shared/auth/ca.crt
 
+k8shelld:
+  tokenFilePath: /opt/shared/auth/dummy-token
+  caCertPath: /opt/shared/auth/ca.crt

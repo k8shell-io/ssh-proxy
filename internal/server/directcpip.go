@@ -1,22 +1,34 @@
+// Copyright 2025 The K8shell Authors. All rights reserved.
+// Use of this source code is governed by a AGPLv3
+// license that can be found in the LICENSE file.
+
 package server
 
 import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"golang.org/x/crypto/ssh"
 )
 
-// Maximum number of direct TCP/IP connections allowed (per ssh connection)
-const MAX_DIRECT_TCPIP_CONNECTIONS = 15
+// DirectTCPIP holds information about a direct TCP/IP connection
+type DirectTCPIP struct {
+	username      string // username of the user
+	directTCPIPId string // unique identifier for the direct TCP/IP connection
+	destHost      string // destination host
+	destPort      uint32 // destination port
+	originHost    string // origin host
+	originPort    uint32 // origin port
+}
 
 // handleDirectTCPIPChannel handles a new direct TCP/IP channel request
-func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *ConnectionInfo, newChannel ssh.NewChannel) {
-	if !connInfo.IncrementDirectTCPIPCount(MAX_DIRECT_TCPIP_CONNECTIONS) {
+func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connection, newChannel ssh.NewChannel) {
+	if !connInfo.IncrementDirectTCPIPCount(s.Config.Server.MaxDirectTCPIPConnections) {
 		s.log.Warn().Msgf("User %s exceeded max direct-tcpip connections (limit: %d)",
-			connInfo.User.Username, MAX_DIRECT_TCPIP_CONNECTIONS)
+			connInfo.user.Username, s.Config.Server.MaxDirectTCPIPConnections)
 		newChannel.Reject(ssh.ResourceShortage,
-			fmt.Sprintf("maximum direct-tcpip connections exceeded (%d)", MAX_DIRECT_TCPIP_CONNECTIONS))
+			fmt.Sprintf("maximum direct-tcpip connections exceeded (%d)", s.Config.Server.MaxDirectTCPIPConnections))
 		return
 	}
 
@@ -35,49 +47,49 @@ func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connectio
 		return
 	}
 
-	tcpipInfo.Username = connInfo.User.Username
-	tcpipInfo.DirectTCPIPId = fmt.Sprintf("pf-%s-%d", connInfo.proxyFullID, channel.LocalID())
+	tcpipInfo.username = connInfo.user.Username
+	tcpipInfo.directTCPIPId = fmt.Sprintf("pf-%s%d", connInfo.connId, connInfo.SeqNumber())
 
-	connInfo.DirectTCPIP.Store(tcpipInfo.DirectTCPIPId, tcpipInfo)
+	connInfo.directTCPIP.Store(tcpipInfo.directTCPIPId, tcpipInfo)
 	s.log.Debug().Msgf("Stored port forward %s in storage (count: %d)",
-		tcpipInfo.DirectTCPIPId, connInfo.GetDirectTCPIPCount())
+		tcpipInfo.directTCPIPId, connInfo.GetDirectTCPIPCount())
 
 	s.log.Debug().Msgf("Direct TCP/IP request: %s:%d -> %s:%d for user %s",
-		tcpipInfo.OriginHost, tcpipInfo.OriginPort,
-		tcpipInfo.DestHost, tcpipInfo.DestPort,
-		connInfo.User.Username)
+		tcpipInfo.originHost, tcpipInfo.originPort,
+		tcpipInfo.destHost, tcpipInfo.destPort,
+		connInfo.user.Username)
 
 	defer func() {
 		channel.Close()
-		if tcpipInfo.DirectTCPIPId != "" {
-			connInfo.DirectTCPIP.Delete(tcpipInfo.DirectTCPIPId)
+		if tcpipInfo.directTCPIPId != "" {
+			connInfo.directTCPIP.Delete(tcpipInfo.directTCPIPId)
 			connInfo.DecrementDirectTCPIPCount()
 			s.log.Debug().Msgf("Removed port forward %s from storage (count: %d)",
-				tcpipInfo.DirectTCPIPId, connInfo.GetDirectTCPIPCount())
+				tcpipInfo.directTCPIPId, connInfo.GetDirectTCPIPCount())
 		}
 	}()
 
 	go ssh.DiscardRequests(requests)
 
-	k8shelld, err := connInfo.CreateK8shelldClient(s.ctx, channel, s.provisioner)
+	k8shelld, err := connInfo.Handshake(nil, nil, s, []string{})
 	if err != nil {
-		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", connInfo.User.Username, err)
+		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", connInfo.user.Username, err)
 		return
 	}
 
 	s.log.Debug().Msgf("Starting port forward %s for user %s: %s:%d",
-		tcpipInfo.DirectTCPIPId, connInfo.User.Username, tcpipInfo.DestHost, tcpipInfo.DestPort)
+		tcpipInfo.directTCPIPId, connInfo.user.Username, tcpipInfo.destHost, tcpipInfo.destPort)
 
-	if err := k8shelld.StartPortForward(s.ctx, channel, tcpipInfo.DirectTCPIPId,
-		tcpipInfo.DestHost, tcpipInfo.DestPort); err != nil {
-		s.log.Error().Msgf("Port forward failed for user %s: %v", connInfo.User.Username, err)
+	if err := k8shelld.RunPortForward(connInfo.ctx, &workspace.ChannelAdapter{Channel: channel},
+		tcpipInfo.directTCPIPId, tcpipInfo.destHost, tcpipInfo.destPort); err != nil {
+		s.log.Error().Msgf("Port forward failed for user %s: %v", connInfo.user.Username, err)
 	} else {
-		s.log.Debug().Msgf("Port forward %s completed for user %s", tcpipInfo.DirectTCPIPId, connInfo.User.Username)
+		s.log.Debug().Msgf("Port forward %s completed for user %s", tcpipInfo.directTCPIPId, connInfo.user.Username)
 	}
 }
 
 // parseDirectTCPIPPayload parses the direct-tcpip channel request payload
-func parseDirectTCPIPPayload(payload []byte) (*DirectTCPIPInfo, error) {
+func parseDirectTCPIPPayload(payload []byte) (*DirectTCPIP, error) {
 	if len(payload) < 4 {
 		return nil, fmt.Errorf("payload too short")
 	}
@@ -113,10 +125,10 @@ func parseDirectTCPIPPayload(payload []byte) (*DirectTCPIPInfo, error) {
 	}
 	originPort := binary.BigEndian.Uint32(payload[offset : offset+4])
 
-	return &DirectTCPIPInfo{
-		DestHost:   destHost,
-		DestPort:   destPort,
-		OriginHost: originHost,
-		OriginPort: originPort,
+	return &DirectTCPIP{
+		destHost:   destHost,
+		destPort:   destPort,
+		originHost: originHost,
+		originPort: originPort,
 	}, nil
 }

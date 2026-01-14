@@ -1,22 +1,33 @@
+// Copyright 2025 The K8shell Authors. All rights reserved.
+// Use of this source code is governed by a AGPLv3
+// license that can be found in the LICENSE file.
+
 package server
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
-	log "github.com/k8shell-io/common/logger"
-	identity "github.com/k8shell-io/identity/pkg/client"
-	provisioner "github.com/k8shell-io/provisioner/pkg/client"
-	"github.com/k8shell-io/ssh-proxy/internal/config"
+	log "github.com/k8shell-io/common/pkg/logger"
+	"github.com/k8shell-io/common/pkg/models"
+	"github.com/k8shell-io/common/pkg/nats"
+	natsc "github.com/k8shell-io/common/pkg/nats"
+	identity "github.com/k8shell-io/identity/pkg/api"
+	"github.com/k8shell-io/identity/pkg/api/identitypb"
+	provisioner "github.com/k8shell-io/provisioner/pkg/api"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
 )
@@ -24,13 +35,15 @@ import (
 var (
 	SSHPROXY_VERSION = "0.0.0"
 	SSHPROXY_COMMIT  = "0000000"
-	SERVER_VERSION   = fmt.Sprintf("SSH-2.0-ssh-proxy_%s/%s k8shell.io", SSHPROXY_VERSION, SSHPROXY_COMMIT)
 )
 
 // Server represents the SSH server that handles incoming connections and authentication.
 type Server struct {
-	Config      *config.Config
+	Config      *Config
 	log         *zerolog.Logger
+	nats        *natsc.NATSClient
+	sessionKV   *natsc.JetStreamKV
+	userstrKV   *natsc.JetStreamKV
 	listener    net.Listener
 	sshConfig   *ssh.ServerConfig
 	ctx         context.Context
@@ -38,33 +51,26 @@ type Server struct {
 	wg          sync.WaitGroup
 	identity    *identity.Client
 	provisioner *provisioner.Client
+	fpub        *NatsFailuresPublisher
 	configPath  string
 }
 
-// NewClients creates new instances of the identity and provisioner clients.
-func NewClients(config *config.Config) (*identity.Client, *provisioner.Client) {
-	identityConfig := identity.Config{
-		BaseURL: config.Identity.BaseURL,
-		APIKey:  config.Identity.APIKey,
-		Timeout: config.Identity.Timeout,
-	}
-	identityClient := identity.NewClient(identityConfig)
+// BufferedConn uses an existing bufio.Reader to avoid losing any data already read from the connection.
+// This is used to handle the PROXY protocol where some data may have already been read from the connection.
+type BufferedConn struct {
+	net.Conn
+	reader *bufio.Reader
+}
 
-	provisionerConfig := provisioner.Config{
-		BaseURL: config.Provisioner.BaseURL,
-		APIKey:  config.Provisioner.APIKey,
-		Timeout: config.Provisioner.Timeout,
-	}
-	provisionerClient := provisioner.NewClient(provisionerConfig)
-
-	return identityClient, provisionerClient
+func (bc *BufferedConn) Read(b []byte) (int, error) {
+	return bc.reader.Read(b)
 }
 
 // NewServer creates a new SSH server instance.
 func NewServer(configPath string) (*Server, error) {
 	log := log.NewLogger("ssh-server")
 
-	config, err := config.NewConfig(configPath)
+	config, err := NewConfig(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
@@ -83,19 +89,91 @@ func NewServer(configPath string) (*Server, error) {
 	}
 
 	if !server.Config.Server.Forking {
-		identityClient, provisionerClient := NewClients(config)
-		server.identity = identityClient
-		server.provisioner = provisionerClient
+		server.fpub, err = NewNatsFailuresPublisher(config.Nats, config.Server.PublishSshFailures)
+		if err != nil {
+			server.log.Error().Msgf("failed to create NATS client: %v", err)
+		}
+
+		server.provisioner, err = provisioner.NewClient(config.Provisioner)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create provisioner client: %w", err)
+		}
+
+		server.identity, err = identity.NewClient(config.Identity)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create identity client: %w", err)
+		}
+
+		models.SetRefResolver(server)
+
+		server.nats, err = natsc.NewNATSClient(config.Nats)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create NATS client: %w", err)
+		}
+
+		if server.nats != nil {
+			server.sessionKV, err = server.nats.NewKV(natsc.BucketOptions{
+				Bucket:    "sessions-ssh-proxy",
+				BucketTTL: SESSION_UPDATE_INTERVAL * 2,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("create jetstream cache: %w", err)
+			}
+			server.userstrKV, err = server.nats.NewKV(natsc.BucketOptions{
+				Bucket:    "userstr-cache",
+				BucketTTL: 24 * time.Hour,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("create userstr jetstream cache: %w", err)
+			}
+		} else {
+			server.log.Warn().Msg("NATS client is not configured, session tracking and userstr cache disabled")
+		}
 	}
 
 	return server, nil
 }
 
+// Provisioner returns the provisioner client.
+// Backends interface implementation.
+func (s *Server) Provisioner() *provisioner.Client {
+	return s.provisioner
+}
+
+// Identity returns the identity client.
+// Backends interface implementation.
+func (s *Server) Identity() *identity.Client {
+	return s.identity
+}
+
+// ResolvePullRequestRef resolves a pull request number to a git reference string.
+func (s *Server) ResolvePullRequestRef(username string, repoOwner, repoName string, prNumber int) (string, error) {
+	ctx := context.Background()
+	ref, err := nats.Fetch(ctx, s.userstrKV, fmt.Sprintf("pr-ref-%s-%s-%s-%d",
+		username, repoOwner, repoName, prNumber),
+		func(ctx context.Context) (string, error) {
+			t := time.Now()
+			ref, err := s.Identity().ResolvePullRequestToRef(ctx, &identitypb.RepoPullRequestRequest{
+				Username:          username,
+				RepoOwner:         repoOwner,
+				RepoName:          repoName,
+				PullRequestNumber: int32(prNumber),
+			})
+			if err != nil {
+				return "", fmt.Errorf("failed to resolve pull request #%d to ref: %w", prNumber, err)
+			}
+			s.log.Debug().Msgf("Resolved pull request #%d to ref %s in %v", prNumber, ref.GetRepoRef(), time.Since(t))
+			return ref.GetRepoRef(), nil
+		},
+	)
+	return ref, err
+}
+
 // initSSHConfig initializes the SSH server configuration with callbacks and host key.
 func (s *Server) initSSHConfig() error {
+	version := fmt.Sprintf("SSH-2.0-ssh-proxy_%s/%s_k8shell.io", SSHPROXY_VERSION, SSHPROXY_COMMIT)
 	s.sshConfig = &ssh.ServerConfig{
-		// SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10
-		ServerVersion:               SERVER_VERSION,
+		ServerVersion:               version,
 		KeyboardInteractiveCallback: s.AuthKeyboardInteractive,
 		PublicKeyCallback:           s.AuthPublicKey,
 		PasswordCallback:            s.AuthPassword,
@@ -108,6 +186,8 @@ func (s *Server) initSSHConfig() error {
 		return fmt.Errorf("failed to load server key: %w", err)
 	}
 	s.sshConfig.AddHostKey(serverKey)
+
+	s.log.Info().Msgf("SSH server version: %s", s.sshConfig.ServerVersion)
 	s.log.Info().Msgf("SSH server initialized with server key: %s", serverKey.PublicKey().Type())
 
 	return nil
@@ -115,8 +195,7 @@ func (s *Server) initSSHConfig() error {
 
 // HandleConnectionChildProcess handles a connection from a file descriptor
 // It is called when a new connection is accepted and processed in a subprocess when forking is enabled.
-func HandleConnectionChildProcess(configPath string, ip string, port int) error {
-	// get the connection from file descriptor, fd 3 should be the connection
+func HandleConnectionChildProcess(configPath string) error {
 	file := os.NewFile(uintptr(3), "connection")
 	defer file.Close()
 
@@ -126,7 +205,7 @@ func HandleConnectionChildProcess(configPath string, ip string, port int) error 
 	}
 	defer conn.Close()
 
-	config, err := config.NewConfig(configPath)
+	config, err := NewConfig(configPath)
 	if err != nil {
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
@@ -134,8 +213,10 @@ func HandleConnectionChildProcess(configPath string, ip string, port int) error 
 	logger := log.NewLogger("ssh-server")
 	logger.Info().Msg("Handling connection in the child process")
 
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	server := &Server{
 		Config:     config,
@@ -145,31 +226,143 @@ func HandleConnectionChildProcess(configPath string, ip string, port int) error 
 		configPath: configPath,
 	}
 
-	identityClient, provisionerClient := NewClients(config)
-	server.identity = identityClient
-	server.provisioner = provisionerClient
+	server.fpub, err = NewNatsFailuresPublisher(config.Nats, config.Server.PublishSshFailures)
+	if err != nil {
+		server.log.Error().Msgf("failed to create NATS client: %v", err)
+	}
+
+	server.provisioner, err = provisioner.NewClient(config.Provisioner)
+	if err != nil {
+		return fmt.Errorf("failed to create provisioner client: %w", err)
+	}
+
+	server.identity, err = identity.NewClient(config.Identity)
+	if err != nil {
+		return fmt.Errorf("failed to create identity client: %w", err)
+	}
+
+	server.nats, err = natsc.NewNATSClient(config.Nats)
+	if err != nil {
+		return fmt.Errorf("failed to create NATS client: %w", err)
+	}
+
+	models.SetRefResolver(server)
+
+	if server.nats != nil {
+		server.sessionKV, err = server.nats.NewKV(natsc.BucketOptions{
+			Bucket:    "sessions-ssh-proxy",
+			BucketTTL: SESSION_UPDATE_INTERVAL * 2,
+		})
+		if err != nil {
+			return fmt.Errorf("create jetstream cache: %w", err)
+		}
+		server.userstrKV, err = server.nats.NewKV(natsc.BucketOptions{
+			Bucket:    "userstr-cache",
+			BucketTTL: 24 * time.Hour,
+		})
+		if err != nil {
+			return fmt.Errorf("create userstr jetstream cache: %w", err)
+		}
+	} else {
+		logger.Warn().Msg("NATS client is not configured, session tracking and userstr cache disabled")
+	}
 
 	if err := server.initSSHConfig(); err != nil {
 		return fmt.Errorf("failed to initialize SSH config: %w", err)
 	}
 
-	server.handleConnection(conn, true, ip, port)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		server.handleConnection(conn, true)
+		server.Stop()
+	}()
+
+	select {
+	case <-done:
+		cancel()
+	case sig := <-sigChan:
+		logger.Debug().Msgf("Received signal %v, shutting down gracefully", sig)
+		cancel()
+
+		select {
+		case <-done:
+			logger.Debug().Msg("Connection cleanup completed")
+		case <-time.After(5 * time.Second):
+			logger.Warn().Msg("Cleanup timeout, forcing exit")
+		}
+	}
 
 	return nil
 }
 
 // handleConnection processes a single SSH connection
-func (s *Server) handleConnection(netConn net.Conn, isDirect bool, ip string, port int) {
+func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 	if !isDirect {
 		defer s.wg.Done()
 	}
 	defer netConn.Close()
 
-	s.log.Info().Msgf("New SSH connection from %s", netConn.RemoteAddr().String())
+	var ip string = ""
+	var port int
+	var cleanConn net.Conn = netConn
 
-	sshConn, channels, requests, err := ssh.NewServerConn(netConn, s.sshConfig)
+	if s.Config.Server.ProxyProtocol {
+		var err error
+		cleanConn, ip, port, err = ParseProxyProtocolV1(netConn)
+		if err != nil {
+			s.log.Warn().Msgf("Failed to parse PROXY protocol header: %v", err)
+		}
+		if ip != "" {
+			s.log.Debug().Msgf("Parsed PROXY protocol header: client IP %s, port %d", ip, port)
+		}
+	}
+
+	if ip == "" {
+		remoteAddr := netConn.RemoteAddr()
+		if tcpAddr, ok := remoteAddr.(*net.TCPAddr); ok {
+			ip = tcpAddr.IP.String()
+			port = tcpAddr.Port
+		} else {
+			s.log.Error().Msgf("Unexpected addr type: %T\n", remoteAddr)
+			return
+		}
+	}
+
+	s.log.Info().Msgf("New SSH connection from %s:%d", ip, port)
+
+	deadline := time.Now().Add(time.Duration(s.Config.Server.SSHHandshakeTimeout) * time.Second)
+	if err := netConn.SetReadDeadline(deadline); err != nil {
+		s.log.Warn().Msgf("Failed to set read deadline: %v", err)
+	}
+
+	sshConn, channels, requests, err := ssh.NewServerConn(cleanConn, s.sshConfig)
+
+	if resetErr := netConn.SetReadDeadline(time.Time{}); resetErr != nil {
+		s.log.Warn().Msgf("Failed to reset read deadline: %v", resetErr)
+	}
+
 	if err != nil {
 		s.log.Error().Msgf("Failed to perform SSH handshake: %v", err)
+		if netErr, isNetErr := err.(net.Error); isNetErr && netErr.Timeout() {
+			s.log.Warn().Msgf("SSH handshake timed out for connection from %s:%d", ip, port)
+		}
+
+		connInfo := GetConnectionByAddress(netConn.RemoteAddr().String())
+
+		if connInfo != nil {
+			s.log.Debug().Msgf("Failed connection info: %v", connInfo.failureInfo)
+
+			if s.fpub != nil {
+				failureInfo := []string{}
+				failureInfo = append(failureInfo, connInfo.failureInfo...)
+				failureInfo = append(failureInfo, string(err.Error()))
+				s.fpub.PublishFailure(ip, port, connInfo.userStr.Username, failureInfo)
+			}
+
+			connInfo.Close()
+			RemoveState(connInfo)
+		}
 		return
 	}
 	defer sshConn.Close()
@@ -180,7 +373,7 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool, ip string, po
 		s.log.Error().Msgf("Failed to get connection info: %v", err)
 		return
 	}
-	if connInfo.User == nil {
+	if connInfo.user == nil {
 		s.log.Error().Msgf("There is no user identity associated with username %s. Cannot handle connection.",
 			sshConn.User())
 		return
@@ -195,12 +388,61 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool, ip string, po
 	s.log.Info().Msgf("Connection closed for user %s from %s", sshConn.User(), sshConn.RemoteAddr())
 }
 
+// handleChannels handles SSH channel requests.
+func (s *Server) handleChannels(sshConn *ssh.ServerConn, connInfo *Connection, channels <-chan ssh.NewChannel) {
+	for {
+		select {
+		case <-s.ctx.Done():
+			s.log.Info().Msg("Channel handler stopping due to context cancellation")
+			return
+		case channel := <-channels:
+			if channel == nil {
+				return
+			}
+			s.log.Debug().Msgf("Received channel request: type=%s", channel.ChannelType())
+			switch channel.ChannelType() {
+			case "session":
+				go s.handleSessionChannel(sshConn, connInfo, channel)
+			case "direct-tcpip":
+				connInfo.AddChannelInfo(models.ChannelShortPf)
+				go s.handleDirectTCPIPChannel(sshConn, connInfo, channel)
+			case "direct-streamlocal@openssh.com":
+				connInfo.AddChannelInfo("ux")
+				go s.handleDirectStreamLocal(sshConn, connInfo, channel)
+			default:
+				s.log.Warn().Msgf("Unsupported channel type: %s", channel.ChannelType())
+				channel.Reject(ssh.UnknownChannelType, "channel type not supported")
+			}
+		}
+	}
+}
+
+// handleGlobalRequests processes SSH global requests
+func (s *Server) handleGlobalRequests(requests <-chan *ssh.Request) {
+	for {
+		select {
+		case <-s.ctx.Done():
+			s.log.Info().Msg("Global request handler stopping due to context cancellation")
+			return
+		case req := <-requests:
+			if req == nil {
+				return
+			}
+			s.log.Debug().Msgf("Received global request: type=%s, want_reply=%t", req.Type, req.WantReply)
+
+			if req.WantReply {
+				req.Reply(false, nil)
+			}
+		}
+	}
+}
+
 // Start begins listening for SSH connections on the configured port
 func (s *Server) Start() error {
-	address := fmt.Sprintf(":%d", s.Config.Ssh.Port)
+	address := fmt.Sprintf(":%d", s.Config.Server.Port)
 
 	s.log.Info().
-		Int("port", s.Config.Ssh.Port).
+		Int("port", s.Config.Server.Port).
 		Msg("Starting SSH proxy server")
 
 	listener, err := net.Listen("tcp", address)
@@ -245,43 +487,18 @@ func (s *Server) acceptConnections() {
 			}
 		}
 
-		var ip string
-		var port int
-		if s.Config.Server.ProxyProtocol {
-			ip, port, err = ParseProxyProtocolV1(conn)
-			if err != nil {
-				s.log.Error().Err(err).Msg("Failed to parse PROXY protocol")
-				conn.Close()
-				continue
-			}
-		}
-
-		if ip != "" {
-			s.log.Debug().Msgf("Parsed PROXY protocol header: client IP %s, port %d", ip, port)
-		} else {
-			remoteAddr := conn.RemoteAddr()
-			if tcpAddr, ok := remoteAddr.(*net.TCPAddr); ok {
-				ip = tcpAddr.IP.String()
-				port = tcpAddr.Port
-			} else {
-				s.log.Error().Msgf("Unexpected addr type: %T\n", remoteAddr)
-				conn.Close()
-				continue
-			}
-		}
-
 		if s.Config.Server.Forking {
 			s.wg.Add(1)
-			go s.startSubProcess(conn, ip, port)
+			go s.startSubProcess(conn)
 		} else {
 			s.wg.Add(1)
-			go s.handleConnection(conn, false, ip, port)
+			go s.handleConnection(conn, false)
 		}
 	}
 }
 
 // startSubProcess spawns a new process to handle the SSH connection in a subprocess
-func (s *Server) startSubProcess(netConn net.Conn, ip string, port int) {
+func (s *Server) startSubProcess(netConn net.Conn) {
 	defer s.wg.Done()
 	defer netConn.Close()
 
@@ -309,14 +526,10 @@ func (s *Server) startSubProcess(netConn net.Conn, ip string, port int) {
 
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-
-	cmd.Env = append(os.Environ(),
-		fmt.Sprintf("PP_CLIENT_IP=%s", ip),
-		fmt.Sprintf("PP_CLIENT_PORT=%d", port),
-	)
+	cmd.Env = os.Environ()
 
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
+		Pdeathsig: syscall.SIGTERM, // Send SIGTERM when parent dies
 	}
 
 	err = cmd.Start()
@@ -343,9 +556,15 @@ func (s *Server) Stop() {
 		s.listener.Close()
 	}
 
+	if s.fpub != nil {
+		s.fpub.Close()
+	}
+
 	s.wg.Wait()
 	s.log.Info().Msg("SSH server stopped")
 }
+
+// *** Helpers
 
 // GetProxyID generates a unique proxy identifier based on hostname
 // If hostname matches Kubernetes deployment pod pattern, it uses the pod hash as proxy-id.
@@ -392,32 +611,38 @@ func isValidPodHash(hash string) bool {
 	return true
 }
 
-// ParseProxyProtocolV1 parses a PROXY protocol v1 header (if present) from the connection.
-// Returns client IP and port if found, otherwise ("", 0, nil) when no PROXY header is used.
-func ParseProxyProtocolV1(conn net.Conn) (string, int, error) {
+// ParseProxyProtocolV1 parses and CONSUMES the proxy protocol header
+func ParseProxyProtocolV1(conn net.Conn) (net.Conn, string, int, error) {
 	reader := bufio.NewReader(conn)
+
+	peek, err := reader.Peek(6)
+	if err != nil {
+		if err == io.EOF && len(peek) == 0 {
+			return conn, "", 0, fmt.Errorf("connection closed before reading PROXY protocol header")
+		}
+		return conn, "", 0, fmt.Errorf("failed to peek at connection: %w", err)
+	}
+
+	if !bytes.HasPrefix(peek, []byte("PROXY ")) {
+		return &BufferedConn{Conn: conn, reader: reader}, "", 0, fmt.Errorf("no PROXY protocol header found")
+	}
+
 	lineBytes, err := reader.ReadBytes('\n')
 	if err != nil {
-		return "", 0, fmt.Errorf("failed to read proxy header: %w", err)
+		return conn, "", 0, fmt.Errorf("failed to read proxy protocol line: %w", err)
 	}
 
 	line := strings.TrimSpace(string(lineBytes))
-
-	if !strings.HasPrefix(line, "PROXY") {
-		return "", 0, errors.New("invalid PROXY protocol header")
-	}
-
 	parts := strings.Split(line, " ")
 	if len(parts) < 6 {
-		return "", 0, errors.New("malformed PROXY protocol header: missing required fields")
+		return conn, "", 0, errors.New("malformed PROXY protocol header: missing required fields")
 	}
 
 	realClientIP := parts[2]
-	realClientPortStr := parts[4]
-	realClientPort, err := strconv.Atoi(realClientPortStr)
+	realClientPort, err := strconv.Atoi(parts[4])
 	if err != nil {
-		return "", 0, fmt.Errorf("invalid client port: %w", err)
+		return conn, "", 0, fmt.Errorf("invalid client port: %w", err)
 	}
 
-	return realClientIP, realClientPort, nil
+	return &BufferedConn{Conn: conn, reader: reader}, realClientIP, realClientPort, nil
 }
