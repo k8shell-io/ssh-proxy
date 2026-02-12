@@ -7,7 +7,11 @@ LABEL VERSION=$VERSION
 LABEL COMMIT_ID=$COMMIT_ID
 
 WORKDIR /go/src/ssh-proxy
-COPY files .
+COPY go.mod go.sum ./
+COPY vendor ./vendor
+COPY main.go ./
+COPY internal ./internal
+COPY pkg ./pkg
 
 ENV GOFLAGS="-mod=vendor"
 
