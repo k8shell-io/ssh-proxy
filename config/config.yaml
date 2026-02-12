@@ -44,10 +44,11 @@ nats:
   password: !file ${SECRET_FILES}/sshproxy_nats_token
 
 identity:
-  address: identity.k8shell-test:9020
+  #address: identity.k8shell-test:9020
+  address: 10.42.2.157:9020
   serverName: identity.k8shell-test.svc
   tokenFilePath: /opt/shared/auth/dummy-token
-  caCertPath: /opt/shared/auth/ca.crt
+  # caCertPath: /opt/shared/auth/ca.crt
 
 provisioner:
   address: provisioner.k8shell-test:9030

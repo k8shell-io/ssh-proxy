@@ -421,7 +421,8 @@ func (c *Connection) getCommandHandler(backends workspace.Backends, workspaceNam
 		case "shutdown":
 			c.log.Debug().Msgf("Received k8shelld shutdown command for user %s, workspace %s",
 				c.user.Username, workspaceName)
-			backends.Provisioner().DeleteWorkspace(c.ctx, &provisionerpb.Workspace{Workspace: workspaceName})
+			backends.Provisioner().DeleteWorkspace(c.ctx,
+				&provisionerpb.DeleteWorkspaceRequest{Workspace: workspaceName})
 			return "Workspace shutdown has been initiated.", nil
 		}
 		c.log.Error().Msgf("Received unknown k8shelld command %q for user %s, workspace %s",

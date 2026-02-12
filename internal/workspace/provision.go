@@ -238,8 +238,8 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 		return nil, fmt.Errorf("failed to canonicalize user string for user %s: %w", userStr.Username, err)
 	}
 
-	wsStatus, err := backends.Provisioner().GetWorkspaceStatus(ctx,
-		&provisionerpb.Workspace{Workspace: canUserStr.WorkspaceName})
+	wsStatus, err := backends.Provisioner().FindWorkspace(ctx,
+		&provisionerpb.FindWorkspaceRequest{Workspace: canUserStr.WorkspaceName})
 	if err != nil {
 		if status.Code(err) != codes.NotFound {
 			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
@@ -255,7 +255,8 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.Username, err)
 	}
 
-	wsStatus, err = backends.Provisioner().GetWorkspaceStatus(ctx, &provisionerpb.Workspace{Workspace: wsname})
+	wsStatus, err = backends.Provisioner().FindWorkspace(ctx,
+		&provisionerpb.FindWorkspaceRequest{Workspace: wsname})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 	}
