@@ -7,7 +7,6 @@ package workspace
 import (
 	"context"
 	"io"
-	"strings"
 	"time"
 
 	"github.com/k8shell-io/common/pkg/gapi"
@@ -55,8 +54,5 @@ var KEEPALIVE_TIMEOUT = 20 * time.Second
 // NewK8shelld creates a new K8shelld client.
 func NewK8shelld(cfg gapi.ClientConfig, status *models.WorkspaceStatus,
 	counters *api.ConnCounters) (K8shelldClient, error) {
-	if strings.HasPrefix(status.AppVersion, "0.11") {
-		return NewK8shelld_v11(status, counters)
-	}
 	return NewK8shelld_v12(cfg, status, counters)
 }

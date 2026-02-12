@@ -157,7 +157,7 @@ func (s *Server) ResolvePullRequestRef(username string, repoOwner, repoName stri
 				Username:          username,
 				RepoOwner:         repoOwner,
 				RepoName:          repoName,
-				PullRequestNumber: int32(prNumber),
+				PullRequestNumber: int32(prNumber), // #nosec G115 -- prNumber is validated upstream}
 			})
 			if err != nil {
 				return "", fmt.Errorf("failed to resolve pull request #%d to ref: %w", prNumber, err)
@@ -357,7 +357,10 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 				failureInfo := []string{}
 				failureInfo = append(failureInfo, connInfo.failureInfo...)
 				failureInfo = append(failureInfo, string(err.Error()))
-				s.fpub.PublishFailure(ip, port, connInfo.userStr.Username, failureInfo)
+				err := s.fpub.PublishFailure(ip, port, connInfo.userStr.Username, failureInfo)
+				if err != nil {
+					s.log.Error().Msgf("Failed to publish failure: %v", err)
+				}
 			}
 
 			connInfo.Close()
@@ -411,7 +414,10 @@ func (s *Server) handleChannels(sshConn *ssh.ServerConn, connInfo *Connection, c
 				go s.handleDirectStreamLocal(sshConn, connInfo, channel)
 			default:
 				s.log.Warn().Msgf("Unsupported channel type: %s", channel.ChannelType())
-				channel.Reject(ssh.UnknownChannelType, "channel type not supported")
+				err := channel.Reject(ssh.UnknownChannelType, "channel type not supported")
+				if err != nil {
+					s.log.Error().Msgf("Failed to reject unsupported channel type: %v", err)
+				}
 			}
 		}
 	}
@@ -431,7 +437,10 @@ func (s *Server) handleGlobalRequests(requests <-chan *ssh.Request) {
 			s.log.Debug().Msgf("Received global request: type=%s, want_reply=%t", req.Type, req.WantReply)
 
 			if req.WantReply {
-				req.Reply(false, nil)
+				err := req.Reply(false, nil)
+				if err != nil {
+					s.log.Error().Msgf("Failed to reply to global request: %v", err)
+				}
 			}
 		}
 	}

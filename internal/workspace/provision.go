@@ -158,7 +158,7 @@ func (w *InfoWriter) WriteEvent(p string) {
 		return
 	}
 	if w.otps.ShowProvisionInfo {
-		w.Writer.Write([]byte(p + "\r\n"))
+		_, _ = w.Writer.Write([]byte(p + "\r\n"))
 	} else {
 		w.pulseMutex.Lock()
 		w.progress++
@@ -173,7 +173,7 @@ func (w *InfoWriter) WriteMessage(p string) {
 	if w.Writer == nil {
 		return
 	}
-	fmt.Fprintf(w.Writer, "%s\r\n", p)
+	_, _ = fmt.Fprintf(w.Writer, "%s\r\n", p)
 }
 
 // WriteError writes an error message to the channel if enabled
@@ -206,7 +206,7 @@ func (w *InfoWriter) StartProvisioning() {
 		return
 	}
 	if w.otps.ShowProvisionInfo {
-		w.Writer.Write([]byte("Starting workspace...\r\n"))
+		_, _ = w.Writer.Write([]byte("Starting workspace...\r\n"))
 	} else if w.otps.ShowPulse || w.otps.ShowPercentage {
 		w.progress = 0
 		w.drawPulseAndPercentage(0)

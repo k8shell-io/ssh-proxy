@@ -27,15 +27,21 @@ func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connectio
 	if !connInfo.IncrementDirectTCPIPCount(s.Config.Server.MaxDirectTCPIPConnections) {
 		s.log.Warn().Msgf("User %s exceeded max direct-tcpip connections (limit: %d)",
 			connInfo.user.Username, s.Config.Server.MaxDirectTCPIPConnections)
-		newChannel.Reject(ssh.ResourceShortage,
+		err := newChannel.Reject(ssh.ResourceShortage,
 			fmt.Sprintf("maximum direct-tcpip connections exceeded (%d)", s.Config.Server.MaxDirectTCPIPConnections))
+		if err != nil {
+			s.log.Error().Msgf("Failed to reject direct-tcpip channel: %v", err)
+		}
 		return
 	}
 
 	tcpipInfo, err := parseDirectTCPIPPayload(newChannel.ExtraData())
 	if err != nil {
 		s.log.Error().Msgf("Failed to parse direct-tcpip payload: %v", err)
-		newChannel.Reject(ssh.UnknownChannelType, "invalid payload")
+		err := newChannel.Reject(ssh.UnknownChannelType, "invalid payload")
+		if err != nil {
+			s.log.Error().Msgf("Failed to reject direct-tcpip channel: %v", err)
+		}
 		connInfo.DecrementDirectTCPIPCount()
 		return
 	}

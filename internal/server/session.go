@@ -69,14 +69,20 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 		switch req.Type {
 		case "subsystem":
 			if len(req.Payload) < 4 {
-				req.Reply(false, nil)
+				err := req.Reply(false, nil)
+				if err != nil {
+					s.log.Error().Msgf("Failed to reply to subsystem request: %v", err)
+				}
 				continue
 			}
 
 			nameLen := uint32(req.Payload[0])<<24 | uint32(req.Payload[1])<<16 |
 				uint32(req.Payload[2])<<8 | uint32(req.Payload[3])
 			if len(req.Payload) < int(4+nameLen) {
-				req.Reply(false, nil)
+				err := req.Reply(false, nil)
+				if err != nil {
+					s.log.Error().Msgf("Failed to reply to subsystem request: %v", err)
+				}
 				continue
 			}
 
@@ -84,13 +90,19 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 			s.log.Debug().Msgf("Subsystem request: %s", subsystemName)
 
 			if subsystemName == "sftp" {
-				req.Reply(true, nil)
+				err := req.Reply(true, nil)
+				if err != nil {
+					s.log.Error().Msgf("Failed to reply to subsystem request: %v", err)
+				}
 				connInfo.AddChannelInfo(models.ChannelShortSf)
 				sessionType <- "sftp"
 				sessionTypeSent = true
 			} else {
 				s.log.Warn().Msgf("Unsupported subsystem: %s", subsystemName)
-				req.Reply(false, nil)
+				err := req.Reply(false, nil)
+				if err != nil {
+					s.log.Error().Msgf("Failed to reply to subsystem request: %v", err)
+				}
 			}
 		case "pty-req":
 			if len(req.Payload) >= 8 {
@@ -165,13 +177,19 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 
 		case "signal":
 			if len(req.Payload) < 4 {
-				req.Reply(false, nil)
+				err := req.Reply(false, nil)
+				if err != nil {
+					s.log.Error().Msgf("Failed to reply to signal request: %v", err)
+				}
 				continue
 			}
 
 			nameLen := binary.BigEndian.Uint32(req.Payload[0:4])
 			if len(req.Payload) < int(4+nameLen) {
-				req.Reply(false, nil)
+				err := req.Reply(false, nil)
+				if err != nil {
+					s.log.Error().Msgf("Failed to reply to signal request: %v", err)
+				}
 				continue
 			}
 
@@ -231,7 +249,10 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 		}
 
 		if req.WantReply {
-			req.Reply(accepted, nil)
+			err := req.Reply(accepted, nil)
+			if err != nil {
+				s.log.Error().Msgf("Failed to reply to session request: %v", err)
+			}
 		}
 	}
 
@@ -399,8 +420,19 @@ func (s *Server) sendExitStatus(channel ssh.Channel, exitcode int32) {
 	}
 
 	exitStatus := make([]byte, 4)
-	binary.BigEndian.PutUint32(exitStatus, uint32(exitcode))
-	channel.SendRequest("exit-status", false, exitStatus)
+
+	var code uint32
+	if exitcode < 0 {
+		code = 255
+	} else {
+		code = uint32(exitcode)
+	}
+
+	binary.BigEndian.PutUint32(exitStatus, code)
+
+	if _, err := channel.SendRequest("exit-status", false, exitStatus); err != nil {
+		s.log.Error().Msgf("Failed to send exit status: %v", err)
+	}
 }
 
 // ** SSH Agent forwarding
