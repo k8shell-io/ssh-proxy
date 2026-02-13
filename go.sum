@@ -49,6 +49,8 @@ github.com/k8shell-io/provisioner/pkg/api v0.1.17-0.20260213000404-c2ae5f65cd6e 
 github.com/k8shell-io/provisioner/pkg/api v0.1.17-0.20260213000404-c2ae5f65cd6e/go.mod h1:aodeyU3/PKpW+nC3exS/LQkjmMj9hhzM1F1HbPwqZsg=
 github.com/k8shell-io/provisioner/pkg/api v0.1.17-0.20260213201516-168accc77abf h1:ft+WUFAOFmAnP/djckzfGatPB23bVqLaBGYSCY85trs=
 github.com/k8shell-io/provisioner/pkg/api v0.1.17-0.20260213201516-168accc77abf/go.mod h1:aodeyU3/PKpW+nC3exS/LQkjmMj9hhzM1F1HbPwqZsg=
+github.com/k8shell-io/provisioner/pkg/api v0.1.18 h1:bRRMqILV++JBGf72BmTrsfhWkKumHgn5vegKywyHNJA=
+github.com/k8shell-io/provisioner/pkg/api v0.1.18/go.mod h1:aodeyU3/PKpW+nC3exS/LQkjmMj9hhzM1F1HbPwqZsg=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
 github.com/klauspost/compress v1.18.0/go.mod h1:2Pp+KzxcywXVXMr50+X0Q/Lsb43OQHYWRCY2AiWywWQ=
 github.com/kr/pretty v0.2.1/go.mod h1:ipq/a2n7PKx3OHsz4KJII5eveXtPO4qwEXGdVfWzfnI=
