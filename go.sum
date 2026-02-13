@@ -33,6 +33,8 @@ github.com/k8shell-io/common v0.12.114 h1:8X0czuHucJGK+WwACaDCGXEet02IQN837a6GIN
 github.com/k8shell-io/common v0.12.114/go.mod h1:2M6NGERtuyaWAD7Q0qCob5+6sMTHBMy1pJ0/zLK6cLQ=
 github.com/k8shell-io/common v0.12.123 h1:yu7Cmfiq1vbl90ioBXXaeNt4bFiPquQGKcKQkiIdz0I=
 github.com/k8shell-io/common v0.12.123/go.mod h1:2M6NGERtuyaWAD7Q0qCob5+6sMTHBMy1pJ0/zLK6cLQ=
+github.com/k8shell-io/common v0.12.130 h1:3N7yGsMILk7KY9R/GDUVMK9ytHTMHN+2I2Vu7AcXkHY=
+github.com/k8shell-io/common v0.12.130/go.mod h1:2M6NGERtuyaWAD7Q0qCob5+6sMTHBMy1pJ0/zLK6cLQ=
 github.com/k8shell-io/crypto v0.41.1-ssh-proxy h1:8+q6Ofc2ky23Oc9iNyiq8aeiQBIP+y3+O6zzHqe1f48=
 github.com/k8shell-io/crypto v0.41.1-ssh-proxy/go.mod h1:RVZeOJCpqtogniULztSXQESKJCfcI8WCxsS0FagMA8U=
 github.com/k8shell-io/identity/pkg/api v0.1.12 h1:cyN4b2V0i8S7OW64Urdg8aBgf/TN5eCsJoHwbCo3bBk=

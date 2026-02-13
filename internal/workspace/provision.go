@@ -155,7 +155,7 @@ func (w *InfoWriter) WriteEvent(event models.WorkspaceStreamEvent) {
 		_, _ = w.Writer.Write([]byte(event.String() + "\r\n"))
 	} else if (w.opts.ShowPulse || w.opts.ShowPercentage) && event.Type == "progress" {
 		w.pulseMutex.Lock()
-		perc, _ := strconv.Atoi(event.Status)
+		perc, _ := strconv.Atoi(string(event.Status))
 		w.perc = perc
 		w.drawPulseAndPercentage(w.perc)
 		w.pulseMutex.Unlock()
@@ -279,8 +279,8 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer *In
 	stream, err := backends.Provisioner().ProvisionWorkspaceStream(ctx, &provisionerpb.ProvisionWorkspaceRequest{
 		Userstr:      userStr.Raw,
 		Timeout:      30,
-		SendEvents:   writer.opts.ShowProvisionInfo || writer.opts.ShowPulse || writer.opts.ShowPercentage,
-		SendProgress: true,
+		SendEvents:   writer.opts.ShowProvisionInfo,
+		SendProgress: writer.opts.ShowPulse || writer.opts.ShowPercentage,
 	})
 	if err != nil {
 		eventErr = fmt.Errorf("failed to create provision stream: %w", err)
@@ -306,20 +306,19 @@ loop:
 
 			streamEvent := models.WorkspaceStreamEvent{
 				Type:       event.GetType(),
-				Status:     event.GetStatus(),
+				Status:     models.WorkspacePodStatus(event.GetStatus()),
 				Message:    event.GetMessage(),
 				ObjectName: event.GetObjectName(),
 				Timestamp:  event.GetTimestamp(),
 			}
-
 			writer.WriteEvent(streamEvent)
 
 			switch streamEvent.Status {
-			case "Running":
+			case models.WorkspaceStatusRunning:
 				name = streamEvent.ObjectName
 				break loop
 
-			case "Error":
+			case models.WorkspaceStatusFailing, models.WorkspaceStatusStopped:
 				eventErr = fmt.Errorf("%s", streamEvent.Message)
 				break loop
 			}
