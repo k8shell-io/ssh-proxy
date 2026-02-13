@@ -208,12 +208,18 @@ func (c *Connection) reportSessionData() {
 	t := time.NewTicker(SESSION_UPDATE_INTERVAL)
 	defer t.Stop()
 	defer c.reportWg.Done()
-	c.updateSession("create")
+	_, err := c.updateSession("create")
+	if err != nil {
+		c.log.Debug().Msgf("Failed to create session data for user %s: %v", c.user.Username, err)
+	}
 
 	for {
 		select {
 		case <-c.reportStopCh:
-			c.updateSession("delete")
+			_, err := c.updateSession("delete")
+			if err != nil {
+				c.log.Debug().Msgf("Failed to delete session data for user %s: %v", c.user.Username, err)
+			}
 			return
 		case <-t.C:
 			closed, err := c.updateSession("update")
@@ -285,7 +291,10 @@ func (c *Connection) updateSession(action string) (bool, error) {
 	}
 
 	if action == "delete" {
-		c.sessionKV.Delete(c.connId)
+		err := c.sessionKV.Delete(c.connId)
+		if err != nil {
+			c.log.Debug().Msgf("Failed to delete session data for user %s: %v", c.user.Username, err)
+		}
 	}
 
 	return false, nil
@@ -421,7 +430,14 @@ func (c *Connection) getCommandHandler(backends workspace.Backends, workspaceNam
 		case "shutdown":
 			c.log.Debug().Msgf("Received k8shelld shutdown command for user %s, workspace %s",
 				c.user.Username, workspaceName)
-			backends.Provisioner().DeleteWorkspace(c.ctx, &provisionerpb.Workspace{Workspace: workspaceName})
+			_, err := backends.Provisioner().DeleteWorkspace(c.ctx,
+				&provisionerpb.DeleteWorkspaceRequest{Workspace: workspaceName})
+			if err != nil {
+				c.log.Debug().Msgf("Failed to delete workspace for user %s, workspace %s: %v",
+					c.user.Username, workspaceName, err)
+				return "Cannot shutdown workspace due to an error.",
+					fmt.Errorf("failed to delete (shutdown) workspace: %w", err)
+			}
 			return "Workspace shutdown has been initiated.", nil
 		}
 		c.log.Error().Msgf("Received unknown k8shelld command %q for user %s, workspace %s",

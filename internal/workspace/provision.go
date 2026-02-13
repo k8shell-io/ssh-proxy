@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -44,19 +45,18 @@ type InfoWriterOptions struct {
 	ShowPercentage    bool `yaml:"showPercentage"`
 	ShowErrors        bool `yaml:"showErrors"`
 	ShowSystemErrors  bool `yaml:"showSystemErrors"`
-	TotalEvents       int  `yaml:"totalEvents"`
 }
 
 // InfoWriter writes information to the channel during provisioning.
 type InfoWriter struct {
 	io.Writer
-	otps          *InfoWriterOptions
-	progress      int
+	opts          *InfoWriterOptions
 	provStarted   bool
-	pulseProgress int          // Add this for pulse animation
-	pulseTicker   *time.Ticker // Add this for pulse timer
-	pulseStop     chan bool    // Add this to stop pulse animation
-	pulseMutex    sync.Mutex   // Add this to protect pulse updates
+	pulseProgress int          // pulse animation
+	pulseTicker   *time.Ticker // pulse timer
+	pulseStop     chan bool    // stop pulse animation
+	pulseMutex    sync.Mutex   // protect pulse updates
+	perc          int
 }
 
 // NewInfoWriter creates a new InfoWriter with the given options.
@@ -68,16 +68,11 @@ func NewInfoWriter(w io.Writer, opts *InfoWriterOptions) *InfoWriter {
 			ShowPercentage:    false,
 			ShowErrors:        false,
 			ShowSystemErrors:  false,
-			TotalEvents:       12,
 		}
-	}
-	if opts.TotalEvents == 0 {
-		opts.TotalEvents = 12
 	}
 	return &InfoWriter{
 		Writer:    w,
-		otps:      opts,
-		progress:  0,
+		opts:      opts,
 		pulseStop: make(chan bool, 1),
 	}
 }
@@ -95,9 +90,8 @@ func (w *InfoWriter) startPulseAnimation() {
 			case <-w.pulseTicker.C:
 				w.pulseMutex.Lock()
 				w.pulseProgress++
-				perc := min((w.progress*100)/w.otps.TotalEvents, 100)
-				if perc < 100 {
-					w.drawPulseAndPercentage(perc)
+				if w.perc < 100 {
+					w.drawPulseAndPercentage(w.perc)
 				}
 				w.pulseMutex.Unlock()
 			case <-w.pulseStop:
@@ -128,7 +122,7 @@ func (w *InfoWriter) drawPulseAndPercentage(percentage int, hasError ...bool) {
 	var output strings.Builder
 	output.WriteString("\r")
 
-	if w.otps.ShowPulse {
+	if w.opts.ShowPulse {
 		if percentage < 100 {
 			pulseChars := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 			pulseIndex := w.pulseProgress % len(pulseChars)
@@ -145,7 +139,7 @@ func (w *InfoWriter) drawPulseAndPercentage(percentage int, hasError ...bool) {
 
 	output.WriteString("Starting workspace...")
 
-	if w.otps.ShowPercentage {
+	if w.opts.ShowPercentage {
 		output.WriteString(fmt.Sprintf(" %d%%", percentage))
 	}
 
@@ -153,17 +147,17 @@ func (w *InfoWriter) drawPulseAndPercentage(percentage int, hasError ...bool) {
 }
 
 // WriteEvent writes a provisioning event to the channel
-func (w *InfoWriter) WriteEvent(p string) {
+func (w *InfoWriter) WriteEvent(event models.WorkspaceStreamEvent) {
 	if w.Writer == nil {
 		return
 	}
-	if w.otps.ShowProvisionInfo {
-		w.Writer.Write([]byte(p + "\r\n"))
-	} else {
+	if w.opts.ShowProvisionInfo && (event.Type == "event" || event.Type == "status") {
+		_, _ = w.Writer.Write([]byte(event.String() + "\r\n"))
+	} else if (w.opts.ShowPulse || w.opts.ShowPercentage) && event.Type == "progress" {
 		w.pulseMutex.Lock()
-		w.progress++
-		perc := min((w.progress*100)/w.otps.TotalEvents, 100)
-		w.drawPulseAndPercentage(perc)
+		perc, _ := strconv.Atoi(string(event.Status))
+		w.perc = perc
+		w.drawPulseAndPercentage(w.perc)
 		w.pulseMutex.Unlock()
 	}
 }
@@ -173,19 +167,19 @@ func (w *InfoWriter) WriteMessage(p string) {
 	if w.Writer == nil {
 		return
 	}
-	fmt.Fprintf(w.Writer, "%s\r\n", p)
+	_, _ = fmt.Fprintf(w.Writer, "%s\r\n", p)
 }
 
 // WriteError writes an error message to the channel if enabled
 func (w *InfoWriter) WriteError(p string) {
-	if w.Writer != nil && w.otps.ShowErrors {
+	if w.Writer != nil && w.opts.ShowErrors {
 		fmt.Fprintf(w.Writer, "%s\r\n", p)
 	}
 }
 
 // WriteSystemError writes a system error message to the channel if enabled
 func (w *InfoWriter) WriteSystemError(p string) {
-	if w.Writer != nil && w.otps.ShowSystemErrors {
+	if w.Writer != nil && w.opts.ShowSystemErrors {
 		fmt.Fprintf(w.Writer, "%s\r\n", p)
 	}
 }
@@ -205,12 +199,12 @@ func (w *InfoWriter) StartProvisioning() {
 	if w.Writer == nil {
 		return
 	}
-	if w.otps.ShowProvisionInfo {
-		w.Writer.Write([]byte("Starting workspace...\r\n"))
-	} else if w.otps.ShowPulse || w.otps.ShowPercentage {
-		w.progress = 0
+	if w.opts.ShowProvisionInfo {
+		_, _ = w.Writer.Write([]byte("Starting workspace...\r\n"))
+	} else if w.opts.ShowPulse || w.opts.ShowPercentage {
+		w.perc = 0
 		w.drawPulseAndPercentage(0)
-		if w.otps.ShowPulse {
+		if w.opts.ShowPulse {
 			w.startPulseAnimation()
 		}
 	}
@@ -238,8 +232,8 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 		return nil, fmt.Errorf("failed to canonicalize user string for user %s: %w", userStr.Username, err)
 	}
 
-	wsStatus, err := backends.Provisioner().GetWorkspaceStatus(ctx,
-		&provisionerpb.Workspace{Workspace: canUserStr.WorkspaceName})
+	wsStatus, err := backends.Provisioner().FindWorkspace(ctx,
+		&provisionerpb.FindWorkspaceRequest{Workspace: canUserStr.WorkspaceName})
 	if err != nil {
 		if status.Code(err) != codes.NotFound {
 			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
@@ -255,7 +249,8 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.Username, err)
 	}
 
-	wsStatus, err = backends.Provisioner().GetWorkspaceStatus(ctx, &provisionerpb.Workspace{Workspace: wsname})
+	wsStatus, err = backends.Provisioner().FindWorkspace(ctx,
+		&provisionerpb.FindWorkspaceRequest{Workspace: wsname})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 	}
@@ -282,8 +277,10 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer *In
 	}()
 
 	stream, err := backends.Provisioner().ProvisionWorkspaceStream(ctx, &provisionerpb.ProvisionWorkspaceRequest{
-		Userstr: userStr.Raw,
-		Timeout: 30,
+		Userstr:      userStr.Raw,
+		Timeout:      30,
+		SendEvents:   writer.opts.ShowProvisionInfo,
+		SendProgress: writer.opts.ShowPulse || writer.opts.ShowPercentage,
 	})
 	if err != nil {
 		eventErr = fmt.Errorf("failed to create provision stream: %w", err)
@@ -309,20 +306,19 @@ loop:
 
 			streamEvent := models.WorkspaceStreamEvent{
 				Type:       event.GetType(),
-				Status:     event.GetStatus(),
+				Status:     models.WorkspacePodStatus(event.GetStatus()),
 				Message:    event.GetMessage(),
 				ObjectName: event.GetObjectName(),
 				Timestamp:  event.GetTimestamp(),
 			}
-
-			writer.WriteEvent(streamEvent.String())
+			writer.WriteEvent(streamEvent)
 
 			switch streamEvent.Status {
-			case "Running":
+			case models.WorkspaceStatusRunning:
 				name = streamEvent.ObjectName
 				break loop
 
-			case "Error":
+			case models.WorkspaceStatusFailing, models.WorkspaceStatusStopped:
 				eventErr = fmt.Errorf("%s", streamEvent.Message)
 				break loop
 			}

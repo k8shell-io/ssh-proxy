@@ -17,7 +17,10 @@ type StreamLocal struct {
 func (s *Server) handleDirectStreamLocal(_ *ssh.ServerConn, connInfo *Connection, newChannel ssh.NewChannel) {
 	streamLocal, err := parseDirectStreamLocalPayload(newChannel.ExtraData())
 	if err != nil || streamLocal == nil {
-		newChannel.Reject(ssh.Prohibited, "bad direct-streamlocal payload")
+		err := newChannel.Reject(ssh.Prohibited, "bad direct-streamlocal payload")
+		if err != nil {
+			s.log.Error().Msgf("Failed to reject direct-streamlocal channel: %v", err)
+		}
 		return
 	}
 
