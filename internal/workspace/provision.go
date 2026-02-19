@@ -276,7 +276,7 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer *In
 		writer.EndProvisioning(eventErr != nil)
 	}()
 
-	_, _, stream, err := backends.Provisioner().Handshake(ctx, *userStr)
+	_, _, stream, err := backends.Provisioner().ProvisionHandshake(ctx, *userStr, 20)
 	if err != nil {
 		return "", fmt.Errorf("handshake failed for user %s: %w", userStr.Username, err)
 	}
