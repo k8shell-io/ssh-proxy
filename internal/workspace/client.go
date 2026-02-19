@@ -52,7 +52,7 @@ var KEEPALIVE_TIME = 5 * time.Minute
 var KEEPALIVE_TIMEOUT = 20 * time.Second
 
 // NewK8shelld creates a new K8shelld client.
-func NewK8shelld(cfg gapi.ClientConfig, status *models.WorkspaceStatus,
+func NewK8shelld(cfg gapi.ClientConfig, status *models.WorkspaceDetails,
 	counters *api.ConnCounters) (K8shelldClient, error) {
 	return NewK8shelld_v12(cfg, status, counters)
 }

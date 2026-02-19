@@ -225,7 +225,7 @@ func (w *InfoWriter) EndProvisioning(hasError bool) {
 
 // EnsureWorkspace checks if a workspace exists for the user and provisions it if not.
 func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoWriter,
-	backends Backends) (*models.WorkspaceStatus, error) {
+	backends Backends) (*models.WorkspaceDetails, error) {
 
 	canUserStr, err := userStr.Canonicalize()
 	if err != nil {
@@ -240,7 +240,7 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 		}
 	} else {
 		if wsStatus.GetPodStatus().Status == "Running" {
-			return gapi.ProtoToWorkspaceStatus(wsStatus), nil
+			return gapi.ProtoToWorkspaceDetails(wsStatus), nil
 		}
 	}
 
@@ -256,7 +256,7 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 	}
 
 	if wsStatus.GetPodStatus().Status == "Running" {
-		return gapi.ProtoToWorkspaceStatus(wsStatus), nil
+		return gapi.ProtoToWorkspaceDetails(wsStatus), nil
 	}
 
 	return nil, fmt.Errorf("failed to ensure workspace for user %s: workspace status is %q",
@@ -276,15 +276,9 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer *In
 		writer.EndProvisioning(eventErr != nil)
 	}()
 
-	stream, err := backends.Provisioner().ProvisionWorkspaceStream(ctx, &provisionerpb.ProvisionWorkspaceRequest{
-		Userstr:      userStr.Raw,
-		Timeout:      30,
-		SendEvents:   writer.opts.ShowProvisionInfo,
-		SendProgress: writer.opts.ShowPulse || writer.opts.ShowPercentage,
-	})
+	_, _, stream, err := backends.Provisioner().Handshake(ctx, *userStr)
 	if err != nil {
-		eventErr = fmt.Errorf("failed to create provision stream: %w", err)
-		return "", eventErr
+		return "", fmt.Errorf("handshake failed for user %s: %w", userStr.Username, err)
 	}
 
 loop:
@@ -295,7 +289,7 @@ loop:
 			break loop
 
 		default:
-			event, err := stream.Recv()
+			msg, err := stream.Recv()
 			if err != nil {
 				if err == io.EOF {
 					break loop
@@ -303,13 +297,18 @@ loop:
 				eventErr = fmt.Errorf("stream error: %w", err)
 				break loop
 			}
+			event := msg.GetEvent()
+			if event == nil {
+				eventErr = fmt.Errorf("invalid stream message: expected event, got %+v", msg)
+				break loop
+			}
 
 			streamEvent := models.WorkspaceStreamEvent{
-				Type:       event.GetType(),
-				Status:     models.WorkspacePodStatus(event.GetStatus()),
-				Message:    event.GetMessage(),
-				ObjectName: event.GetObjectName(),
-				Timestamp:  event.GetTimestamp(),
+				Type:       models.WorkspaceStreamEventType(event.Type),
+				Status:     models.WorkspacePodStatus(event.Status),
+				Message:    event.Message,
+				ObjectName: event.ObjectName,
+				Timestamp:  event.Timestamp,
 			}
 			writer.WriteEvent(streamEvent)
 
