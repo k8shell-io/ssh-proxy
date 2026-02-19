@@ -431,7 +431,7 @@ func (c *Connection) getCommandHandler(backends workspace.Backends, workspaceNam
 			c.log.Debug().Msgf("Received k8shelld shutdown command for user %s, workspace %s",
 				c.user.Username, workspaceName)
 			_, err := backends.Provisioner().DeleteWorkspace(c.ctx,
-				&provisionerpb.DeleteWorkspaceRequest{Workspace: workspaceName})
+				&provisionerpb.DeleteWorkspaceRequest{Workspace: workspaceName, DelaySeconds: 2})
 			if err != nil {
 				c.log.Debug().Msgf("Failed to delete workspace for user %s, workspace %s: %v",
 					c.user.Username, workspaceName, err)
