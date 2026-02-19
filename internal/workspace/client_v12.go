@@ -18,10 +18,10 @@ type K8shelld_v12 struct {
 	K8shelldClient
 }
 
-func NewK8shelld_v12(cfg gapi.ClientConfig, status *models.WorkspaceStatus,
+func NewK8shelld_v12(cfg gapi.ClientConfig, status *models.WorkspaceDetails,
 	counters *api.ConnCounters) (K8shelldClient, error) {
 	cfg.Address = fmt.Sprintf("%s:%d", status.PodIP, status.Port)
-	cfg.ServerName = status.Host
+	cfg.ServerName = status.ServerName
 
 	// when the server has TLS cert configured, it means the connection is using TLS
 	// so we need to set the CA cert path

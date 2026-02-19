@@ -375,7 +375,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 		}
 		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.userStr.Username, err)
 	}
-	infoWriter.WriteMessage(fmt.Sprintf("Connecting to the workspace at %s...", status.Host))
+	infoWriter.WriteMessage(fmt.Sprintf("Connecting to the workspace at %s...", status.ServerName))
 
 	k8shelld, err := workspace.NewK8shelld(c.k8shelldCfg, status, c.counters)
 	if err != nil {
@@ -384,7 +384,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	}
 
 	c.log.Debug().Msgf("Connecting to k8shelld at %s:%d for user %s, version: %s",
-		status.Host, status.Port, c.user.Username, status.AppVersion)
+		status.ServerName, status.Port, c.user.Username, status.AppVersion)
 
 	handshake, err := k8shelld.Handshake(c.ctx, c.user, envVars)
 	if err != nil {
@@ -431,7 +431,7 @@ func (c *Connection) getCommandHandler(backends workspace.Backends, workspaceNam
 			c.log.Debug().Msgf("Received k8shelld shutdown command for user %s, workspace %s",
 				c.user.Username, workspaceName)
 			_, err := backends.Provisioner().DeleteWorkspace(c.ctx,
-				&provisionerpb.DeleteWorkspaceRequest{Workspace: workspaceName})
+				&provisionerpb.DeleteWorkspaceRequest{Workspace: workspaceName, DelaySeconds: 2})
 			if err != nil {
 				c.log.Debug().Msgf("Failed to delete workspace for user %s, workspace %s: %v",
 					c.user.Username, workspaceName, err)
