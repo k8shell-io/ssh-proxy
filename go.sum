@@ -35,10 +35,14 @@ github.com/k8shell-io/common v0.12.146 h1:BDRCIR7HqzWp4nY7/GNzMyqKk8zdHXuXsokrQH
 github.com/k8shell-io/common v0.12.146/go.mod h1:2M6NGERtuyaWAD7Q0qCob5+6sMTHBMy1pJ0/zLK6cLQ=
 github.com/k8shell-io/common v0.12.147 h1:qhisET6kkfvVanXJtJgZdI8ckqk9D0TOCK8DFC+bAlE=
 github.com/k8shell-io/common v0.12.147/go.mod h1:2M6NGERtuyaWAD7Q0qCob5+6sMTHBMy1pJ0/zLK6cLQ=
+github.com/k8shell-io/common v0.12.149 h1:Sz9xzMQUdxawaYpoaDHvxTTXiGPi1mHCSwMDYbGQpkA=
+github.com/k8shell-io/common v0.12.149/go.mod h1:2M6NGERtuyaWAD7Q0qCob5+6sMTHBMy1pJ0/zLK6cLQ=
 github.com/k8shell-io/crypto v0.41.1-ssh-proxy h1:8+q6Ofc2ky23Oc9iNyiq8aeiQBIP+y3+O6zzHqe1f48=
 github.com/k8shell-io/crypto v0.41.1-ssh-proxy/go.mod h1:RVZeOJCpqtogniULztSXQESKJCfcI8WCxsS0FagMA8U=
 github.com/k8shell-io/identity/pkg/api v0.1.12 h1:cyN4b2V0i8S7OW64Urdg8aBgf/TN5eCsJoHwbCo3bBk=
 github.com/k8shell-io/identity/pkg/api v0.1.12/go.mod h1:7MBXrvnAz8KA1kAjfDFlnqCZ+X4yjG0gUaNLoQ3CAFg=
+github.com/k8shell-io/identity/pkg/api v0.1.15 h1:gu4rgQW66b/kZfeXsMuHJyZ9KDbiS3M+y31r2TFm1cA=
+github.com/k8shell-io/identity/pkg/api v0.1.15/go.mod h1:SGljBbdz7Tf8XoRUhCEMZ4RcKVvW0WuNebaSYk0knX0=
 github.com/k8shell-io/k8shelld/pkg/api v0.12.26 h1:wotKUFdZy2CCm+4xqatlunt7eiF+MmD6SaY3UR5jQdc=
 github.com/k8shell-io/k8shelld/pkg/api v0.12.26/go.mod h1:GmuOOGCQYZU0dkqORKXGYidozL89eDtlxuVtFVf19ZU=
 github.com/k8shell-io/k8shelld/pkg/api v0.12.29-0.20260219134106-ed293dc52862 h1:QAQ6TE8kCZ1EK22gmAIlR6ELvZL58pZaKyOzMcQ0pdk=
@@ -47,6 +51,8 @@ github.com/k8shell-io/provisioner/pkg/api v0.1.19-0.20260218230057-21e3177b92db 
 github.com/k8shell-io/provisioner/pkg/api v0.1.19-0.20260218230057-21e3177b92db/go.mod h1:5dEIfN6hekA24zUEUHdebBx6Lmb2ndwPFOEkCq7ZnQY=
 github.com/k8shell-io/provisioner/pkg/api v0.1.20 h1:8KFID7sTlT+cWZiYL4Ayh8Bdy0I4ma5aNoBGmxJ+uOY=
 github.com/k8shell-io/provisioner/pkg/api v0.1.20/go.mod h1:gxzfYQ1Zww+Da4li/SRRPUIYk2r+syCdH0ectz7f+es=
+github.com/k8shell-io/provisioner/pkg/api v0.1.21 h1:C2suGaiDobm3pC2t7byP6yeFhubswdpK19KRYaDFn98=
+github.com/k8shell-io/provisioner/pkg/api v0.1.21/go.mod h1:PVAS6lpfxPmcUBSuGYpcNZYy/l0QHPTpHGuGpsoXA5Y=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
 github.com/klauspost/compress v1.18.0/go.mod h1:2Pp+KzxcywXVXMr50+X0Q/Lsb43OQHYWRCY2AiWywWQ=
 github.com/kr/pretty v0.2.1/go.mod h1:ipq/a2n7PKx3OHsz4KJII5eveXtPO4qwEXGdVfWzfnI=

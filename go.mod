@@ -3,10 +3,10 @@ module github.com/k8shell-io/ssh-proxy
 go 1.24.5
 
 require (
-	github.com/k8shell-io/common v0.12.147
-	github.com/k8shell-io/identity/pkg/api v0.1.12
+	github.com/k8shell-io/common v0.12.149
+	github.com/k8shell-io/identity/pkg/api v0.1.15
 	github.com/k8shell-io/k8shelld/pkg/api v0.12.29-0.20260219134106-ed293dc52862
-	github.com/k8shell-io/provisioner/pkg/api v0.1.20
+	github.com/k8shell-io/provisioner/pkg/api v0.1.21
 	github.com/nats-io/nats.go v1.47.0
 	github.com/rs/zerolog v1.34.0
 	golang.org/x/crypto v0.43.0
