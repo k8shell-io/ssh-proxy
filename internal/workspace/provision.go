@@ -324,7 +324,7 @@ loop:
 				name = streamEvent.ObjectName
 				break loop
 
-			case models.WorkspaceStatusFailing, models.WorkspaceStatusStopped:
+			case models.WorkspaceStatusFailing, models.WorkspaceStatusStopped, models.WorkspaceStatusError:
 				eventErr = fmt.Errorf("%s", streamEvent.Message)
 				break loop
 			}
