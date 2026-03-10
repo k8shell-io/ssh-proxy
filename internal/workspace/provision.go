@@ -69,6 +69,13 @@ func NewInfoWriter(w io.Writer, opts *InfoWriterOptions) *InfoWriter {
 			ShowErrors:        false,
 			ShowSystemErrors:  false,
 		}
+	} else {
+		if opts.ShowPulse && opts.ShowProvisionInfo {
+			opts.ShowPulse = false
+		}
+		if !opts.ShowPulse {
+			opts.ShowPercentage = false
+		}
 	}
 	return &InfoWriter{
 		Writer:    w,
