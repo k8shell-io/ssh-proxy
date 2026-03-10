@@ -223,7 +223,7 @@ func (w *InfoWriter) EndProvisioning(hasError bool) {
 	if w.Writer == nil {
 		return
 	}
-	if w.provStarted {
+	if w.provStarted && (w.opts.ShowPulse || w.opts.ShowPercentage) {
 		w.stopPulseAnimation()
 		w.drawPulseAndPercentage(100, hasError)
 		fmt.Fprintf(w.Writer, "\r\n")
