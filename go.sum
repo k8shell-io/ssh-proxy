@@ -41,6 +41,8 @@ github.com/k8shell-io/k8shelld/pkg/api v0.12.31 h1:eVvyiW2jW4gc3KEtMoITedBhPGcYh
 github.com/k8shell-io/k8shelld/pkg/api v0.12.31/go.mod h1:yAMrqZuuEzxPq0wXDPGk63QHjcc+7GLHw7zNVgJ6QU8=
 github.com/k8shell-io/k8shelld/pkg/api v0.12.32-0.20260310204822-7fd0e4f4b193 h1:kV18Ig50NBf13ea/Qzzp/yCDFgb6JlVcfMI+jbwsuDc=
 github.com/k8shell-io/k8shelld/pkg/api v0.12.32-0.20260310204822-7fd0e4f4b193/go.mod h1:yAMrqZuuEzxPq0wXDPGk63QHjcc+7GLHw7zNVgJ6QU8=
+github.com/k8shell-io/k8shelld/pkg/api v0.12.32-0.20260310210240-814dc526e96a h1:Yjcs29TYTjnct9xj/HW6Y3hrPo2X0Ifg5zqjafsiuTk=
+github.com/k8shell-io/k8shelld/pkg/api v0.12.32-0.20260310210240-814dc526e96a/go.mod h1:kfDa4xm0+pn5iLsqezzcsqxXQl9nzXxGHm3fXn3EKyI=
 github.com/k8shell-io/provisioner/pkg/api v0.1.21 h1:C2suGaiDobm3pC2t7byP6yeFhubswdpK19KRYaDFn98=
 github.com/k8shell-io/provisioner/pkg/api v0.1.21/go.mod h1:PVAS6lpfxPmcUBSuGYpcNZYy/l0QHPTpHGuGpsoXA5Y=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
