@@ -291,10 +291,12 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 		}
 	}
 
-	s.log.Debug().Msgf("Starting shell session for user %s, session ID: %s", session.username, session.sessionId)
+	runAsRoot := connInfo.userStr.User == "root"
+	s.log.Debug().Msgf("Starting shell session for user %s, session ID: %s, runAsRoot: %t",
+		session.username, session.sessionId, runAsRoot)
 
 	if err := k8shelld.RunShell(connInfo.ctx, &workspace.ChannelAdapter{Channel: channel}, session.sessionId,
-		session.env, session.termWidth, session.termHeight, session.hasPTY); err != nil {
+		session.env, session.termWidth, session.termHeight, session.hasPTY, runAsRoot); err != nil {
 		s.log.Error().Msgf("Shell session error: %v", err)
 	} else {
 		s.log.Debug().Msgf("Shell session %s completed for user %s", session.sessionId, session.username)

@@ -19,7 +19,7 @@ import (
 type K8shelldClient interface {
 	Handshake(ctx context.Context, user *models.User, envVars []string) (*pb.HandshakeResponse, error)
 	RunShell(ctx context.Context, upstream api.BufferedReadWriter, sessionId string, envVars []string,
-		width, height uint32, usePty bool) error
+		width, height uint32, usePty bool, asRoot bool) error
 	ResizeTerminal(ctx context.Context, sessionId string, width, height uint32) error
 	RunUnixSocket(ctx context.Context, upstream api.BufferedReadWriter, unixSocketId, socketPath, mode string) error
 	RunPortForward(ctx context.Context, upstream api.BufferedReadWriter, portForwardID, destinationIP string,
