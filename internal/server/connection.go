@@ -395,12 +395,6 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 		infoWriter.WriteSystemError("Connection to the workspace was rejected.")
 		return nil, fmt.Errorf("handshake with k8shelld failed for user %s", c.user.Username)
 	}
-	if writer != nil {
-		infoWriter.WriteMessage(fmt.Sprintf("Connected to k8shelld (version: %s)\r\n", handshake.ServerVersion))
-		if status.Splash != "" {
-			infoWriter.WriteSplash(status.Splash)
-		}
-	}
 
 	go func() {
 		c.log.Debug().Msgf("Running k8shelld command processor for user %s", c.user.Username)
