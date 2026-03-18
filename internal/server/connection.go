@@ -23,6 +23,7 @@ import (
 	"github.com/k8shell-io/common/pkg/models"
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	identity "github.com/k8shell-io/identity/pkg/api"
+	"github.com/k8shell-io/identity/pkg/api/identitypb"
 	"github.com/k8shell-io/k8shelld/pkg/api"
 	"github.com/k8shell-io/provisioner/pkg/api/provisionerpb"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
@@ -383,10 +384,16 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.user.Username, err)
 	}
 
+	userToken, err := c.identity.GetUserAccessToken(c.ctx, &identitypb.GetUserAccessTokenRequest{
+		Username: c.user.Username})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get access token for user %s: %w", c.user.Username, err)
+	}
+
 	c.log.Debug().Msgf("Connecting to k8shelld at %s:%d for user %s, version: %s",
 		status.ServerName, status.Port, c.user.Username, status.AppVersion)
 
-	handshake, err := k8shelld.Handshake(c.ctx, c.user)
+	handshake, err := k8shelld.Handshake(c.ctx, userToken.GetAccessToken())
 	if err != nil {
 		infoWriter.WriteSystemError(err.Error())
 		return nil, fmt.Errorf("handshake with k8shelld failed for user %s: %w", c.user.Username, err)

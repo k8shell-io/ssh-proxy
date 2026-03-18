@@ -17,7 +17,7 @@ import (
 )
 
 type K8shelldClient interface {
-	Handshake(ctx context.Context, user *models.User) (*pb.HandshakeResponse, error)
+	Handshake(ctx context.Context, userToken string) (*pb.HandshakeResponse, error)
 	RunShell(ctx context.Context, upstream api.BufferedReadWriter, sessionId string, envVars []string,
 		width, height uint32, usePty bool, user string) error
 	ResizeTerminal(ctx context.Context, sessionId string, width, height uint32) error
