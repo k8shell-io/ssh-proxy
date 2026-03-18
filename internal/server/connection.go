@@ -42,7 +42,7 @@ type Connection struct {
 	clientIP     string             // client IP address (detected from proxy protocol if available)
 	clientPort   int                // client port (detected from proxy protocol if available)
 	// proxyFullID      string                        // identifier of the proxy with a PID suffix
-	identity         *identity.Client              // identity client for interacting with the identity service
+	identity         *identity.IdentityClient      // identity client for interacting with the identity service
 	sessionKV        *natsc.JetStreamKV            // KV instance for storing session data
 	k8shelldCfg      gapi.ClientConfig             // k8shelld client configuration
 	k8shelld         workspace.K8shelldClient      // client for interacting with the workspace k8shelld daemon
@@ -332,7 +332,7 @@ func (c *Connection) GetOnboardCap() *models.OnboardCapability {
 // It checks the user validity and access to the specified workspace blueprint and starts
 // the workspace if it is not running. It also creates an SSH session record in the identity service.
 func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWriterOptions,
-	backends workspace.Backends, envVars []string) (workspace.K8shelldClient, error) {
+	backends workspace.Backends) (workspace.K8shelldClient, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -386,7 +386,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	c.log.Debug().Msgf("Connecting to k8shelld at %s:%d for user %s, version: %s",
 		status.ServerName, status.Port, c.user.Username, status.AppVersion)
 
-	handshake, err := k8shelld.Handshake(c.ctx, c.user, envVars)
+	handshake, err := k8shelld.Handshake(c.ctx, c.user)
 	if err != nil {
 		infoWriter.WriteSystemError(err.Error())
 		return nil, fmt.Errorf("handshake with k8shelld failed for user %s: %w", c.user.Username, err)

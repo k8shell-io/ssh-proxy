@@ -26,7 +26,7 @@ import (
 	"github.com/k8shell-io/common/pkg/nats"
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	identity "github.com/k8shell-io/identity/pkg/api"
-	"github.com/k8shell-io/identity/pkg/api/identitypb"
+	"github.com/k8shell-io/identity/pkg/api/typespb"
 	provisioner "github.com/k8shell-io/provisioner/pkg/api"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
@@ -49,7 +49,7 @@ type Server struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
-	identity    *identity.Client
+	identity    *identity.IdentityClient
 	provisioner *provisioner.Client
 	fpub        *NatsFailuresPublisher
 	configPath  string
@@ -99,7 +99,7 @@ func NewServer(configPath string) (*Server, error) {
 			return nil, fmt.Errorf("failed to create provisioner client: %w", err)
 		}
 
-		server.identity, err = identity.NewClient(config.Identity)
+		server.identity, err = identity.NewIdentityClient(config.Identity)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create identity client: %w", err)
 		}
@@ -142,7 +142,7 @@ func (s *Server) Provisioner() *provisioner.Client {
 
 // Identity returns the identity client.
 // Backends interface implementation.
-func (s *Server) Identity() *identity.Client {
+func (s *Server) Identity() *identity.IdentityClient {
 	return s.identity
 }
 
@@ -153,7 +153,7 @@ func (s *Server) ResolvePullRequestRef(username string, repoOwner, repoName stri
 		username, repoOwner, repoName, prNumber),
 		func(ctx context.Context) (string, error) {
 			t := time.Now()
-			ref, err := s.Identity().ResolvePullRequestToRef(ctx, &identitypb.RepoPullRequestRequest{
+			ref, err := s.Identity().ResolvePullRequestToRef(ctx, &typespb.RepoPullRequestRequest{
 				Username:          username,
 				RepoOwner:         repoOwner,
 				RepoName:          repoName,
@@ -236,7 +236,7 @@ func HandleConnectionChildProcess(configPath string) error {
 		return fmt.Errorf("failed to create provisioner client: %w", err)
 	}
 
-	server.identity, err = identity.NewClient(config.Identity)
+	server.identity, err = identity.NewIdentityClient(config.Identity)
 	if err != nil {
 		return fmt.Errorf("failed to create identity client: %w", err)
 	}

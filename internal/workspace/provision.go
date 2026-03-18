@@ -35,7 +35,7 @@ func (e *ProvisionError) Error() string {
 // Backends defines an interface for accessing backend services.
 type Backends interface {
 	Provisioner() *provisioner.Client
-	Identity() *identity.Client
+	Identity() *identity.IdentityClient
 }
 
 // InfoWriterOptions defines options for the InfoWriter.

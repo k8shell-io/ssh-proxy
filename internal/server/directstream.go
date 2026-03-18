@@ -37,7 +37,7 @@ func (s *Server) handleDirectStreamLocal(_ *ssh.ServerConn, connInfo *Connection
 	}()
 	go ssh.DiscardRequests(reqs)
 
-	k8shelld, err := connInfo.Handshake(nil, nil, s, []string{})
+	k8shelld, err := connInfo.Handshake(nil, nil, s)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for user %s: %v", connInfo.user.Username, err)
 		return

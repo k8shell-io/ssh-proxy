@@ -273,7 +273,7 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 		go s.cancelOnCtrlC(channel, connInfo, stopCtrlC)
 	}
 
-	k8shelld, err := connInfo.Handshake(channel, &s.Config.Server.WriterOptions, s, session.env)
+	k8shelld, err := connInfo.Handshake(channel, &s.Config.Server.WriterOptions, s)
 	if stopCtrlC != nil {
 		close(stopCtrlC)
 	}
@@ -344,7 +344,7 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *Connection, ch
 	session := connInfo.session
 	s.log.Info().Msgf("Handling sftp subsystem in channel for user %s, command: %s", session.username, session.command)
 
-	k8shelld, err := connInfo.Handshake(nil, nil, s, session.env)
+	k8shelld, err := connInfo.Handshake(nil, nil, s)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for sftp exec: %v", err)
 		return
@@ -382,7 +382,7 @@ func (s *Server) handleExecRequest(connInfo *Connection, channel ssh.Channel) {
 	session := connInfo.session
 	s.log.Info().Msgf("Handling exec in channel for user %s, command: %s", session.username, session.command)
 
-	k8shelld, err := connInfo.Handshake(nil, nil, s, session.env)
+	k8shelld, err := connInfo.Handshake(nil, nil, s)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get k8shelld client for exec: %v", err)
 		s.sendExitStatus(channel, 1)

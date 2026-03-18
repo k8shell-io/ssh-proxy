@@ -13,7 +13,7 @@ import (
 
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
-	"github.com/k8shell-io/identity/pkg/api/identitypb"
+	"github.com/k8shell-io/identity/pkg/api/typespb"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -131,7 +131,7 @@ func (s *Server) AuthKeyboardInteractive(conn ssh.ConnMetadata,
 	}
 
 	onboardInfo, err := s.identity.OnboardUserDeviceFlow(ctx,
-		&identitypb.Username{Username: connInfo.userStr.Username})
+		&typespb.Username{Username: connInfo.userStr.Username})
 	if err != nil {
 		s.log.Error().Msgf("Failed to get onboard info for user %s: %v", connInfo.userStr.Username, err)
 		return nil, fmt.Errorf("onboarding failed")
@@ -187,7 +187,7 @@ func (s *Server) authPublicKey(user *models.User, pubKey ssh.PublicKey) bool {
 	pubKeyHash := ssh.FingerprintSHA256(pubKey)
 
 	s.log.Debug().Msgf("Authenticating user %s with public key: %s", user.Username, pubKeyHash)
-	authResponse, err := s.identity.AuthUserPublicKey(s.ctx, &identitypb.AuthUserPublicKeyRequest{
+	authResponse, err := s.identity.AuthUserPublicKey(s.ctx, &typespb.AuthUserPublicKeyRequest{
 		Username: user.Username, PublicKey: pubKeyString})
 	if err != nil || authResponse == nil {
 		s.log.Error().Msgf("Failed to get authentication response for user %s: %v", user.Username, err)
@@ -217,14 +217,14 @@ func (s *Server) updateUser(ctx context.Context, connInfo *Connection) {
 		return // User already loaded
 	}
 
-	user, err := s.identity.FindUser(ctx, &identitypb.FindUserRequest{Username: connInfo.userStr.Username})
+	user, err := s.identity.FindUser(ctx, &typespb.FindUserRequest{Username: connInfo.userStr.Username})
 	if err != nil {
 		connInfo.AddFailureInfo("Failed to get user", err)
 	}
 
 	if user == nil {
 		if connInfo.onboardCap == nil {
-			onboardCap, err := s.identity.GetUserOnboardCapability(ctx, &identitypb.Username{
+			onboardCap, err := s.identity.GetUserOnboardCapability(ctx, &typespb.Username{
 				Username: connInfo.userStr.Username})
 			if err != nil {
 				s.log.Error().Msgf("Failed to get onboarding capability for user %s: %v",
