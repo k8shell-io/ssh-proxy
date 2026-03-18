@@ -530,7 +530,12 @@ func (s *Server) startSubProcess(netConn net.Conn) {
 	if !log.JsonLogger {
 		optLogtext = "--logtext"
 	}
-	cmd := exec.Command(os.Args[0], "--config", s.configPath, "--child", optLogtext)
+	exe, err := os.Executable()
+	if err != nil {
+		s.log.Error().Err(err).Msg("Failed to determine executable path")
+		return
+	}
+	cmd := exec.Command(exe, "--config", s.configPath, "--child", optLogtext)
 	cmd.ExtraFiles = []*os.File{connFile}
 
 	cmd.Stdout = os.Stdout
