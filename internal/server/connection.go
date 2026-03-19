@@ -456,7 +456,7 @@ func (c *Connection) getCommandHandler(backends workspace.Backends, workspaceNam
 				return "Workspace deletion has been initiated.", nil
 			case "stop":
 				_, err := backends.Provisioner().StopWorkspace(c.ctx,
-					&provisionerpb.StopWorkspaceRequest{Workspace: workspaceName})
+					&provisionerpb.StopWorkspaceRequest{Workspace: workspaceName, DelaySeconds: 2})
 				if err != nil {
 					c.log.Debug().Msgf("Failed to stop workspace for user %s, workspace %s: %v",
 						c.user.Username, workspaceName, err)
