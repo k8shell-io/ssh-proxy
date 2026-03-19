@@ -39,6 +39,10 @@ github.com/k8shell-io/k8shelld/pkg/api v0.12.32-0.20260317053102-bd8c0805e445 h1
 github.com/k8shell-io/k8shelld/pkg/api v0.12.32-0.20260317053102-bd8c0805e445/go.mod h1:G+/xpaoVEdFjp5XBV4oH66d9mh/SvoymuOh3fB9eVuo=
 github.com/k8shell-io/k8shelld/pkg/api v0.12.32-0.20260318184301-2a8297be2406 h1:h7HPiowiXm8DsLevDjNeTZJ19mUJsg0c1GbivH5CH+o=
 github.com/k8shell-io/k8shelld/pkg/api v0.12.32-0.20260318184301-2a8297be2406/go.mod h1:G+/xpaoVEdFjp5XBV4oH66d9mh/SvoymuOh3fB9eVuo=
+github.com/k8shell-io/k8shelld/pkg/api v0.12.32-0.20260319140239-3c7c3ce15f43 h1:/dWN+F8VSuhz8Ie2u40ydgw4JWE0xFB8QtIdQwomieY=
+github.com/k8shell-io/k8shelld/pkg/api v0.12.32-0.20260319140239-3c7c3ce15f43/go.mod h1:G+/xpaoVEdFjp5XBV4oH66d9mh/SvoymuOh3fB9eVuo=
+github.com/k8shell-io/k8shelld/pkg/api v0.12.32-0.20260319141339-774061b40262 h1:1R/dFsTh+UuzdnrDEkcPETwuztvgn6PG64ZHdE7mgxI=
+github.com/k8shell-io/k8shelld/pkg/api v0.12.32-0.20260319141339-774061b40262/go.mod h1:G+/xpaoVEdFjp5XBV4oH66d9mh/SvoymuOh3fB9eVuo=
 github.com/k8shell-io/provisioner/pkg/api v0.1.21 h1:C2suGaiDobm3pC2t7byP6yeFhubswdpK19KRYaDFn98=
 github.com/k8shell-io/provisioner/pkg/api v0.1.21/go.mod h1:PVAS6lpfxPmcUBSuGYpcNZYy/l0QHPTpHGuGpsoXA5Y=
 github.com/k8shell-io/provisioner/pkg/api v0.1.23-0.20260318190911-f10696de0291 h1:A6bs1abHKqHRJzgVhM9QCBCvsBEtbhefHKNM6nisXgA=

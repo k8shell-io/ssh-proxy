@@ -127,7 +127,16 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 		connStatesMutex.Lock()
 		connInfo = connStates[connID]
 		if connInfo == nil {
-			ctx, cancel := context.WithCancel(context.Background())
+			userToken, err := s.identity.GetUserAccessToken(context.Background(), &identitypb.GetUserAccessTokenRequest{
+				Username: userStr.Username})
+			if err != nil {
+				return nil, fmt.Errorf("failed to get access token for user %s: %w", userStr.Username, err)
+			}
+
+			ctx, cancel := context.WithCancel(
+				context.WithValue(context.Background(), "token", userToken.GetAccessToken()),
+			)
+
 			connInfo = &Connection{
 				connId:       fmt.Sprintf("%s-%d-%s", GetProxyID(), os.Getpid(), strings.ToLower(rand.Text()[:2])),
 				log:          s.log,
@@ -384,16 +393,10 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.user.Username, err)
 	}
 
-	userToken, err := c.identity.GetUserAccessToken(c.ctx, &identitypb.GetUserAccessTokenRequest{
-		Username: c.user.Username})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get access token for user %s: %w", c.user.Username, err)
-	}
-
 	c.log.Debug().Msgf("Connecting to k8shelld at %s:%d for user %s, version: %s",
 		status.ServerName, status.Port, c.user.Username, status.AppVersion)
 
-	handshake, err := k8shelld.Handshake(c.ctx, userToken.GetAccessToken())
+	handshake, err := k8shelld.Handshake(c.ctx)
 	if err != nil {
 		infoWriter.WriteSystemError(err.Error())
 		return nil, fmt.Errorf("handshake with k8shelld failed for user %s: %w", c.user.Username, err)
