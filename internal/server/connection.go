@@ -434,19 +434,41 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 
 func (c *Connection) getCommandHandler(backends workspace.Backends, workspaceName string) api.CommandHandler {
 	return func(ctx context.Context, command string) (string, error) {
-		switch command {
+		parts := strings.SplitN(command, " ", 2)
+		switch parts[0] {
 		case "shutdown":
-			c.log.Debug().Msgf("Received k8shelld shutdown command for user %s, workspace %s",
-				c.user.Username, workspaceName)
-			_, err := backends.Provisioner().DeleteWorkspace(c.ctx,
-				&provisionerpb.DeleteWorkspaceRequest{Workspace: workspaceName, DelaySeconds: 2})
-			if err != nil {
-				c.log.Debug().Msgf("Failed to delete workspace for user %s, workspace %s: %v",
-					c.user.Username, workspaceName, err)
-				return "Cannot shutdown workspace due to an error.",
-					fmt.Errorf("failed to delete (shutdown) workspace: %w", err)
+			action := "stop"
+			if len(parts) == 2 {
+				action = parts[1]
 			}
-			return "Workspace shutdown has been initiated.", nil
+			c.log.Debug().Msgf("Received k8shelld shutdown command (action=%s) for user %s, workspace %s",
+				action, c.user.Username, workspaceName)
+			switch action {
+			case "delete":
+				_, err := backends.Provisioner().DeleteWorkspace(c.ctx,
+					&provisionerpb.DeleteWorkspaceRequest{Workspace: workspaceName, DelaySeconds: 2})
+				if err != nil {
+					c.log.Debug().Msgf("Failed to delete workspace for user %s, workspace %s: %v",
+						c.user.Username, workspaceName, err)
+					return "Cannot delete workspace due to an error.",
+						fmt.Errorf("failed to delete workspace: %w", err)
+				}
+				return "Workspace deletion has been initiated.", nil
+			case "stop":
+				_, err := backends.Provisioner().StopWorkspace(c.ctx,
+					&provisionerpb.StopWorkspaceRequest{Workspace: workspaceName})
+				if err != nil {
+					c.log.Debug().Msgf("Failed to stop workspace for user %s, workspace %s: %v",
+						c.user.Username, workspaceName, err)
+					return "Cannot stop workspace due to an error.",
+						fmt.Errorf("failed to stop workspace: %w", err)
+				}
+				return "Workspace stop has been initiated.", nil
+			default:
+				c.log.Error().Msgf("Received unknown shutdown action %q for user %s, workspace %s",
+					action, c.user.Username, workspaceName)
+				return "", fmt.Errorf("unknown shutdown action %q, expected \"delete\" or \"stop\"", action)
+			}
 		}
 		c.log.Error().Msgf("Received unknown k8shelld command %q for user %s, workspace %s",
 			command, c.user.Username, workspaceName)
