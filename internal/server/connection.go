@@ -127,15 +127,7 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 		connStatesMutex.Lock()
 		connInfo = connStates[connID]
 		if connInfo == nil {
-			userToken, err := s.identity.GetUserAccessToken(context.Background(), &identitypb.GetUserAccessTokenRequest{
-				Username: userStr.Username})
-			if err != nil {
-				return nil, fmt.Errorf("failed to get access token for user %s: %w", userStr.Username, err)
-			}
-
-			ctx, cancel := context.WithCancel(
-				context.WithValue(context.Background(), api.TokenContextKey, userToken.GetAccessToken()),
-			)
+			ctx, cancel := context.WithCancel(context.Background())
 
 			connInfo = &Connection{
 				connId:       fmt.Sprintf("%s-%d-%s", GetProxyID(), os.Getpid(), strings.ToLower(rand.Text()[:2])),
@@ -338,6 +330,18 @@ func (c *Connection) GetOnboardCap() *models.OnboardCapability {
 	return c.onboardCap
 }
 
+// GetUserToken retrieves the user access token from the identity service
+func (c *Connection) GetUserToken() (string, error) {
+	userToken, err := c.identity.GetUserAccessToken(context.Background(),
+		&identitypb.GetUserAccessTokenRequest{
+			Username: c.user.Username},
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to get access token for user %s: %w", c.user.Username, err)
+	}
+	return userToken.GetAccessToken(), nil
+}
+
 // Handshake performs the handshake with the k8shelld daemon and ensures the workspace is ready
 // It checks the user validity and access to the specified workspace blueprint and starts
 // the workspace if it is not running. It also creates an SSH session record in the identity service.
@@ -387,7 +391,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	}
 	infoWriter.WriteMessage(fmt.Sprintf("Connecting to the workspace at %s...", status.ServerName))
 
-	k8shelld, err := workspace.NewK8shelld(c.k8shelldCfg, status, c.counters)
+	k8shelld, err := workspace.NewK8shelld(c.k8shelldCfg, status, c.counters, c.GetUserToken)
 	if err != nil {
 		infoWriter.WriteSystemError(err.Error())
 		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.user.Username, err)
