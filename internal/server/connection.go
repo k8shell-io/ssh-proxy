@@ -32,6 +32,12 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// contextKey is an unexported type for context keys in this package,
+// preventing collisions with keys defined in other packages.
+type contextKey string
+
+const tokenContextKey contextKey = "token"
+
 // Connection represents the connection information for a user
 type Connection struct {
 	ctx          context.Context    // context for managing the connection
@@ -134,7 +140,7 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 			}
 
 			ctx, cancel := context.WithCancel(
-				context.WithValue(context.Background(), "token", userToken.GetAccessToken()),
+				context.WithValue(context.Background(), tokenContextKey, userToken.GetAccessToken()),
 			)
 
 			connInfo = &Connection{
