@@ -63,6 +63,7 @@ type Connection struct {
 	failureInfo      []string                      // failure information
 	reportStopCh     chan struct{}                 // channel to signal report goroutine to stop
 	reportWg         sync.WaitGroup                // wait group for report goroutine
+	ptyName          string                        // name of the allocated pseudo-terminal (if any)
 }
 
 // Session holds information about a user's SSH session
@@ -235,6 +236,11 @@ func (c *Connection) reportSessionData() {
 	}
 }
 
+// SetPtyName sets the name of the allocated pseudo-terminal for the Connection object
+func (c *Connection) SetPtyName(ptyName string) {
+	c.ptyName = ptyName
+}
+
 // updateSession sends the current session update to the identity provider
 func (c *Connection) updateSession(action string) (bool, error) {
 	curIn, curOut := c.counters.Snapshot()
@@ -257,6 +263,7 @@ func (c *Connection) updateSession(action string) (bool, error) {
 			StartTime:   &t,
 			UpdatedAt:   &t,
 			Blueprint:   c.userStr.Blueprint,
+			PtyName:     c.ptyName,
 		}
 		var payload []byte
 		payload, err = json.Marshal(d)
