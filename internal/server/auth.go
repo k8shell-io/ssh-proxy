@@ -15,6 +15,8 @@ import (
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/identity/pkg/api/typespb"
 	"golang.org/x/crypto/ssh"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // AllowedAuthsCallback returns the available authentication methods for the user.
@@ -219,6 +221,11 @@ func (s *Server) updateUser(ctx context.Context, connInfo *Connection) {
 
 	user, err := s.identity.FindUser(ctx, &typespb.FindUserRequest{Username: connInfo.userStr.Username})
 	if err != nil {
+		if status.Code(err) != codes.NotFound {
+			s.log.Error().Msgf("Failed to get user %s: %v", connInfo.userStr.Username, err)
+			return
+		}
+		// when user is not found, we will check onboarding capability
 		connInfo.AddFailureInfo("Failed to get user", err)
 	}
 
