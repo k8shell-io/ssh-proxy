@@ -21,13 +21,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/k8shell-io/common/pkg/api/client/identity"
+	"github.com/k8shell-io/common/pkg/api/client/provisioner"
+	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/common/pkg/nats"
 	natsc "github.com/k8shell-io/common/pkg/nats"
-	identity "github.com/k8shell-io/identity/pkg/api"
-	"github.com/k8shell-io/identity/pkg/api/typespb"
-	provisioner "github.com/k8shell-io/provisioner/pkg/api"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
 )
@@ -153,7 +153,7 @@ func (s *Server) ResolvePullRequestRef(username string, repoOwner, repoName stri
 		username, repoOwner, repoName, prNumber),
 		func(ctx context.Context) (string, error) {
 			t := time.Now()
-			ref, err := s.Identity().ResolvePullRequestToRef(ctx, &typespb.RepoPullRequestRequest{
+			ref, err := s.Identity().ResolvePullRequestToRef(ctx, &identityv1.RepoPullRequestRequest{
 				Username:          username,
 				RepoOwner:         repoOwner,
 				RepoName:          repoName,

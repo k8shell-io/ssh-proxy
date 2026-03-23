@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
+	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
-	"github.com/k8shell-io/identity/pkg/api/typespb"
 	"golang.org/x/crypto/ssh"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -133,7 +133,7 @@ func (s *Server) AuthKeyboardInteractive(conn ssh.ConnMetadata,
 	}
 
 	onboardInfo, err := s.identity.OnboardUserDeviceFlow(ctx,
-		&typespb.Username{Username: connInfo.userStr.Username})
+		&identityv1.Username{Username: connInfo.userStr.Username})
 	if err != nil {
 		s.log.Error().Msgf("Failed to get onboard info for user %s: %v", connInfo.userStr.Username, err)
 		return nil, fmt.Errorf("onboarding failed")
@@ -189,7 +189,7 @@ func (s *Server) authPublicKey(user *models.User, pubKey ssh.PublicKey) bool {
 	pubKeyHash := ssh.FingerprintSHA256(pubKey)
 
 	s.log.Debug().Msgf("Authenticating user %s with public key: %s", user.Username, pubKeyHash)
-	authResponse, err := s.identity.AuthUserPublicKey(s.ctx, &typespb.AuthUserPublicKeyRequest{
+	authResponse, err := s.identity.AuthUserPublicKey(s.ctx, &identityv1.AuthUserPublicKeyRequest{
 		Username: user.Username, PublicKey: pubKeyString})
 	if err != nil || authResponse == nil {
 		s.log.Error().Msgf("Failed to get authentication response for user %s: %v", user.Username, err)
@@ -219,7 +219,7 @@ func (s *Server) updateUser(ctx context.Context, connInfo *Connection) {
 		return // User already loaded
 	}
 
-	user, err := s.identity.FindUser(ctx, &typespb.FindUserRequest{Username: connInfo.userStr.Username})
+	user, err := s.identity.FindUser(ctx, &identityv1.FindUserRequest{Username: connInfo.userStr.Username})
 	if err != nil {
 		if status.Code(err) != codes.NotFound {
 			s.log.Error().Msgf("Failed to get user %s: %v", connInfo.userStr.Username, err)
@@ -231,7 +231,7 @@ func (s *Server) updateUser(ctx context.Context, connInfo *Connection) {
 
 	if user == nil {
 		if connInfo.onboardCap == nil {
-			onboardCap, err := s.identity.GetUserOnboardCapability(ctx, &typespb.Username{
+			onboardCap, err := s.identity.GetUserOnboardCapability(ctx, &identityv1.Username{
 				Username: connInfo.userStr.Username})
 			if err != nil {
 				s.log.Error().Msgf("Failed to get onboarding capability for user %s: %v",

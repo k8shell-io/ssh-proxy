@@ -13,11 +13,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/k8shell-io/common/pkg/api/client/identity"
+	"github.com/k8shell-io/common/pkg/api/client/provisioner"
+	provisionerv1 "github.com/k8shell-io/common/pkg/api/gen/go/provisioner/v1"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
-	identity "github.com/k8shell-io/identity/pkg/api"
-	provisioner "github.com/k8shell-io/provisioner/pkg/api"
-	"github.com/k8shell-io/provisioner/pkg/api/provisionerpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -240,7 +240,7 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 	}
 
 	wsStatus, err := backends.Provisioner().FindWorkspace(ctx,
-		&provisionerpb.FindWorkspaceRequest{Workspace: canUserStr.WorkspaceName})
+		&provisionerv1.FindWorkspaceRequest{Workspace: canUserStr.WorkspaceName})
 	if err != nil {
 		if status.Code(err) != codes.NotFound {
 			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
@@ -257,7 +257,7 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 	}
 
 	wsStatus, err = backends.Provisioner().FindWorkspace(ctx,
-		&provisionerpb.FindWorkspaceRequest{Workspace: wsname})
+		&provisionerv1.FindWorkspaceRequest{Workspace: wsname})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 	}

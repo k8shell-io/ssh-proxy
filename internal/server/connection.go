@@ -19,13 +19,13 @@ import (
 
 	"crypto/rand"
 
+	"github.com/k8shell-io/common/pkg/api/client/identity"
+	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
+	provisionerv1 "github.com/k8shell-io/common/pkg/api/gen/go/provisioner/v1"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
 	natsc "github.com/k8shell-io/common/pkg/nats"
-	identity "github.com/k8shell-io/identity/pkg/api"
-	"github.com/k8shell-io/identity/pkg/api/identitypb"
 	"github.com/k8shell-io/k8shelld/pkg/api"
-	"github.com/k8shell-io/provisioner/pkg/api/provisionerpb"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
@@ -340,7 +340,7 @@ func (c *Connection) GetOnboardCap() *models.OnboardCapability {
 // GetUserToken retrieves the user access token from the identity service
 func (c *Connection) GetUserToken() (string, error) {
 	userToken, err := c.identity.GetUserAccessToken(context.Background(),
-		&identitypb.GetUserAccessTokenRequest{
+		&identityv1.GetUserAccessTokenRequest{
 			Username: c.user.Username},
 	)
 	if err != nil {
@@ -453,7 +453,7 @@ func (c *Connection) getCommandHandler(backends workspace.Backends, workspaceNam
 			switch action {
 			case "delete":
 				_, err := backends.Provisioner().DeleteWorkspace(c.ctx,
-					&provisionerpb.DeleteWorkspaceRequest{Workspace: workspaceName, DelaySeconds: 2})
+					&provisionerv1.DeleteWorkspaceRequest{Workspace: workspaceName, DelaySeconds: 2})
 				if err != nil {
 					c.log.Debug().Msgf("Failed to delete workspace for user %s, workspace %s: %v",
 						c.user.Username, workspaceName, err)
@@ -463,7 +463,7 @@ func (c *Connection) getCommandHandler(backends workspace.Backends, workspaceNam
 				return "Workspace deletion has been initiated.", nil
 			case "stop":
 				_, err := backends.Provisioner().StopWorkspace(c.ctx,
-					&provisionerpb.StopWorkspaceRequest{Workspace: workspaceName, DelaySeconds: 2})
+					&provisionerv1.StopWorkspaceRequest{Workspace: workspaceName, DelaySeconds: 2})
 				if err != nil {
 					c.log.Debug().Msgf("Failed to stop workspace for user %s, workspace %s: %v",
 						c.user.Username, workspaceName, err)
