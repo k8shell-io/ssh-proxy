@@ -6,7 +6,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,14 +19,14 @@ import (
 	"crypto/rand"
 
 	"github.com/k8shell-io/common/pkg/api/client/identity"
+	sessionc "github.com/k8shell-io/common/pkg/api/client/session"
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
 	provisionerv1 "github.com/k8shell-io/common/pkg/api/gen/go/provisioner/v1"
+	sessionv1 "github.com/k8shell-io/common/pkg/api/gen/go/session/v1"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
-	natsc "github.com/k8shell-io/common/pkg/nats"
 	"github.com/k8shell-io/k8shelld/pkg/api"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
-	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
 )
@@ -44,7 +43,7 @@ type Connection struct {
 	clientPort   int                // client port (detected from proxy protocol if available)
 	// proxyFullID      string                        // identifier of the proxy with a PID suffix
 	identity         *identity.IdentityClient      // identity client for interacting with the identity service
-	sessionKV        *natsc.JetStreamKV            // KV instance for storing session data
+	sessionClient    *sessionc.Client              // gRPC client for session tracking
 	k8shelldCfg      gapi.ClientConfig             // k8shelld client configuration
 	k8shelld         workspace.K8shelldClient      // client for interacting with the workspace k8shelld daemon
 	k8shelldVer      string                        // version of the k8shelld daemon
@@ -131,18 +130,18 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 			ctx, cancel := context.WithCancel(context.Background())
 
 			connInfo = &Connection{
-				connId:       fmt.Sprintf("%s-%d-%s", GetProxyID(), os.Getpid(), strings.ToLower(rand.Text()[:2])),
-				log:          s.log,
-				identity:     s.identity,
-				sessionKV:    s.sessionKV,
-				k8shelldCfg:  s.Config.K8shelld,
-				userStr:      userStr,
-				directTCPIP:  &sync.Map{},
-				counters:     &api.ConnCounters{},
-				ctx:          ctx,
-				cancel:       cancel,
-				reportStopCh: make(chan struct{}),
-				onboardMu:    sync.RWMutex{},
+				connId:        fmt.Sprintf("%s-%d-%s", GetProxyID(), os.Getpid(), strings.ToLower(rand.Text()[:2])),
+				log:           s.log,
+				identity:      s.identity,
+				sessionClient: s.sessionClient,
+				k8shelldCfg:   s.Config.K8shelld,
+				userStr:       userStr,
+				directTCPIP:   &sync.Map{},
+				counters:      &api.ConnCounters{},
+				ctx:           ctx,
+				cancel:        cancel,
+				reportStopCh:  make(chan struct{}),
+				onboardMu:     sync.RWMutex{},
 			}
 			connStates[connID] = connInfo
 		}
@@ -197,7 +196,7 @@ func (c *Connection) Close() error {
 		c.k8shelld = nil
 	}
 
-	if c.sessionKV != nil {
+	if c.sessionClient != nil {
 		close(c.reportStopCh)
 		c.reportWg.Wait()
 	}
@@ -241,71 +240,48 @@ func (c *Connection) SetPtyName(ptyName string) {
 	c.ptyName = ptyName
 }
 
-// updateSession sends the current session update to the identity provider
+// updateSession sends the current session update to the session gRPC service
 func (c *Connection) updateSession(action string) (bool, error) {
 	curIn, curOut := c.counters.Snapshot()
-	curChannels := c.GetChannelInfo()
-
 	t := time.Now().UTC()
 
-	e, err := c.sessionKV.Get(c.connId)
-	if errors.Is(err, nats.ErrKeyNotFound) && action == "create" {
-		d := models.SSHSession{
-			SessionID:   c.connId,
-			K8shelldVer: c.k8shelldVer,
-			ClientIP:    c.clientIP,
-			Client:      "",
-			Username:    c.user.Username,
-			Workspace:   c.workspaceName,
-			BytesIn:     curIn,
-			BytesOut:    curOut,
-			Channels:    curChannels,
-			StartTime:   &t,
-			UpdatedAt:   &t,
-			Blueprint:   c.userStr.Blueprint,
-			PtyName:     c.ptyName,
-		}
-		var payload []byte
-		payload, err = json.Marshal(d)
-		if err != nil {
-			return false, fmt.Errorf("failed to marshal session data: %w", err)
-		}
-		_, err = c.sessionKV.Create(c.connId, payload)
-	} else if err == nil {
-		var d models.SSHSession
-		err = json.Unmarshal(e.Value(), &d)
-		if err != nil {
-			return false, fmt.Errorf("failed to unmarshal session data: %w", err)
-		}
-
-		d.BytesIn = curIn
-		d.BytesOut = curOut
-		d.Channels = curChannels
-		d.UpdatedAt = &t
-
-		var payload []byte
-		payload, err = json.Marshal(d)
-		if err != nil {
-			return false, fmt.Errorf("failed to marshal session data: %w", err)
-		}
-		_, err = c.sessionKV.Update(c.connId, payload, e.Revision())
-	}
-
-	if errors.Is(err, nats.ErrKeyNotFound) {
-		// Key not found on update; close the connection
-		c.cancel()
-		return true, nil
-	} else if err != nil {
-		c.log.Debug().Msgf("Failed to update session data in cache: key=%s, err=%v", c.connId, err)
-	}
-
 	if action == "delete" {
-		err := c.sessionKV.Delete(c.connId)
+		_, err := c.sessionClient.EndSession(c.ctx, &sessionv1.EndSessionRequest{
+			SessionId: c.connId,
+			EndTime:   t.Unix(),
+			BytesIn:   curIn,
+			BytesOut:  curOut,
+		})
 		if err != nil {
-			c.log.Debug().Msgf("Failed to delete session data for user %s: %v", c.user.Username, err)
+			return false, fmt.Errorf("failed to end session: %w", err)
 		}
+		return false, nil
 	}
 
+	curChannels := c.GetChannelInfo()
+	d := &models.SSHSession{
+		SessionID:   c.connId,
+		K8shelldVer: c.k8shelldVer,
+		ClientIP:    c.clientIP,
+		Client:      "",
+		Username:    c.user.Username,
+		Workspace:   c.workspaceName,
+		BytesIn:     curIn,
+		BytesOut:    curOut,
+		Channels:    curChannels,
+		UpdatedAt:   &t,
+		Blueprint:   c.userStr.Blueprint,
+	}
+	if action == "create" {
+		d.StartTime = &t
+	}
+
+	_, err := c.sessionClient.UpsertSession(c.ctx, &sessionv1.UpsertSessionRequest{
+		Session: sessionc.ToProtobufSession(d),
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to upsert session: %w", err)
+	}
 	return false, nil
 }
 
@@ -431,7 +407,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	c.k8shelldVer = status.AppVersion
 	c.workspaceName = status.Name
 
-	if c.sessionKV != nil {
+	if c.sessionClient != nil {
 		c.reportWg.Add(1)
 		go c.reportSessionData()
 	}

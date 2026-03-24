@@ -49,6 +49,12 @@ identity:
   # caCertPath: /opt/shared/auth/ca.crt
   # serverName: identity.k8shell-test.svc
 
+session:
+  address: bruckins-session.k8shell-io:9010
+  tokenFilePath: /opt/shared/auth/api-server/session-token
+  # caCertPath: /opt/shared/auth/ca.crt
+  # serverName: session.k8shell-test.svc
+
 provisioner:
   address: bruckins-provisioner.k8shell-io:9030 #provisioner.k8shell-test:9030 # 10.42.2.194:9030 
   tokenFilePath: /opt/shared/auth/api-server/provisioner-token

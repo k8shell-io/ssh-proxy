@@ -23,7 +23,9 @@ import (
 
 	"github.com/k8shell-io/common/pkg/api/client/identity"
 	"github.com/k8shell-io/common/pkg/api/client/provisioner"
+	sessionc "github.com/k8shell-io/common/pkg/api/client/session"
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
+	"github.com/k8shell-io/common/pkg/gapi"
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/common/pkg/nats"
@@ -39,20 +41,20 @@ var (
 
 // Server represents the SSH server that handles incoming connections and authentication.
 type Server struct {
-	Config      *Config
-	log         *zerolog.Logger
-	nats        *natsc.NATSClient
-	sessionKV   *natsc.JetStreamKV
-	userstrKV   *natsc.JetStreamKV
-	listener    net.Listener
-	sshConfig   *ssh.ServerConfig
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	identity    *identity.IdentityClient
-	provisioner *provisioner.Client
-	fpub        *NatsFailuresPublisher
-	configPath  string
+	Config        *Config
+	log           *zerolog.Logger
+	nats          *natsc.NATSClient
+	userstrKV     *natsc.JetStreamKV
+	sessionClient *sessionc.Client
+	listener      net.Listener
+	sshConfig     *ssh.ServerConfig
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
+	identity      *identity.IdentityClient
+	provisioner   *provisioner.Client
+	fpub          *NatsFailuresPublisher
+	configPath    string
 }
 
 // BufferedConn uses an existing bufio.Reader to avoid losing any data already read from the connection.
@@ -112,13 +114,6 @@ func NewServer(configPath string) (*Server, error) {
 		}
 
 		if server.nats != nil {
-			server.sessionKV, err = server.nats.NewKV(natsc.BucketOptions{
-				Bucket:    "sessions-ssh-proxy",
-				BucketTTL: SESSION_UPDATE_INTERVAL * 2,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("create jetstream cache: %w", err)
-			}
 			server.userstrKV, err = server.nats.NewKV(natsc.BucketOptions{
 				Bucket:    "userstr-cache",
 				BucketTTL: 24 * time.Hour,
@@ -127,7 +122,16 @@ func NewServer(configPath string) (*Server, error) {
 				return nil, fmt.Errorf("create userstr jetstream cache: %w", err)
 			}
 		} else {
-			server.log.Warn().Msg("NATS client is not configured, session tracking and userstr cache disabled")
+			server.log.Warn().Msg("NATS client is not configured, userstr cache disabled")
+		}
+
+		server.sessionClient, err = sessionc.NewClient(config.Session)
+		if err != nil {
+			if errors.Is(err, gapi.ErrNotEnabled) {
+				server.log.Warn().Msg("Session client is not enabled, session functionality will be disabled")
+			} else {
+				return nil, fmt.Errorf("failed to create session client: %w", err)
+			}
 		}
 	}
 
@@ -249,13 +253,6 @@ func HandleConnectionChildProcess(configPath string) error {
 	models.SetRefResolver(server)
 
 	if server.nats != nil {
-		server.sessionKV, err = server.nats.NewKV(natsc.BucketOptions{
-			Bucket:    "sessions-ssh-proxy",
-			BucketTTL: SESSION_UPDATE_INTERVAL * 2,
-		})
-		if err != nil {
-			return fmt.Errorf("create jetstream cache: %w", err)
-		}
 		server.userstrKV, err = server.nats.NewKV(natsc.BucketOptions{
 			Bucket:    "userstr-cache",
 			BucketTTL: 24 * time.Hour,
@@ -264,7 +261,12 @@ func HandleConnectionChildProcess(configPath string) error {
 			return fmt.Errorf("create userstr jetstream cache: %w", err)
 		}
 	} else {
-		logger.Warn().Msg("NATS client is not configured, session tracking and userstr cache disabled")
+		logger.Warn().Msg("NATS client is not configured, userstr cache disabled")
+	}
+
+	server.sessionClient, err = sessionc.NewClient(config.Session)
+	if err != nil {
+		return fmt.Errorf("failed to create session client: %w", err)
 	}
 
 	if err := server.initSSHConfig(); err != nil {

@@ -35,6 +35,14 @@ github.com/k8shell-io/common v0.12.180 h1:py8qqNY2PE+Nap7ryS6Y2HvSjpmqtQnTigw53N
 github.com/k8shell-io/common v0.12.180/go.mod h1:q2Qy+HG0skRe1ZQjnMZqgtWyku2VewvkANBaybNw8MQ=
 github.com/k8shell-io/common v0.12.181 h1:W3StO5bsdDe0qlh3QZwkvVOzejYrQd9JcXFxTScGJHc=
 github.com/k8shell-io/common v0.12.181/go.mod h1:q2Qy+HG0skRe1ZQjnMZqgtWyku2VewvkANBaybNw8MQ=
+github.com/k8shell-io/common v0.12.182 h1:d+DxiBWaljbQJR/1jqbgXDd8nfjgMWIEKKG2J85PQak=
+github.com/k8shell-io/common v0.12.182/go.mod h1:q2Qy+HG0skRe1ZQjnMZqgtWyku2VewvkANBaybNw8MQ=
+github.com/k8shell-io/common v0.12.184 h1:e3XasFlyC4R53s/jgpI3afrr991cFc6cauGUtWWyQ3E=
+github.com/k8shell-io/common v0.12.184/go.mod h1:q2Qy+HG0skRe1ZQjnMZqgtWyku2VewvkANBaybNw8MQ=
+github.com/k8shell-io/common v0.12.185 h1:gVNJ5FeqhtKqpk4AiURvcsjyenYCDv3NsI3tH9f7JrI=
+github.com/k8shell-io/common v0.12.185/go.mod h1:q2Qy+HG0skRe1ZQjnMZqgtWyku2VewvkANBaybNw8MQ=
+github.com/k8shell-io/common v0.12.186 h1:7nHUNvfgGbBJWYuHV/Kl+w1hsh+lqJRDwRifsvdk3uQ=
+github.com/k8shell-io/common v0.12.186/go.mod h1:q2Qy+HG0skRe1ZQjnMZqgtWyku2VewvkANBaybNw8MQ=
 github.com/k8shell-io/crypto v0.41.1-ssh-proxy h1:8+q6Ofc2ky23Oc9iNyiq8aeiQBIP+y3+O6zzHqe1f48=
 github.com/k8shell-io/crypto v0.41.1-ssh-proxy/go.mod h1:RVZeOJCpqtogniULztSXQESKJCfcI8WCxsS0FagMA8U=
 github.com/k8shell-io/k8shelld/pkg/api v0.12.32-0.20260321180232-44ccac2080b6 h1:i1WYxeGRwUw1BsD+fN37ft0/N3ApdRobQrPdNPVD+ac=
