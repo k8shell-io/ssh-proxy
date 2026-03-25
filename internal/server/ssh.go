@@ -128,7 +128,7 @@ func NewServer(configPath string) (*Server, error) {
 		server.sessionClient, err = sessionc.NewClient(config.Session)
 		if err != nil {
 			if errors.Is(err, gapi.ErrNotEnabled) {
-				server.log.Warn().Msg("Session client is not enabled, session functionality will be disabled")
+				server.log.Warn().Msg("Session client is not enabled, session tracking and recording disabled")
 			} else {
 				return nil, fmt.Errorf("failed to create session client: %w", err)
 			}
@@ -268,7 +268,6 @@ func HandleConnectionChildProcess(configPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create session client: %w", err)
 	}
-
 	if err := server.initSSHConfig(); err != nil {
 		return fmt.Errorf("failed to initialize SSH config: %w", err)
 	}

@@ -19,13 +19,13 @@ import (
 	"crypto/rand"
 
 	"github.com/k8shell-io/common/pkg/api/client/identity"
+	"github.com/k8shell-io/common/pkg/api/client/k8shelld"
 	sessionc "github.com/k8shell-io/common/pkg/api/client/session"
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
 	provisionerv1 "github.com/k8shell-io/common/pkg/api/gen/go/provisioner/v1"
 	sessionv1 "github.com/k8shell-io/common/pkg/api/gen/go/session/v1"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
-	"github.com/k8shell-io/k8shelld/pkg/api"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
@@ -55,7 +55,7 @@ type Connection struct {
 	session          *Session                      // SSH session information
 	directTCPIP      *sync.Map                     // direct TCP/IP connection information
 	directTCPIPCount int64                         // current count of direct TCP/IP connections
-	counters         *api.ConnCounters             // connection counters
+	counters         *k8shelld.ConnCounters        // connection counters
 	workspaceName    string                        // name of the workspace
 	channelInfoMu    sync.RWMutex                  // mutex for synchronizing access to channelInfo
 	channelInfo      []string                      // channel information
@@ -137,7 +137,7 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 				k8shelldCfg:   s.Config.K8shelld,
 				userStr:       userStr,
 				directTCPIP:   &sync.Map{},
-				counters:      &api.ConnCounters{},
+				counters:      &k8shelld.ConnCounters{},
 				ctx:           ctx,
 				cancel:        cancel,
 				reportStopCh:  make(chan struct{}),
@@ -374,7 +374,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	}
 	infoWriter.WriteMessage(fmt.Sprintf("Connecting to the workspace at %s...", status.ServerName))
 
-	k8shelld, err := workspace.NewK8shelld(c.k8shelldCfg, status, c.counters, c.GetUserToken)
+	k8shelld, err := workspace.NewK8shelld(c.k8shelldCfg, status, c.counters, c.GetUserToken, c.sessionClient)
 	if err != nil {
 		infoWriter.WriteSystemError(err.Error())
 		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.user.Username, err)
@@ -415,7 +415,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	return c.k8shelld, nil
 }
 
-func (c *Connection) getCommandHandler(backends workspace.Backends, workspaceName string) api.CommandHandler {
+func (c *Connection) getCommandHandler(backends workspace.Backends, workspaceName string) k8shelld.CommandHandler {
 	return func(ctx context.Context, command string) (string, error) {
 		parts := strings.SplitN(command, " ", 2)
 		switch parts[0] {

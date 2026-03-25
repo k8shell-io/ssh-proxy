@@ -36,6 +36,7 @@ type ServerConfig struct {
 	WriterOptions             workspace.InfoWriterOptions `yaml:"writerOptions"`
 	SftpBinary                string                      `yaml:"sftpBinary"`
 	PublishSshFailures        PublishSshFailuresConfig    `yaml:"publishSshFailures"`
+	Recording                 RecordingConfig             `yaml:"recording"`
 }
 
 // PublishSshFailuresConfig represents the configuration for SSH failure reporting
@@ -45,6 +46,14 @@ type PublishSshFailuresConfig struct {
 	Subject      string   `yaml:"subject"`
 	PublicIPOnly bool     `yaml:"publicIPOnly"`
 	Whitelist    []string `yaml:"whitelist"`
+}
+
+// RecordingConfig controls which SSH channel types are recorded.
+// Recording requires the session client to be configured and enabled.
+type RecordingConfig struct {
+	RecordShell       bool `yaml:"recordShell"`
+	RecordExec        bool `yaml:"recordExec"`
+	RecordDirectTCPIP bool `yaml:"recordDirectTCPIP"`
 }
 
 const (

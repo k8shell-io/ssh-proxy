@@ -291,13 +291,13 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 		}
 	}
 
-	user := connInfo.userStr.User
 	s.log.Debug().Msgf("Starting shell session for user %s, session ID: %s, requested user: %s",
-		session.username, session.sessionId, user)
+		session.username, session.sessionId, session.username)
 
-	if err := k8shelld.RunShell(connInfo.ctx, &workspace.ChannelAdapter{Channel: channel},
-		session.sessionId, session.env, session.termWidth, session.termHeight,
-		session.hasPTY, user, connInfo.SetPtyName); err != nil {
+	rw := &workspace.ChannelAdapter{Channel: channel}
+	if err := k8shelld.RunShell(connInfo.ctx, rw,
+		connInfo.connId, session.sessionId, session.env, session.termWidth, session.termHeight,
+		session.hasPTY, session.username, s.Config.Server.Recording.RecordShell, connInfo.SetPtyName); err != nil {
 		s.log.Error().Msgf("Shell session error: %v", err)
 	} else {
 		s.log.Debug().Msgf("Shell session %s completed for user %s", session.sessionId, session.username)
@@ -366,8 +366,10 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *Connection, ch
 	s.log.Debug().Msgf("Starting sftp for user %s, exec ID: %s, command: %s",
 		session.username, execID, s.Config.Server.SftpBinary)
 
-	exitcode, err := k8shelld.RunExec(connInfo.ctx, &workspace.ChannelAdapter{Channel: channel},
-		execID, s.Config.Server.SftpBinary, "", []string{}, session.signalChan)
+	rw := &workspace.ChannelAdapter{Channel: channel}
+	exitcode, err := k8shelld.RunExec(connInfo.ctx, rw,
+		execID, connInfo.connId, s.Config.Server.SftpBinary, "", []string{}, session.signalChan, session.username,
+		s.Config.Server.Recording.RecordExec)
 	if err != nil {
 		s.log.Error().Msgf("sftp exec failed for command '%s': %v", s.Config.Server.SftpBinary, err)
 	}
@@ -405,8 +407,10 @@ func (s *Server) handleExecRequest(connInfo *Connection, channel ssh.Channel) {
 	s.log.Debug().Msgf("Starting exec for user %s, exec ID: %s, command: %s",
 		session.username, execID, session.command)
 
-	exitcode, err := k8shelld.RunExec(connInfo.ctx, &workspace.ChannelAdapter{Channel: channel},
-		execID, session.command, "/bin/sh", session.env, session.signalChan)
+	rw := &workspace.ChannelAdapter{Channel: channel}
+	exitcode, err := k8shelld.RunExec(connInfo.ctx, rw,
+		execID, connInfo.connId, session.command, "/bin/sh", session.env, session.signalChan, session.username,
+		s.Config.Server.Recording.RecordExec)
 	if err != nil {
 		s.log.Error().Msgf("Exec failed for command '%s': %v", session.command, err)
 	}
