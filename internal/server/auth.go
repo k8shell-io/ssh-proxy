@@ -133,7 +133,10 @@ func (s *Server) AuthKeyboardInteractive(conn ssh.ConnMetadata,
 	}
 
 	onboardInfo, err := s.identity.OnboardUserDeviceFlow(ctx,
-		&identityv1.Username{Username: connInfo.userStr.Username})
+		&identityv1.OnboardUserDeviceFlowRequest{
+			Provider: onboardCap.Provider,
+			Username: connInfo.userStr.Username,
+		})
 	if err != nil {
 		s.log.Error().Msgf("Failed to get onboard info for user %s: %v", connInfo.userStr.Username, err)
 		return nil, fmt.Errorf("onboarding failed")
