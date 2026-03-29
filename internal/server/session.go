@@ -291,13 +291,19 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 		}
 	}
 
+	userToken, err := connInfo.GetUserToken()
+	if err != nil {
+		s.log.Error().Msgf("Failed to get user token for user %s: %v", connInfo.user.Username, err)
+		return
+	}
+
 	s.log.Debug().Msgf("Starting shell session for user %s, session ID: %s, requested user: %s",
 		session.username, session.sessionId, session.username)
 
 	rw := &workspace.ChannelAdapter{Channel: channel}
-	if err := k8shelld.RunShell(connInfo.ctx, rw,
-		connInfo.connId, session.sessionId, session.env, session.termWidth, session.termHeight,
-		session.hasPTY, session.username, s.Config.Server.Recording.RecordShell, connInfo.SetPtyName); err != nil {
+	if err := k8shelld.RunShell(connInfo.ctx, userToken, rw,
+		session.sessionId, session.env, session.termWidth, session.termHeight,
+		session.hasPTY, s.Config.Server.Recording.RecordShell, connInfo.SetPtyName); err != nil {
 		s.log.Error().Msgf("Shell session error: %v", err)
 	} else {
 		s.log.Debug().Msgf("Shell session %s completed for user %s", session.sessionId, session.username)
@@ -362,14 +368,19 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *Connection, ch
 		session.signalChan = nil
 	}()
 
+	userToken, err := connInfo.GetUserToken()
+	if err != nil {
+		s.log.Error().Msgf("Failed to get user token for user %s: %v", connInfo.user.Username, err)
+		return
+	}
+
 	execID := fmt.Sprintf("sf-%s%d", connInfo.connId, connInfo.SeqNumber())
 	s.log.Debug().Msgf("Starting sftp for user %s, exec ID: %s, command: %s",
 		session.username, execID, s.Config.Server.SftpBinary)
 
 	rw := &workspace.ChannelAdapter{Channel: channel}
-	exitcode, err := k8shelld.RunExec(connInfo.ctx, rw,
-		execID, connInfo.connId, s.Config.Server.SftpBinary, "", []string{}, session.signalChan, session.username,
-		s.Config.Server.Recording.RecordExec)
+	exitcode, err := k8shelld.RunExec(connInfo.ctx, userToken, rw, execID, s.Config.Server.SftpBinary,
+		"", []string{}, session.signalChan, s.Config.Server.Recording.RecordExec)
 	if err != nil {
 		s.log.Error().Msgf("sftp exec failed for command '%s': %v", s.Config.Server.SftpBinary, err)
 	}
@@ -403,14 +414,19 @@ func (s *Server) handleExecRequest(connInfo *Connection, channel ssh.Channel) {
 		session.signalChan = nil
 	}()
 
+	userToken, err := connInfo.GetUserToken()
+	if err != nil {
+		s.log.Error().Msgf("Failed to get user token for user %s: %v", connInfo.user.Username, err)
+		return
+	}
+
 	execID := fmt.Sprintf("ex-%s%d", connInfo.connId, connInfo.SeqNumber())
 	s.log.Debug().Msgf("Starting exec for user %s, exec ID: %s, command: %s",
 		session.username, execID, session.command)
 
 	rw := &workspace.ChannelAdapter{Channel: channel}
-	exitcode, err := k8shelld.RunExec(connInfo.ctx, rw,
-		execID, connInfo.connId, session.command, "/bin/sh", session.env, session.signalChan, session.username,
-		s.Config.Server.Recording.RecordExec)
+	exitcode, err := k8shelld.RunExec(connInfo.ctx, userToken, rw, execID, session.command,
+		"/bin/sh", session.env, session.signalChan, s.Config.Server.Recording.RecordExec)
 	if err != nil {
 		s.log.Error().Msgf("Exec failed for command '%s': %v", session.command, err)
 	}
@@ -464,9 +480,16 @@ func (s *Server) handleAgent(sshConn *ssh.ServerConn, connInfo *Connection) (ssh
 
 	// handle communication with the SSH agent and the unix socket
 	go func() {
-		s.log.Debug().Msgf("Starting agent forwarding for user %s, unix socket id: %s", connInfo.userStr.Username,
-			connInfo.session.agentUnixID)
-		err := k8shelld.RunUnixSocket(connInfo.ctx, &workspace.ChannelAdapter{Channel: channel},
+		s.log.Debug().Msgf("Starting agent forwarding for user %s, unix socket id: %s",
+			connInfo.userStr.Username, connInfo.session.agentUnixID)
+
+		userToken, err := connInfo.GetUserToken()
+		if err != nil {
+			s.log.Error().Msgf("Failed to get user token for user %s: %v", connInfo.user.Username, err)
+			return
+		}
+
+		err = k8shelld.RunUnixSocket(connInfo.ctx, userToken, &workspace.ChannelAdapter{Channel: channel},
 			connInfo.session.agentUnixID, connInfo.session.sshAuthSock, "UNIX_SOCKET_MODE_LISTEN")
 		if err != nil {
 			if statusErr, ok := status.FromError(err); ok && statusErr.Code() == codes.Canceled {

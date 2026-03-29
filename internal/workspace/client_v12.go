@@ -20,7 +20,9 @@ type K8shelld_v12 struct {
 }
 
 func NewK8shelld_v12(cfg gapi.ClientConfig, status *models.WorkspaceDetails,
-	counters *k8shelldClient.ConnCounters, tokenRetrieve k8shelldClient.TokenRetrieve,
+	counters *k8shelldClient.ConnCounters,
+	username string,
+	connectionId string,
 	sessionClient *sessionClient.Client) (K8shelldClient, error) {
 	cfg.Address = fmt.Sprintf("%s:%d", status.PodIP, status.Port)
 	cfg.ServerName = status.ServerName
@@ -36,7 +38,7 @@ func NewK8shelld_v12(cfg gapi.ClientConfig, status *models.WorkspaceDetails,
 		}
 	}
 
-	v12, err := k8shelldClient.NewClient(cfg, counters, tokenRetrieve, sessionClient)
+	v12, err := k8shelldClient.NewClient(cfg, counters, username, connectionId, sessionClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create v12 client: %w", err)
 	}

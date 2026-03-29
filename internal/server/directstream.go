@@ -43,7 +43,13 @@ func (s *Server) handleDirectStreamLocal(_ *ssh.ServerConn, connInfo *Connection
 		return
 	}
 
-	if err := k8shelld.RunUnixSocket(connInfo.ctx, &workspace.ChannelAdapter{Channel: ch},
+	userToken, err := connInfo.GetUserToken()
+	if err != nil {
+		s.log.Error().Msgf("Failed to get user token for user %s: %v", connInfo.user.Username, err)
+		return
+	}
+
+	if err := k8shelld.RunUnixSocket(connInfo.ctx, userToken, &workspace.ChannelAdapter{Channel: ch},
 		streamLocal.streamLocalId, streamLocal.destPath, "UNIX_SOCKET_MODE_DIAL"); err != nil {
 		s.log.Error().Err(err).Msg("unix socket connect failed")
 		return

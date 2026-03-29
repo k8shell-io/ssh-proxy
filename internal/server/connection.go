@@ -24,6 +24,7 @@ import (
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
 	provisionerv1 "github.com/k8shell-io/common/pkg/api/gen/go/provisioner/v1"
 	sessionv1 "github.com/k8shell-io/common/pkg/api/gen/go/session/v1"
+	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
@@ -33,15 +34,14 @@ import (
 
 // Connection represents the connection information for a user
 type Connection struct {
-	ctx          context.Context    // context for managing the connection
-	seqNumberGen int64              // sequence number for exec commands
-	connId       string             // session key for the connection
-	cancel       context.CancelFunc // function to cancel the context
-	log          *zerolog.Logger    // logger instance, reused from server
-	userStr      *models.UserStr    // user string information
-	clientIP     string             // client IP address (detected from proxy protocol if available)
-	clientPort   int                // client port (detected from proxy protocol if available)
-	// proxyFullID      string                        // identifier of the proxy with a PID suffix
+	ctx              context.Context               // context for managing the connection
+	seqNumberGen     int64                         // sequence number for exec commands
+	connId           string                        // session key for the connection
+	cancel           context.CancelFunc            // function to cancel the context
+	log              *zerolog.Logger               // logger instance, reused from server
+	userStr          *models.UserStr               // user string information
+	clientIP         string                        // client IP address (detected from proxy protocol if available)
+	clientPort       int                           // client port (detected from proxy protocol if available)
 	identity         *identity.IdentityClient      // identity client for interacting with the identity service
 	sessionClient    *sessionc.Client              // gRPC client for session tracking
 	k8shelldCfg      gapi.ClientConfig             // k8shelld client configuration
@@ -63,6 +63,8 @@ type Connection struct {
 	reportStopCh     chan struct{}                 // channel to signal report goroutine to stop
 	reportWg         sync.WaitGroup                // wait group for report goroutine
 	ptyName          string                        // name of the allocated pseudo-terminal (if any)
+	userToken        string                        // user access token for the identity service
+	userTokenMu      sync.RWMutex                  // mutex for synchronizing access to userToken
 }
 
 // Session holds information about a user's SSH session
@@ -315,14 +317,30 @@ func (c *Connection) GetOnboardCap() *models.OnboardCapability {
 
 // GetUserToken retrieves the user access token from the identity service
 func (c *Connection) GetUserToken() (string, error) {
-	userToken, err := c.identity.GetUserAccessToken(context.Background(),
+	c.userTokenMu.RLock()
+	if c.userToken != "" {
+		_, err := authz.ParseUnverifiedClaims(c.userToken, true)
+		if err == nil {
+			token := c.userToken
+			c.userTokenMu.RUnlock()
+			return token, nil
+		}
+	}
+	c.userTokenMu.RUnlock()
+
+	userToken, err := c.identity.GetUserAccessToken(c.ctx,
 		&identityv1.GetUserAccessTokenRequest{
 			Username: c.user.Username},
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to get access token for user %s: %w", c.user.Username, err)
 	}
-	return userToken.GetAccessToken(), nil
+
+	token := userToken.GetAccessToken()
+	c.userToken = token
+	c.userTokenMu.Unlock()
+
+	return token, nil
 }
 
 // Handshake performs the handshake with the k8shelld daemon and ensures the workspace is ready
@@ -374,7 +392,8 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	}
 	infoWriter.WriteMessage(fmt.Sprintf("Connecting to the workspace at %s...", status.ServerName))
 
-	k8shelld, err := workspace.NewK8shelld(c.k8shelldCfg, status, c.counters, c.GetUserToken, c.sessionClient)
+	k8shelld, err := workspace.NewK8shelld(c.k8shelldCfg, status, c.counters, c.user.Username,
+		c.connId, c.sessionClient)
 	if err != nil {
 		infoWriter.WriteSystemError(err.Error())
 		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.user.Username, err)
