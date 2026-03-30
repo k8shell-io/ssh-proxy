@@ -38,7 +38,7 @@ func NewK8shelld_v12(cfg gapi.ClientConfig, status *models.WorkspaceDetails,
 		}
 	}
 
-	v12, err := k8shelldClient.NewClient(cfg, counters, username, connectionId, sessionClient)
+	v12, err := k8shelldClient.NewClient(cfg, counters, connectionId, sessionClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create v12 client: %w", err)
 	}
