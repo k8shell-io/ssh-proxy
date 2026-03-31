@@ -301,7 +301,7 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 		session.username, session.sessionId, session.username)
 
 	rw := &workspace.ChannelAdapter{Channel: channel}
-	if err := k8shelld.RunShell(connInfo.ctx, userToken, rw,
+	if err := k8shelld.RunShell(connInfo.ctx, userToken, connInfo.userStr.User, rw,
 		session.sessionId, session.env, session.termWidth, session.termHeight,
 		session.hasPTY, s.Config.Server.Recording.RecordShell, connInfo.SetPtyName); err != nil {
 		s.log.Error().Msgf("Shell session error: %v", err)
@@ -379,8 +379,8 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *Connection, ch
 		session.username, execID, s.Config.Server.SftpBinary)
 
 	rw := &workspace.ChannelAdapter{Channel: channel}
-	exitcode, err := k8shelld.RunExec(connInfo.ctx, userToken, rw, execID, s.Config.Server.SftpBinary,
-		"", []string{}, session.signalChan, s.Config.Server.Recording.RecordExec)
+	exitcode, err := k8shelld.RunExec(connInfo.ctx, userToken, connInfo.userStr.User, rw, execID,
+		s.Config.Server.SftpBinary, "", []string{}, session.signalChan, s.Config.Server.Recording.RecordExec)
 	if err != nil {
 		s.log.Error().Msgf("sftp exec failed for command '%s': %v", s.Config.Server.SftpBinary, err)
 	}
@@ -425,7 +425,7 @@ func (s *Server) handleExecRequest(connInfo *Connection, channel ssh.Channel) {
 		session.username, execID, session.command)
 
 	rw := &workspace.ChannelAdapter{Channel: channel}
-	exitcode, err := k8shelld.RunExec(connInfo.ctx, userToken, rw, execID, session.command,
+	exitcode, err := k8shelld.RunExec(connInfo.ctx, userToken, connInfo.userStr.User, rw, execID, session.command,
 		"/bin/sh", session.env, session.signalChan, s.Config.Server.Recording.RecordExec)
 	if err != nil {
 		s.log.Error().Msgf("Exec failed for command '%s': %v", session.command, err)
