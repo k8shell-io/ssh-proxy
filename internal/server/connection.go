@@ -337,6 +337,7 @@ func (c *Connection) GetUserToken() (string, error) {
 	}
 
 	token := userToken.GetAccessToken()
+	c.userTokenMu.Lock()
 	c.userToken = token
 	c.userTokenMu.Unlock()
 
