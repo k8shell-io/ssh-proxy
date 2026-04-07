@@ -18,6 +18,8 @@ import (
 
 	"crypto/rand"
 
+	"google.golang.org/grpc/status"
+
 	"github.com/k8shell-io/common/pkg/api/client/identity"
 	"github.com/k8shell-io/common/pkg/api/client/k8shelld"
 	sessionc "github.com/k8shell-io/common/pkg/api/client/session"
@@ -315,6 +317,22 @@ func (c *Connection) GetOnboardCap() *models.OnboardCapability {
 	return c.onboardCap
 }
 
+// grpcClientMessage extracts a clean, user-facing message from an error by
+// walking the error chain to find the first gRPC status error and returning
+// its message field - stripping Go wrapper context and the RPC code prefix.
+// If no gRPC status is found, it returns a generic message so that raw
+// internal chains are never exposed to clients.
+func grpcClientMessage(err error) string {
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		if s, ok := status.FromError(e); ok {
+			if msg := s.Message(); msg != "" {
+				return msg
+			}
+		}
+	}
+	return "An internal error occurred. Please contact your administrator."
+}
+
 // GetUserToken retrieves the user access token from the identity service
 func (c *Connection) GetUserToken() (string, error) {
 	c.userTokenMu.RLock()
@@ -387,7 +405,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 		if errors.As(err, &provisionErr) {
 			infoWriter.WriteError(provisionErr.Message)
 		} else {
-			infoWriter.WriteSystemError(err.Error())
+			infoWriter.WriteSystemError(grpcClientMessage(err))
 		}
 		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.userStr.Username, err)
 	}
@@ -396,7 +414,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	k8shelld, err := workspace.NewK8shelld(c.k8shelldCfg, status, c.counters, c.user.Username,
 		c.connId, c.sessionClient)
 	if err != nil {
-		infoWriter.WriteSystemError(err.Error())
+		infoWriter.WriteSystemError(grpcClientMessage(err))
 		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.user.Username, err)
 	}
 
@@ -405,7 +423,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 
 	handshake, err := k8shelld.Handshake(c.ctx)
 	if err != nil {
-		infoWriter.WriteSystemError(err.Error())
+		infoWriter.WriteSystemError(grpcClientMessage(err))
 		return nil, fmt.Errorf("handshake with k8shelld failed for user %s: %w", c.user.Username, err)
 	}
 	if !handshake.Accepted {
