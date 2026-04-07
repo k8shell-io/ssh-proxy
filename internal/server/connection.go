@@ -318,17 +318,15 @@ func (c *Connection) GetOnboardCap() *models.OnboardCapability {
 }
 
 // grpcClientMessage extracts a clean, user-facing message from an error by
-// finding the deepest gRPC status error in the chain and returning its
-// original message field — stripping Go wrapper context and the RPC code prefix.
+// walking the error chain to find the first gRPC status error and returning
+// its message field  stripping Go wrapper context and the RPC code prefix.
 // If no gRPC status is found, it returns a generic message so that raw
 // internal chains are never exposed to clients.
 func grpcClientMessage(err error) string {
-	type grpcStatus interface {
-		GRPCStatus() *status.Status
-	}
-	var gs grpcStatus
-	if errors.As(err, &gs) {
-		if s := gs.GRPCStatus(); s != nil {
+	fmt.Printf("error: %v\n", err)
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		fmt.Printf("***** unwrapping error: %v\n", e)
+		if s, ok := status.FromError(e); ok {
 			if msg := s.Message(); msg != "" {
 				return msg
 			}
