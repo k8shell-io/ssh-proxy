@@ -323,16 +323,16 @@ func (c *Connection) GetOnboardCap() *models.OnboardCapability {
 // If no gRPC status is found, it returns a generic message so that raw
 // internal chains are never exposed to clients.
 func grpcClientMessage(err error) string {
-	fmt.Printf("error: %v\n", err)
+	last := err
 	for e := err; e != nil; e = errors.Unwrap(e) {
-		fmt.Printf("***** unwrapping error: %v\n", e)
-		if s, ok := status.FromError(e); ok {
-			if msg := s.Message(); msg != "" {
-				return msg
-			}
+		last = e
+	}
+	if s, ok := status.FromError(last); ok {
+		if msg := s.Message(); msg != "" {
+			return msg
 		}
 	}
-	return "An internal error occurred. Please contact your administrator."
+	return last.Error()
 }
 
 // GetUserToken retrieves the user access token from the identity service
