@@ -174,20 +174,20 @@ func (w *InfoWriter) WriteMessage(p string) {
 	if w.Writer == nil {
 		return
 	}
-	_, _ = fmt.Fprintf(w.Writer, "%s\r\n", p)
+	_, _ = fmt.Fprintf(w.Writer, "%s\r\n", formatClientMessage(p))
 }
 
 // WriteError writes an error message to the channel if enabled
 func (w *InfoWriter) WriteError(p string) {
 	if w.Writer != nil && w.opts.ShowErrors {
-		fmt.Fprintf(w.Writer, "%s\r\n", p)
+		fmt.Fprintf(w.Writer, "%s\r\n", formatClientMessage(p))
 	}
 }
 
 // WriteSystemError writes a system error message to the channel if enabled
 func (w *InfoWriter) WriteSystemError(p string) {
 	if w.Writer != nil && w.opts.ShowSystemErrors {
-		fmt.Fprintf(w.Writer, "%s\r\n", p)
+		fmt.Fprintf(w.Writer, "%s\r\n", formatClientMessage(p))
 	}
 }
 
@@ -339,4 +339,11 @@ loop:
 	}
 
 	return name, nil
+}
+
+// formatClientMessage formats an error message by removing newlines and extra spaces
+func formatClientMessage(err string) string {
+	msg := err
+	msg = strings.NewReplacer("\r", " ", "\n", " ").Replace(msg)
+	return strings.Join(strings.Fields(msg), " ")
 }
