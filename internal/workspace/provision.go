@@ -57,6 +57,7 @@ type InfoWriter struct {
 	pulseStop     chan bool    // stop pulse animation
 	pulseMutex    sync.Mutex   // protect pulse updates
 	perc          int
+	extraMessage  string
 }
 
 // NewInfoWriter creates a new InfoWriter with the given options.
@@ -98,7 +99,7 @@ func (w *InfoWriter) startPulseAnimation() {
 				w.pulseMutex.Lock()
 				w.pulseProgress++
 				if w.perc < 100 {
-					w.drawPulseAndPercentage(w.perc)
+					w.drawPulseAndPercentage(w.perc, w.extraMessage)
 				}
 				w.pulseMutex.Unlock()
 			case <-w.pulseStop:
@@ -121,7 +122,7 @@ func (w *InfoWriter) stopPulseAnimation() {
 }
 
 // drawPulseAndPercentage draws pulse and/or percentage based on options
-func (w *InfoWriter) drawPulseAndPercentage(percentage int, hasError ...bool) {
+func (w *InfoWriter) drawPulseAndPercentage(percentage int, extraMessage string, hasError ...bool) {
 	if w.Writer == nil {
 		return
 	}
@@ -144,7 +145,12 @@ func (w *InfoWriter) drawPulseAndPercentage(percentage int, hasError ...bool) {
 		output.WriteString(" ")
 	}
 
-	output.WriteString("Starting workspace...")
+	baseMessage := "Starting workspace"
+	if extraMessage != "" {
+		output.WriteString(fmt.Sprintf("%s (%s)...", baseMessage, extraMessage))
+	} else {
+		output.WriteString(fmt.Sprintf("%s...", baseMessage))
+	}
 
 	if w.opts.ShowPercentage {
 		output.WriteString(fmt.Sprintf(" %d%%", percentage))
@@ -164,8 +170,15 @@ func (w *InfoWriter) WriteEvent(event models.WorkspaceStreamEvent) {
 		w.pulseMutex.Lock()
 		perc, _ := strconv.Atoi(string(event.Status))
 		w.perc = perc
-		w.drawPulseAndPercentage(w.perc)
+		w.drawPulseAndPercentage(w.perc, w.extraMessage)
 		w.pulseMutex.Unlock()
+	} else if (w.opts.ShowPulse) && event.Type == "status" {
+		if event.Status == models.WorkspaceStatusPulling {
+			w.pulseMutex.Lock()
+			w.extraMessage = "pulling image"
+			w.drawPulseAndPercentage(w.perc, w.extraMessage)
+			w.pulseMutex.Unlock()
+		}
 	}
 }
 
@@ -210,7 +223,8 @@ func (w *InfoWriter) StartProvisioning() {
 		_, _ = w.Writer.Write([]byte("Starting workspace...\r\n"))
 	} else if w.opts.ShowPulse || w.opts.ShowPercentage {
 		w.perc = 0
-		w.drawPulseAndPercentage(0)
+		w.extraMessage = ""
+		w.drawPulseAndPercentage(0, "")
 		if w.opts.ShowPulse {
 			w.startPulseAnimation()
 		}
@@ -225,7 +239,7 @@ func (w *InfoWriter) EndProvisioning(hasError bool) {
 	}
 	if w.provStarted && (w.opts.ShowPulse || w.opts.ShowPercentage) {
 		w.stopPulseAnimation()
-		w.drawPulseAndPercentage(100, hasError)
+		w.drawPulseAndPercentage(100, w.extraMessage, hasError)
 		fmt.Fprintf(w.Writer, "\r\n")
 	}
 }
