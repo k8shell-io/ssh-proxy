@@ -18,6 +18,9 @@ import (
 
 	"crypto/rand"
 
+	grpccodes "google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
+
 	"github.com/k8shell-io/common/pkg/api/client/identity"
 	"github.com/k8shell-io/common/pkg/api/client/k8shelld"
 	sessionc "github.com/k8shell-io/common/pkg/api/client/session"
@@ -315,6 +318,14 @@ func (c *Connection) GetOnboardCap() *models.OnboardCapability {
 	return c.onboardCap
 }
 
+// grpcClientMessage returns a clean single-line message from an error,
+// collapsing newlines and extra whitespace.
+func grpcClientMessage(err error) string {
+	msg := err.Error()
+	msg = strings.NewReplacer("\r", " ", "\n", " ").Replace(msg)
+	return strings.Join(strings.Fields(msg), " ")
+}
+
 // GetUserToken retrieves the user access token from the identity service
 func (c *Connection) GetUserToken() (string, error) {
 	c.userTokenMu.RLock()
@@ -405,7 +416,11 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 
 	handshake, err := k8shelld.Handshake(c.ctx)
 	if err != nil {
-		infoWriter.WriteSystemError(err.Error())
+		msg := grpcClientMessage(err)
+		if s, ok := grpcstatus.FromError(err); ok && s.Code() == grpccodes.Unavailable {
+			msg = "The workspace is unreachable. It may be shutting down. Please retry in a moment."
+		}
+		infoWriter.WriteSystemError(msg)
 		return nil, fmt.Errorf("handshake with k8shelld failed for user %s: %w", c.user.Username, err)
 	}
 	if !handshake.Accepted {

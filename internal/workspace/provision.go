@@ -263,8 +263,11 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 		}
 	} else {
-		if wsStatus.GetPodStatus().Status == "Running" {
+		switch models.WorkspaceStatusMessage(wsStatus.GetWorkspaceStatus().GetStatus()) {
+		case models.WorkspaceStatusRunning:
 			return gapi.ProtoToWorkspaceDetails(wsStatus), nil
+		case models.WorkspaceStatusTerminating:
+			return nil, &ProvisionError{Message: "The workspace is currently shutting down. Please retry in a moment."}
 		}
 	}
 
@@ -279,12 +282,12 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 	}
 
-	if wsStatus.GetPodStatus().Status == "Running" {
+	if wsStatus.GetWorkspaceStatus().GetStatus() == string(models.WorkspaceStatusRunning) {
 		return gapi.ProtoToWorkspaceDetails(wsStatus), nil
 	}
 
 	return nil, fmt.Errorf("failed to ensure workspace for user %s: workspace status is %q",
-		userStr.Username, wsStatus.GetPodStatus().Status)
+		userStr.Username, wsStatus.GetWorkspaceStatus().GetStatus())
 }
 
 // provisionWorkspace provisions a new workspace for the user.
@@ -329,7 +332,7 @@ loop:
 
 			streamEvent := models.WorkspaceStreamEvent{
 				Type:       models.WorkspaceStreamEventType(event.Type),
-				Status:     models.WorkspacePodStatus(event.Status),
+				Status:     models.WorkspaceStatusMessage(event.Status),
 				Message:    event.Message,
 				ObjectName: event.ObjectName,
 				Timestamp:  event.Timestamp,
