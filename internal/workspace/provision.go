@@ -152,7 +152,7 @@ func (w *InfoWriter) drawPulseAndPercentage(percentage int, extraMessage string,
 		output.WriteString(fmt.Sprintf("%s...", baseMessage))
 	}
 
-	if w.opts.ShowPercentage {
+	if w.opts.ShowPercentage && extraMessage == "" {
 		output.WriteString(fmt.Sprintf(" %d%%", percentage))
 	}
 
@@ -164,21 +164,24 @@ func (w *InfoWriter) WriteEvent(event models.WorkspaceStreamEvent) {
 	if w.Writer == nil {
 		return
 	}
-	if w.opts.ShowProvisionInfo && (event.Type == "event" || event.Type == "status") {
+	if w.opts.ShowProvisionInfo && (event.Type == models.WorkspaceStreamEventTypeEvent || event.Type == models.WorkspaceStreamEventTypeStatus) {
 		_, _ = w.Writer.Write([]byte(event.String() + "\r\n"))
-	} else if (w.opts.ShowPulse || w.opts.ShowPercentage) && event.Type == "progress" {
+	} else if (w.opts.ShowPulse || w.opts.ShowPercentage) && event.Type == models.WorkspaceStreamEventTypeProgress {
 		w.pulseMutex.Lock()
 		perc, _ := strconv.Atoi(string(event.Status))
 		w.perc = perc
 		w.drawPulseAndPercentage(w.perc, w.extraMessage)
 		w.pulseMutex.Unlock()
-	} else if (w.opts.ShowPulse) && event.Type == "status" {
-		if event.Status == models.WorkspaceStatusPulling {
-			w.pulseMutex.Lock()
-			w.extraMessage = "pulling image"
-			w.drawPulseAndPercentage(w.perc, w.extraMessage)
-			w.pulseMutex.Unlock()
+	} else if w.opts.ShowPulse && event.Type == models.WorkspaceStreamEventTypeStatus {
+		w.pulseMutex.Lock()
+		switch event.Status {
+		case models.WorkspaceStatusPulling:
+			w.extraMessage = "image pulling"
+		case models.WorkspaceStatusProvisioning:
+			w.extraMessage = ""
 		}
+		w.drawPulseAndPercentage(w.perc, w.extraMessage)
+		w.pulseMutex.Unlock()
 	}
 }
 
