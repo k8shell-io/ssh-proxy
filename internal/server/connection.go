@@ -418,7 +418,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	if err != nil {
 		msg := grpcClientMessage(err)
 		if s, ok := grpcstatus.FromError(err); ok && s.Code() == grpccodes.Unavailable {
-			msg = "The workspace is unreachable. It may be shutting down. Please retry in a moment."
+			msg = "The workspace is unreachable. Please retry in a moment."
 		}
 		infoWriter.WriteSystemError(msg)
 		return nil, fmt.Errorf("handshake with k8shelld failed for user %s: %w", c.user.Username, err)
