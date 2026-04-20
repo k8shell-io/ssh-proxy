@@ -37,6 +37,13 @@ server:
     subject: ssh.failures
     publicIPOnly: false
 
+  # enable/disable session recording per stream type
+  # requires session to be configured
+  recording:
+    recordShell: true
+    recordExec: false
+    recordDirectTCPIP: true
+
 nats:
   enabled: false
   url: nats://${NATS_HOST}:4222
@@ -44,17 +51,22 @@ nats:
   password: !file ${SECRET_FILES}/sshproxy_nats_token
 
 identity:
-  address: identity.k8shell-test:9020
+  address: bruckins-identity.k8shell-io:9020 #identity.k8shell-test:9020
   tokenFilePath: /opt/shared/auth/api-server/identity-token
-  caCertPath: /opt/shared/auth/ca.crt
-  serverName: identity.k8shell-test.svc
+  # caCertPath: /opt/shared/auth/ca.crt
+  # serverName: identity.k8shell-test.svc
 
+session:
+  address: bruckins-session.k8shell-io:9010
+  tokenFilePath: /opt/shared/auth/api-server/session-token
+  # caCertPath: /opt/shared/auth/ca.crt
+  # serverName: session.k8shell-test.svc
 provisioner:
-  address: 10.42.2.194:9030 #provisioner.k8shell-test:9030 # 10.42.2.194:9030 
+  address: bruckins-provisioner.k8shell-io:9030 #provisioner.k8shell-test:9030 # 10.42.2.194:9030 
   tokenFilePath: /opt/shared/auth/api-server/provisioner-token
   # caCertPath: /opt/shared/auth/ca.crt
   # serverName: provisioner.k8shell-test.svc
 
 k8shelld:
   tokenFilePath: /opt/shared/auth/dummy-token
-  caCertPath: /opt/shared/auth/ca.crt
+  # caCertPath: /opt/shared/auth/ca.crt

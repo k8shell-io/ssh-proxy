@@ -8,9 +8,10 @@ import (
 	"fmt"
 	"os"
 
+	k8shelldClient "github.com/k8shell-io/common/pkg/api/client/k8shelld"
+	sessionClient "github.com/k8shell-io/common/pkg/api/client/session"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
-	"github.com/k8shell-io/k8shelld/pkg/api"
 )
 
 // K8shelld_v12 wraps K8shelld_v11 and overrides specific methods
@@ -19,7 +20,10 @@ type K8shelld_v12 struct {
 }
 
 func NewK8shelld_v12(cfg gapi.ClientConfig, status *models.WorkspaceDetails,
-	counters *api.ConnCounters) (K8shelldClient, error) {
+	counters *k8shelldClient.ConnCounters,
+	username string,
+	connectionId string,
+	sessionClient *sessionClient.Client) (K8shelldClient, error) {
 	cfg.Address = fmt.Sprintf("%s:%d", status.PodIP, status.Port)
 	cfg.ServerName = status.ServerName
 
@@ -34,7 +38,7 @@ func NewK8shelld_v12(cfg gapi.ClientConfig, status *models.WorkspaceDetails,
 		}
 	}
 
-	v12, err := api.NewClient(cfg, counters)
+	v12, err := k8shelldClient.NewClient(cfg, counters, connectionId, sessionClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create v12 client: %w", err)
 	}

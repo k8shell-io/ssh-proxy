@@ -13,11 +13,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/k8shell-io/common/pkg/api/client/identity"
+	"github.com/k8shell-io/common/pkg/api/client/provisioner"
+	provisionerv1 "github.com/k8shell-io/common/pkg/api/gen/go/provisioner/v1"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
-	identity "github.com/k8shell-io/identity/pkg/api"
-	provisioner "github.com/k8shell-io/provisioner/pkg/api"
-	"github.com/k8shell-io/provisioner/pkg/api/provisionerpb"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -35,7 +35,7 @@ func (e *ProvisionError) Error() string {
 // Backends defines an interface for accessing backend services.
 type Backends interface {
 	Provisioner() *provisioner.Client
-	Identity() *identity.Client
+	Identity() *identity.IdentityClient
 }
 
 // InfoWriterOptions defines options for the InfoWriter.
@@ -57,6 +57,7 @@ type InfoWriter struct {
 	pulseStop     chan bool    // stop pulse animation
 	pulseMutex    sync.Mutex   // protect pulse updates
 	perc          int
+	extraMessage  string
 }
 
 // NewInfoWriter creates a new InfoWriter with the given options.
@@ -68,6 +69,13 @@ func NewInfoWriter(w io.Writer, opts *InfoWriterOptions) *InfoWriter {
 			ShowPercentage:    false,
 			ShowErrors:        false,
 			ShowSystemErrors:  false,
+		}
+	} else {
+		if opts.ShowPulse && opts.ShowProvisionInfo {
+			opts.ShowPulse = false
+		}
+		if !opts.ShowPulse {
+			opts.ShowPercentage = false
 		}
 	}
 	return &InfoWriter{
@@ -91,7 +99,7 @@ func (w *InfoWriter) startPulseAnimation() {
 				w.pulseMutex.Lock()
 				w.pulseProgress++
 				if w.perc < 100 {
-					w.drawPulseAndPercentage(w.perc)
+					w.drawPulseAndPercentage(w.perc, w.extraMessage)
 				}
 				w.pulseMutex.Unlock()
 			case <-w.pulseStop:
@@ -114,7 +122,7 @@ func (w *InfoWriter) stopPulseAnimation() {
 }
 
 // drawPulseAndPercentage draws pulse and/or percentage based on options
-func (w *InfoWriter) drawPulseAndPercentage(percentage int, hasError ...bool) {
+func (w *InfoWriter) drawPulseAndPercentage(percentage int, extraMessage string, hasError ...bool) {
 	if w.Writer == nil {
 		return
 	}
@@ -137,9 +145,14 @@ func (w *InfoWriter) drawPulseAndPercentage(percentage int, hasError ...bool) {
 		output.WriteString(" ")
 	}
 
-	output.WriteString("Starting workspace...")
+	baseMessage := "Starting workspace"
+	if extraMessage != "" {
+		output.WriteString(fmt.Sprintf("%s (%s)...", baseMessage, extraMessage))
+	} else {
+		output.WriteString(fmt.Sprintf("%s...", baseMessage))
+	}
 
-	if w.opts.ShowPercentage {
+	if w.opts.ShowPercentage && extraMessage == "" {
 		output.WriteString(fmt.Sprintf(" %d%%", percentage))
 	}
 
@@ -151,13 +164,23 @@ func (w *InfoWriter) WriteEvent(event models.WorkspaceStreamEvent) {
 	if w.Writer == nil {
 		return
 	}
-	if w.opts.ShowProvisionInfo && (event.Type == "event" || event.Type == "status") {
+	if w.opts.ShowProvisionInfo && (event.Type == models.WorkspaceStreamEventTypeEvent || event.Type == models.WorkspaceStreamEventTypeStatus) {
 		_, _ = w.Writer.Write([]byte(event.String() + "\r\n"))
-	} else if (w.opts.ShowPulse || w.opts.ShowPercentage) && event.Type == "progress" {
+	} else if (w.opts.ShowPulse || w.opts.ShowPercentage) && event.Type == models.WorkspaceStreamEventTypeProgress {
 		w.pulseMutex.Lock()
 		perc, _ := strconv.Atoi(string(event.Status))
 		w.perc = perc
-		w.drawPulseAndPercentage(w.perc)
+		w.drawPulseAndPercentage(w.perc, w.extraMessage)
+		w.pulseMutex.Unlock()
+	} else if w.opts.ShowPulse && event.Type == models.WorkspaceStreamEventTypeStatus {
+		w.pulseMutex.Lock()
+		switch event.Status {
+		case models.WorkspaceStatusPulling:
+			w.extraMessage = "image pulling"
+		case models.WorkspaceStatusProvisioning:
+			w.extraMessage = ""
+		}
+		w.drawPulseAndPercentage(w.perc, w.extraMessage)
 		w.pulseMutex.Unlock()
 	}
 }
@@ -167,20 +190,20 @@ func (w *InfoWriter) WriteMessage(p string) {
 	if w.Writer == nil {
 		return
 	}
-	_, _ = fmt.Fprintf(w.Writer, "%s\r\n", p)
+	_, _ = fmt.Fprintf(w.Writer, "%s\r\n", formatClientMessage(p))
 }
 
 // WriteError writes an error message to the channel if enabled
 func (w *InfoWriter) WriteError(p string) {
 	if w.Writer != nil && w.opts.ShowErrors {
-		fmt.Fprintf(w.Writer, "%s\r\n", p)
+		fmt.Fprintf(w.Writer, "%s\r\n", formatClientMessage(p))
 	}
 }
 
 // WriteSystemError writes a system error message to the channel if enabled
 func (w *InfoWriter) WriteSystemError(p string) {
 	if w.Writer != nil && w.opts.ShowSystemErrors {
-		fmt.Fprintf(w.Writer, "%s\r\n", p)
+		fmt.Fprintf(w.Writer, "%s\r\n", formatClientMessage(p))
 	}
 }
 
@@ -203,7 +226,8 @@ func (w *InfoWriter) StartProvisioning() {
 		_, _ = w.Writer.Write([]byte("Starting workspace...\r\n"))
 	} else if w.opts.ShowPulse || w.opts.ShowPercentage {
 		w.perc = 0
-		w.drawPulseAndPercentage(0)
+		w.extraMessage = ""
+		w.drawPulseAndPercentage(0, "")
 		if w.opts.ShowPulse {
 			w.startPulseAnimation()
 		}
@@ -216,9 +240,9 @@ func (w *InfoWriter) EndProvisioning(hasError bool) {
 	if w.Writer == nil {
 		return
 	}
-	if w.provStarted {
+	if w.provStarted && (w.opts.ShowPulse || w.opts.ShowPercentage) {
 		w.stopPulseAnimation()
-		w.drawPulseAndPercentage(100, hasError)
+		w.drawPulseAndPercentage(100, w.extraMessage, hasError)
 		fmt.Fprintf(w.Writer, "\r\n")
 	}
 }
@@ -233,14 +257,17 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 	}
 
 	wsStatus, err := backends.Provisioner().FindWorkspace(ctx,
-		&provisionerpb.FindWorkspaceRequest{Workspace: canUserStr.WorkspaceName})
+		&provisionerv1.FindWorkspaceRequest{Workspace: canUserStr.WorkspaceName})
 	if err != nil {
 		if status.Code(err) != codes.NotFound {
 			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 		}
 	} else {
-		if wsStatus.GetPodStatus().Status == "Running" {
+		switch models.WorkspaceStatusMessage(wsStatus.GetWorkspaceStatus().GetStatus()) {
+		case models.WorkspaceStatusRunning:
 			return gapi.ProtoToWorkspaceDetails(wsStatus), nil
+		case models.WorkspaceStatusTerminating:
+			return nil, &ProvisionError{Message: "The workspace is currently shutting down. Please retry in a moment."}
 		}
 	}
 
@@ -250,17 +277,17 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 	}
 
 	wsStatus, err = backends.Provisioner().FindWorkspace(ctx,
-		&provisionerpb.FindWorkspaceRequest{Workspace: wsname})
+		&provisionerv1.FindWorkspaceRequest{Workspace: wsname})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
 	}
 
-	if wsStatus.GetPodStatus().Status == "Running" {
+	if wsStatus.GetWorkspaceStatus().GetStatus() == string(models.WorkspaceStatusRunning) {
 		return gapi.ProtoToWorkspaceDetails(wsStatus), nil
 	}
 
 	return nil, fmt.Errorf("failed to ensure workspace for user %s: workspace status is %q",
-		userStr.Username, wsStatus.GetPodStatus().Status)
+		userStr.Username, wsStatus.GetWorkspaceStatus().GetStatus())
 }
 
 // provisionWorkspace provisions a new workspace for the user.
@@ -305,7 +332,7 @@ loop:
 
 			streamEvent := models.WorkspaceStreamEvent{
 				Type:       models.WorkspaceStreamEventType(event.Type),
-				Status:     models.WorkspacePodStatus(event.Status),
+				Status:     models.WorkspaceStatusMessage(event.Status),
 				Message:    event.Message,
 				ObjectName: event.ObjectName,
 				Timestamp:  event.Timestamp,
@@ -317,7 +344,7 @@ loop:
 				name = streamEvent.ObjectName
 				break loop
 
-			case models.WorkspaceStatusFailing, models.WorkspaceStatusStopped:
+			case models.WorkspaceStatusFailing, models.WorkspaceStatusStopped, models.WorkspaceStatusError:
 				eventErr = fmt.Errorf("%s", streamEvent.Message)
 				break loop
 			}
@@ -332,4 +359,11 @@ loop:
 	}
 
 	return name, nil
+}
+
+// formatClientMessage formats an error message by removing newlines and extra spaces
+func formatClientMessage(err string) string {
+	msg := err
+	msg = strings.NewReplacer("\r", " ", "\n", " ").Replace(msg)
+	return strings.Join(strings.Fields(msg), " ")
 }

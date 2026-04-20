@@ -21,13 +21,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/k8shell-io/common/pkg/api/client/identity"
+	"github.com/k8shell-io/common/pkg/api/client/provisioner"
+	sessionc "github.com/k8shell-io/common/pkg/api/client/session"
+	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
+	"github.com/k8shell-io/common/pkg/gapi"
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/common/pkg/nats"
 	natsc "github.com/k8shell-io/common/pkg/nats"
-	identity "github.com/k8shell-io/identity/pkg/api"
-	"github.com/k8shell-io/identity/pkg/api/identitypb"
-	provisioner "github.com/k8shell-io/provisioner/pkg/api"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
 )
@@ -39,20 +41,20 @@ var (
 
 // Server represents the SSH server that handles incoming connections and authentication.
 type Server struct {
-	Config      *Config
-	log         *zerolog.Logger
-	nats        *natsc.NATSClient
-	sessionKV   *natsc.JetStreamKV
-	userstrKV   *natsc.JetStreamKV
-	listener    net.Listener
-	sshConfig   *ssh.ServerConfig
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	identity    *identity.Client
-	provisioner *provisioner.Client
-	fpub        *NatsFailuresPublisher
-	configPath  string
+	Config        *Config
+	log           *zerolog.Logger
+	nats          *natsc.NATSClient
+	userstrKV     *natsc.JetStreamKV
+	sessionClient *sessionc.Client
+	listener      net.Listener
+	sshConfig     *ssh.ServerConfig
+	ctx           context.Context
+	cancel        context.CancelFunc
+	wg            sync.WaitGroup
+	identity      *identity.IdentityClient
+	provisioner   *provisioner.Client
+	fpub          *NatsFailuresPublisher
+	configPath    string
 }
 
 // BufferedConn uses an existing bufio.Reader to avoid losing any data already read from the connection.
@@ -99,7 +101,7 @@ func NewServer(configPath string) (*Server, error) {
 			return nil, fmt.Errorf("failed to create provisioner client: %w", err)
 		}
 
-		server.identity, err = identity.NewClient(config.Identity)
+		server.identity, err = identity.NewIdentityClient(config.Identity)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create identity client: %w", err)
 		}
@@ -112,13 +114,6 @@ func NewServer(configPath string) (*Server, error) {
 		}
 
 		if server.nats != nil {
-			server.sessionKV, err = server.nats.NewKV(natsc.BucketOptions{
-				Bucket:    "sessions-ssh-proxy",
-				BucketTTL: SESSION_UPDATE_INTERVAL * 2,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("create jetstream cache: %w", err)
-			}
 			server.userstrKV, err = server.nats.NewKV(natsc.BucketOptions{
 				Bucket:    "userstr-cache",
 				BucketTTL: 24 * time.Hour,
@@ -127,7 +122,18 @@ func NewServer(configPath string) (*Server, error) {
 				return nil, fmt.Errorf("create userstr jetstream cache: %w", err)
 			}
 		} else {
-			server.log.Warn().Msg("NATS client is not configured, session tracking and userstr cache disabled")
+			server.log.Warn().Msg("NATS client is not configured, userstr cache disabled")
+		}
+
+		if config.Session.IsEnabled() {
+			server.sessionClient, err = sessionc.NewClient(config.Session)
+			if err != nil {
+				if errors.Is(err, gapi.ErrNotEnabled) {
+					server.log.Warn().Msg("Session client is not enabled, session tracking and recording disabled")
+				} else {
+					return nil, fmt.Errorf("failed to create session client: %w", err)
+				}
+			}
 		}
 	}
 
@@ -142,7 +148,7 @@ func (s *Server) Provisioner() *provisioner.Client {
 
 // Identity returns the identity client.
 // Backends interface implementation.
-func (s *Server) Identity() *identity.Client {
+func (s *Server) Identity() *identity.IdentityClient {
 	return s.identity
 }
 
@@ -153,7 +159,7 @@ func (s *Server) ResolvePullRequestRef(username string, repoOwner, repoName stri
 		username, repoOwner, repoName, prNumber),
 		func(ctx context.Context) (string, error) {
 			t := time.Now()
-			ref, err := s.Identity().ResolvePullRequestToRef(ctx, &identitypb.RepoPullRequestRequest{
+			ref, err := s.Identity().ResolvePullRequestToRef(ctx, &identityv1.RepoPullRequestRequest{
 				Username:          username,
 				RepoOwner:         repoOwner,
 				RepoName:          repoName,
@@ -236,7 +242,7 @@ func HandleConnectionChildProcess(configPath string) error {
 		return fmt.Errorf("failed to create provisioner client: %w", err)
 	}
 
-	server.identity, err = identity.NewClient(config.Identity)
+	server.identity, err = identity.NewIdentityClient(config.Identity)
 	if err != nil {
 		return fmt.Errorf("failed to create identity client: %w", err)
 	}
@@ -249,13 +255,6 @@ func HandleConnectionChildProcess(configPath string) error {
 	models.SetRefResolver(server)
 
 	if server.nats != nil {
-		server.sessionKV, err = server.nats.NewKV(natsc.BucketOptions{
-			Bucket:    "sessions-ssh-proxy",
-			BucketTTL: SESSION_UPDATE_INTERVAL * 2,
-		})
-		if err != nil {
-			return fmt.Errorf("create jetstream cache: %w", err)
-		}
 		server.userstrKV, err = server.nats.NewKV(natsc.BucketOptions{
 			Bucket:    "userstr-cache",
 			BucketTTL: 24 * time.Hour,
@@ -264,7 +263,14 @@ func HandleConnectionChildProcess(configPath string) error {
 			return fmt.Errorf("create userstr jetstream cache: %w", err)
 		}
 	} else {
-		logger.Warn().Msg("NATS client is not configured, session tracking and userstr cache disabled")
+		logger.Warn().Msg("NATS client is not configured, userstr cache disabled")
+	}
+
+	if config.Session.IsEnabled() {
+		server.sessionClient, err = sessionc.NewClient(config.Session)
+		if err != nil {
+			return fmt.Errorf("failed to create session client: %w", err)
+		}
 	}
 
 	if err := server.initSSHConfig(); err != nil {
@@ -530,7 +536,12 @@ func (s *Server) startSubProcess(netConn net.Conn) {
 	if !log.JsonLogger {
 		optLogtext = "--logtext"
 	}
-	cmd := exec.Command(os.Args[0], "--config", s.configPath, "--child", optLogtext)
+	exe, err := os.Executable()
+	if err != nil {
+		s.log.Error().Err(err).Msg("Failed to determine executable path")
+		return
+	}
+	cmd := exec.Command(exe, "--config", s.configPath, "--child", optLogtext)
 	cmd.ExtraFiles = []*os.File{connFile}
 
 	cmd.Stdout = os.Stdout

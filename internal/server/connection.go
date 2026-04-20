@@ -6,7 +6,6 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -19,31 +18,35 @@ import (
 
 	"crypto/rand"
 
+	grpccodes "google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
+
+	"github.com/k8shell-io/common/pkg/api/client/identity"
+	"github.com/k8shell-io/common/pkg/api/client/k8shelld"
+	sessionc "github.com/k8shell-io/common/pkg/api/client/session"
+	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
+	provisionerv1 "github.com/k8shell-io/common/pkg/api/gen/go/provisioner/v1"
+	sessionv1 "github.com/k8shell-io/common/pkg/api/gen/go/session/v1"
+	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
-	natsc "github.com/k8shell-io/common/pkg/nats"
-	identity "github.com/k8shell-io/identity/pkg/api"
-	"github.com/k8shell-io/k8shelld/pkg/api"
-	"github.com/k8shell-io/provisioner/pkg/api/provisionerpb"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
-	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
 )
 
 // Connection represents the connection information for a user
 type Connection struct {
-	ctx          context.Context    // context for managing the connection
-	seqNumberGen int64              // sequence number for exec commands
-	connId       string             // session key for the connection
-	cancel       context.CancelFunc // function to cancel the context
-	log          *zerolog.Logger    // logger instance, reused from server
-	userStr      *models.UserStr    // user string information
-	clientIP     string             // client IP address (detected from proxy protocol if available)
-	clientPort   int                // client port (detected from proxy protocol if available)
-	// proxyFullID      string                        // identifier of the proxy with a PID suffix
-	identity         *identity.Client              // identity client for interacting with the identity service
-	sessionKV        *natsc.JetStreamKV            // KV instance for storing session data
+	ctx              context.Context               // context for managing the connection
+	seqNumberGen     int64                         // sequence number for exec commands
+	connId           string                        // session key for the connection
+	cancel           context.CancelFunc            // function to cancel the context
+	log              *zerolog.Logger               // logger instance, reused from server
+	userStr          *models.UserStr               // user string information
+	clientIP         string                        // client IP address (detected from proxy protocol if available)
+	clientPort       int                           // client port (detected from proxy protocol if available)
+	identity         *identity.IdentityClient      // identity client for interacting with the identity service
+	sessionClient    *sessionc.Client              // gRPC client for session tracking
 	k8shelldCfg      gapi.ClientConfig             // k8shelld client configuration
 	k8shelld         workspace.K8shelldClient      // client for interacting with the workspace k8shelld daemon
 	k8shelldVer      string                        // version of the k8shelld daemon
@@ -55,13 +58,16 @@ type Connection struct {
 	session          *Session                      // SSH session information
 	directTCPIP      *sync.Map                     // direct TCP/IP connection information
 	directTCPIPCount int64                         // current count of direct TCP/IP connections
-	counters         *api.ConnCounters             // connection counters
+	counters         *k8shelld.ConnCounters        // connection counters
 	workspaceName    string                        // name of the workspace
 	channelInfoMu    sync.RWMutex                  // mutex for synchronizing access to channelInfo
 	channelInfo      []string                      // channel information
 	failureInfo      []string                      // failure information
 	reportStopCh     chan struct{}                 // channel to signal report goroutine to stop
 	reportWg         sync.WaitGroup                // wait group for report goroutine
+	ptyName          string                        // name of the allocated pseudo-terminal (if any)
+	userToken        string                        // user access token for the identity service
+	userTokenMu      sync.RWMutex                  // mutex for synchronizing access to userToken
 }
 
 // Session holds information about a user's SSH session
@@ -127,19 +133,20 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 		connInfo = connStates[connID]
 		if connInfo == nil {
 			ctx, cancel := context.WithCancel(context.Background())
+
 			connInfo = &Connection{
-				connId:       fmt.Sprintf("%s-%d-%s", GetProxyID(), os.Getpid(), strings.ToLower(rand.Text()[:2])),
-				log:          s.log,
-				identity:     s.identity,
-				sessionKV:    s.sessionKV,
-				k8shelldCfg:  s.Config.K8shelld,
-				userStr:      userStr,
-				directTCPIP:  &sync.Map{},
-				counters:     &api.ConnCounters{},
-				ctx:          ctx,
-				cancel:       cancel,
-				reportStopCh: make(chan struct{}),
-				onboardMu:    sync.RWMutex{},
+				connId:        fmt.Sprintf("%s-%d-%s", GetProxyID(), os.Getpid(), strings.ToLower(rand.Text()[:2])),
+				log:           s.log,
+				identity:      s.identity,
+				sessionClient: s.sessionClient,
+				k8shelldCfg:   s.Config.K8shelld,
+				userStr:       userStr,
+				directTCPIP:   &sync.Map{},
+				counters:      &k8shelld.ConnCounters{},
+				ctx:           ctx,
+				cancel:        cancel,
+				reportStopCh:  make(chan struct{}),
+				onboardMu:     sync.RWMutex{},
 			}
 			connStates[connID] = connInfo
 		}
@@ -194,7 +201,7 @@ func (c *Connection) Close() error {
 		c.k8shelld = nil
 	}
 
-	if c.sessionKV != nil {
+	if c.sessionClient != nil {
 		close(c.reportStopCh)
 		c.reportWg.Wait()
 	}
@@ -233,70 +240,53 @@ func (c *Connection) reportSessionData() {
 	}
 }
 
-// updateSession sends the current session update to the identity provider
+// SetPtyName sets the name of the allocated pseudo-terminal for the Connection object
+func (c *Connection) SetPtyName(ptyName string) {
+	c.ptyName = ptyName
+}
+
+// updateSession sends the current session update to the session gRPC service
 func (c *Connection) updateSession(action string) (bool, error) {
 	curIn, curOut := c.counters.Snapshot()
-	curChannels := c.GetChannelInfo()
-
 	t := time.Now().UTC()
 
-	e, err := c.sessionKV.Get(c.connId)
-	if errors.Is(err, nats.ErrKeyNotFound) && action == "create" {
-		d := models.SSHSession{
-			SessionID:   c.connId,
-			K8shelldVer: c.k8shelldVer,
-			ClientIP:    c.clientIP,
-			Client:      "",
-			Username:    c.user.Username,
-			Workspace:   c.workspaceName,
-			BytesIn:     curIn,
-			BytesOut:    curOut,
-			Channels:    curChannels,
-			StartTime:   &t,
-			UpdatedAt:   &t,
-			Blueprint:   c.userStr.Blueprint,
-		}
-		var payload []byte
-		payload, err = json.Marshal(d)
-		if err != nil {
-			return false, fmt.Errorf("failed to marshal session data: %w", err)
-		}
-		_, err = c.sessionKV.Create(c.connId, payload)
-	} else if err == nil {
-		var d models.SSHSession
-		err = json.Unmarshal(e.Value(), &d)
-		if err != nil {
-			return false, fmt.Errorf("failed to unmarshal session data: %w", err)
-		}
-
-		d.BytesIn = curIn
-		d.BytesOut = curOut
-		d.Channels = curChannels
-		d.UpdatedAt = &t
-
-		var payload []byte
-		payload, err = json.Marshal(d)
-		if err != nil {
-			return false, fmt.Errorf("failed to marshal session data: %w", err)
-		}
-		_, err = c.sessionKV.Update(c.connId, payload, e.Revision())
-	}
-
-	if errors.Is(err, nats.ErrKeyNotFound) {
-		// Key not found on update; close the connection
-		c.cancel()
-		return true, nil
-	} else if err != nil {
-		c.log.Debug().Msgf("Failed to update session data in cache: key=%s, err=%v", c.connId, err)
-	}
-
 	if action == "delete" {
-		err := c.sessionKV.Delete(c.connId)
+		_, err := c.sessionClient.EndSession(c.ctx, &sessionv1.EndSessionRequest{
+			SessionId: c.connId,
+			EndTime:   t.Unix(),
+			BytesIn:   curIn,
+			BytesOut:  curOut,
+		})
 		if err != nil {
-			c.log.Debug().Msgf("Failed to delete session data for user %s: %v", c.user.Username, err)
+			return false, fmt.Errorf("failed to end session: %w", err)
 		}
+		return false, nil
 	}
 
+	curChannels := c.GetChannelInfo()
+	d := &models.SSHSession{
+		SessionID:   c.connId,
+		K8shelldVer: c.k8shelldVer,
+		ClientIP:    c.clientIP,
+		Client:      "",
+		Username:    c.user.Username,
+		Workspace:   c.workspaceName,
+		BytesIn:     curIn,
+		BytesOut:    curOut,
+		Channels:    curChannels,
+		UpdatedAt:   &t,
+		Blueprint:   c.userStr.Blueprint,
+	}
+	if action == "create" {
+		d.StartTime = &t
+	}
+
+	_, err := c.sessionClient.UpsertSession(c.ctx, &sessionv1.UpsertSessionRequest{
+		Session: sessionc.ToProtobufSession(d),
+	})
+	if err != nil {
+		return false, fmt.Errorf("failed to upsert session: %w", err)
+	}
 	return false, nil
 }
 
@@ -328,11 +318,48 @@ func (c *Connection) GetOnboardCap() *models.OnboardCapability {
 	return c.onboardCap
 }
 
+// grpcClientMessage returns a clean single-line message from an error,
+// collapsing newlines and extra whitespace.
+func grpcClientMessage(err error) string {
+	msg := err.Error()
+	msg = strings.NewReplacer("\r", " ", "\n", " ").Replace(msg)
+	return strings.Join(strings.Fields(msg), " ")
+}
+
+// GetUserToken retrieves the user access token from the identity service
+func (c *Connection) GetUserToken() (string, error) {
+	c.userTokenMu.RLock()
+	if c.userToken != "" {
+		_, err := authz.ParseUnverifiedClaims(c.userToken, true)
+		if err == nil {
+			token := c.userToken
+			c.userTokenMu.RUnlock()
+			return token, nil
+		}
+	}
+	c.userTokenMu.RUnlock()
+
+	userToken, err := c.identity.GetUserAccessToken(c.ctx,
+		&identityv1.GetUserAccessTokenRequest{
+			Username: c.user.Username},
+	)
+	if err != nil {
+		return "", fmt.Errorf("failed to get access token for user %s: %w", c.user.Username, err)
+	}
+
+	token := userToken.GetAccessToken()
+	c.userTokenMu.Lock()
+	c.userToken = token
+	c.userTokenMu.Unlock()
+
+	return token, nil
+}
+
 // Handshake performs the handshake with the k8shelld daemon and ensures the workspace is ready
 // It checks the user validity and access to the specified workspace blueprint and starts
 // the workspace if it is not running. It also creates an SSH session record in the identity service.
 func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWriterOptions,
-	backends workspace.Backends, envVars []string) (workspace.K8shelldClient, error) {
+	backends workspace.Backends) (workspace.K8shelldClient, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -377,7 +404,8 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	}
 	infoWriter.WriteMessage(fmt.Sprintf("Connecting to the workspace at %s...", status.ServerName))
 
-	k8shelld, err := workspace.NewK8shelld(c.k8shelldCfg, status, c.counters)
+	k8shelld, err := workspace.NewK8shelld(c.k8shelldCfg, status, c.counters, c.user.Username,
+		c.connId, c.sessionClient)
 	if err != nil {
 		infoWriter.WriteSystemError(err.Error())
 		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.user.Username, err)
@@ -386,20 +414,18 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	c.log.Debug().Msgf("Connecting to k8shelld at %s:%d for user %s, version: %s",
 		status.ServerName, status.Port, c.user.Username, status.AppVersion)
 
-	handshake, err := k8shelld.Handshake(c.ctx, c.user, envVars)
+	handshake, err := k8shelld.Handshake(c.ctx)
 	if err != nil {
-		infoWriter.WriteSystemError(err.Error())
+		msg := grpcClientMessage(err)
+		if s, ok := grpcstatus.FromError(err); ok && s.Code() == grpccodes.Unavailable {
+			msg = "The workspace is unreachable. Please retry in a moment."
+		}
+		infoWriter.WriteSystemError(msg)
 		return nil, fmt.Errorf("handshake with k8shelld failed for user %s: %w", c.user.Username, err)
 	}
 	if !handshake.Accepted {
 		infoWriter.WriteSystemError("Connection to the workspace was rejected.")
 		return nil, fmt.Errorf("handshake with k8shelld failed for user %s", c.user.Username)
-	}
-	if writer != nil {
-		infoWriter.WriteMessage(fmt.Sprintf("Connected to k8shelld (version: %s)\r\n", handshake.ServerVersion))
-		if status.Splash != "" {
-			infoWriter.WriteSplash(status.Splash)
-		}
 	}
 
 	go func() {
@@ -416,7 +442,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	c.k8shelldVer = status.AppVersion
 	c.workspaceName = status.Name
 
-	if c.sessionKV != nil {
+	if c.sessionClient != nil {
 		c.reportWg.Add(1)
 		go c.reportSessionData()
 	}
@@ -424,21 +450,43 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	return c.k8shelld, nil
 }
 
-func (c *Connection) getCommandHandler(backends workspace.Backends, workspaceName string) api.CommandHandler {
+func (c *Connection) getCommandHandler(backends workspace.Backends, workspaceName string) k8shelld.CommandHandler {
 	return func(ctx context.Context, command string) (string, error) {
-		switch command {
+		parts := strings.SplitN(command, " ", 2)
+		switch parts[0] {
 		case "shutdown":
-			c.log.Debug().Msgf("Received k8shelld shutdown command for user %s, workspace %s",
-				c.user.Username, workspaceName)
-			_, err := backends.Provisioner().DeleteWorkspace(c.ctx,
-				&provisionerpb.DeleteWorkspaceRequest{Workspace: workspaceName, DelaySeconds: 2})
-			if err != nil {
-				c.log.Debug().Msgf("Failed to delete workspace for user %s, workspace %s: %v",
-					c.user.Username, workspaceName, err)
-				return "Cannot shutdown workspace due to an error.",
-					fmt.Errorf("failed to delete (shutdown) workspace: %w", err)
+			action := "stop"
+			if len(parts) == 2 {
+				action = parts[1]
 			}
-			return "Workspace shutdown has been initiated.", nil
+			c.log.Debug().Msgf("Received k8shelld shutdown command (action=%s) for user %s, workspace %s",
+				action, c.user.Username, workspaceName)
+			switch action {
+			case "delete":
+				_, err := backends.Provisioner().DeleteWorkspace(c.ctx,
+					&provisionerv1.DeleteWorkspaceRequest{Workspace: workspaceName, DelaySeconds: 2})
+				if err != nil {
+					c.log.Debug().Msgf("Failed to delete workspace for user %s, workspace %s: %v",
+						c.user.Username, workspaceName, err)
+					return "Cannot delete workspace due to an error.",
+						fmt.Errorf("failed to delete workspace: %w", err)
+				}
+				return "Workspace deletion has been initiated.", nil
+			case "stop":
+				_, err := backends.Provisioner().StopWorkspace(c.ctx,
+					&provisionerv1.StopWorkspaceRequest{Workspace: workspaceName, DelaySeconds: 2})
+				if err != nil {
+					c.log.Debug().Msgf("Failed to stop workspace for user %s, workspace %s: %v",
+						c.user.Username, workspaceName, err)
+					return "Cannot stop workspace due to an error.",
+						fmt.Errorf("failed to stop workspace: %w", err)
+				}
+				return "Workspace stop has been initiated.", nil
+			default:
+				c.log.Error().Msgf("Received unknown shutdown action %q for user %s, workspace %s",
+					action, c.user.Username, workspaceName)
+				return "", fmt.Errorf("unknown shutdown action %q, expected \"delete\" or \"stop\"", action)
+			}
 		}
 		c.log.Error().Msgf("Received unknown k8shelld command %q for user %s, workspace %s",
 			command, c.user.Username, workspaceName)
