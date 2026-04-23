@@ -303,7 +303,7 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 	rw := &workspace.ChannelAdapter{Channel: channel}
 	if err := k8shelld.RunShell(connInfo.ctx, userToken, connInfo.userStr.User, rw,
 		session.sessionId, session.env, session.termWidth, session.termHeight,
-		session.hasPTY, false, s.Config.Server.Recording.RecordShell, connInfo.SetPtyName); err != nil {
+		session.hasPTY, "", false, s.Config.Server.Recording.RecordShell, connInfo.SetPtyName); err != nil {
 		s.log.Error().Msgf("Shell session error: %v", err)
 	} else {
 		s.log.Debug().Msgf("Shell session %s completed for user %s", session.sessionId, session.username)
