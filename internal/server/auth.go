@@ -181,6 +181,12 @@ func (s *Server) checkAuthInteractiveResponse(ctx context.Context,
 		return nil, &ssh.PartialSuccessError{Next: ssh.ServerAuthCallbacks{KeyboardInteractiveCallback: s.AuthKeyboardInteractive}}
 	}
 
+	if _, err := s.identity.CompleteUserDeviceFlow(ctx, &identityv1.CompleteUserDeviceFlowRequest{
+		Provider: onboardInfo.Provider,
+		Username: onboardInfo.Username,
+	}); err != nil {
+		s.log.Error().Msgf("Failed to complete device flow for user %s: %v", onboardInfo.Username, err)
+	}
 	s.log.Info().Msgf("Onboarding completed for user %s", onboardInfo.Username)
 	return nil, s.getAvailableAuthMethods(auth)
 }
