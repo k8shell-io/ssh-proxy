@@ -414,7 +414,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	c.log.Debug().Msgf("Connecting to k8shelld at %s:%d for user %s, version: %s",
 		status.ServerName, status.Port, c.user.Username, status.AppVersion)
 
-	handshake, err := k8shelld.Handshake(c.ctx)
+	handshake, err := k8shelld.Handshake(c.ctx, "")
 	if err != nil {
 		msg := grpcClientMessage(err)
 		if s, ok := grpcstatus.FromError(err); ok && s.Code() == grpccodes.Unavailable {
