@@ -30,6 +30,7 @@ import (
 	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
+	"github.com/k8shell-io/common/pkg/userstr"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
@@ -42,7 +43,7 @@ type Connection struct {
 	connId           string                        // session key for the connection
 	cancel           context.CancelFunc            // function to cancel the context
 	log              *zerolog.Logger               // logger instance, reused from server
-	userStr          *models.UserStr               // user string information
+	userStr          *userstr.UserStr              // user string information
 	clientIP         string                        // client IP address (detected from proxy protocol if available)
 	clientPort       int                           // client port (detected from proxy protocol if available)
 	identity         *identity.IdentityClient      // identity client for interacting with the identity service
@@ -112,12 +113,12 @@ func GetConnectionByAddress(remoteAddr string) *Connection {
 func RemoveState(state *Connection) {
 	connStatesMutex.Lock()
 	defer connStatesMutex.Unlock()
-	delete(connStates, fmt.Sprintf("connid-%s", state.userStr.Username))
+	delete(connStates, fmt.Sprintf("connid-%s", state.userStr.Username()))
 }
 
 // GetConnInfo retrieves or creates a Connection object for the given ssh.ConnMetadata
 func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
-	userStr, err := models.NewUserStr(conn.User(), true)
+	userStr, err := userstr.ParseUserStr(conn.User())
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse user string: %w", err)
 	}
@@ -275,7 +276,7 @@ func (c *Connection) updateSession(action string) (bool, error) {
 		BytesOut:    curOut,
 		Channels:    curChannels,
 		UpdatedAt:   &t,
-		Blueprint:   c.userStr.Blueprint,
+		Blueprint:   c.userStr.Blueprint(),
 	}
 	if action == "create" {
 		d.StartTime = &t
@@ -369,12 +370,6 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 
 	infoWriter := workspace.NewInfoWriter(writer, writerOptions)
 
-	if c.userStr.ValidationError != nil {
-		infoWriter.WriteError("Invalid user string: " + c.userStr.ValidationError.Error())
-		return nil, fmt.Errorf("invalid user string for user %s: %w",
-			c.userStr.Username, c.userStr.ValidationError)
-	}
-
 	if !c.user.IsValid {
 		infoWriter.WriteError("User is not valid. Please contact the system administrator.")
 		return nil, fmt.Errorf("user %q is not valid", c.user.Username)
@@ -385,11 +380,11 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 		return nil, fmt.Errorf("user %s is locked", c.user.Username)
 	}
 
-	if c.userStr.BlueprintKind != models.BlueprintKindCustom && !c.user.HasBlueprint(c.userStr.Blueprint) {
+	if c.userStr.BlueprintKind() != userstr.BlueprintKindCustom && !c.user.HasBlueprint(c.userStr.Blueprint()) {
 		infoWriter.WriteError(fmt.Sprintf("Access denied: user %s does not have access to blueprint %s.",
-			c.user.Username, c.userStr.Blueprint))
+			c.user.Username, c.userStr.Blueprint()))
 		return nil, fmt.Errorf("user %s does not have access to blueprint %s",
-			c.user.Username, c.userStr.Blueprint)
+			c.user.Username, c.userStr.Blueprint())
 	}
 
 	status, err := workspace.EnsureWorkspace(c.ctx, c.userStr, infoWriter, backends)
@@ -400,7 +395,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 		} else {
 			infoWriter.WriteSystemError(err.Error())
 		}
-		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.userStr.Username, err)
+		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.userStr.Username(), err)
 	}
 	infoWriter.WriteMessage(fmt.Sprintf("Connecting to the workspace at %s...", status.ServerName))
 

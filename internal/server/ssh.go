@@ -24,11 +24,9 @@ import (
 	"github.com/k8shell-io/common/pkg/api/client/identity"
 	"github.com/k8shell-io/common/pkg/api/client/provisioner"
 	sessionc "github.com/k8shell-io/common/pkg/api/client/session"
-	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
 	"github.com/k8shell-io/common/pkg/gapi"
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
-	"github.com/k8shell-io/common/pkg/nats"
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
@@ -106,8 +104,6 @@ func NewServer(configPath string) (*Server, error) {
 			return nil, fmt.Errorf("failed to create identity client: %w", err)
 		}
 
-		models.SetRefResolver(server)
-
 		server.nats, err = natsc.NewNATSClient(config.Nats)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create NATS client: %w", err)
@@ -150,29 +146,6 @@ func (s *Server) Provisioner() *provisioner.Client {
 // Backends interface implementation.
 func (s *Server) Identity() *identity.IdentityClient {
 	return s.identity
-}
-
-// ResolvePullRequestRef resolves a pull request number to a git reference string.
-func (s *Server) ResolvePullRequestRef(username string, repoOwner, repoName string, prNumber int) (string, error) {
-	ctx := context.Background()
-	ref, err := nats.Fetch(ctx, s.userstrKV, fmt.Sprintf("pr-ref-%s-%s-%s-%d",
-		username, repoOwner, repoName, prNumber),
-		func(ctx context.Context) (string, error) {
-			t := time.Now()
-			ref, err := s.Identity().ResolvePullRequestToRef(ctx, &identityv1.RepoPullRequestRequest{
-				Username:          username,
-				RepoOwner:         repoOwner,
-				RepoName:          repoName,
-				PullRequestNumber: int32(prNumber), // #nosec G115 -- prNumber is validated upstream}
-			})
-			if err != nil {
-				return "", fmt.Errorf("failed to resolve pull request #%d to ref: %w", prNumber, err)
-			}
-			s.log.Debug().Msgf("Resolved pull request #%d to ref %s in %v", prNumber, ref.GetRepoRef(), time.Since(t))
-			return ref.GetRepoRef(), nil
-		},
-	)
-	return ref, err
 }
 
 // initSSHConfig initializes the SSH server configuration with callbacks and host key.
@@ -251,8 +224,6 @@ func HandleConnectionChildProcess(configPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to create NATS client: %w", err)
 	}
-
-	models.SetRefResolver(server)
 
 	if server.nats != nil {
 		server.userstrKV, err = server.nats.NewKV(natsc.BucketOptions{
@@ -363,7 +334,7 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 				failureInfo := []string{}
 				failureInfo = append(failureInfo, connInfo.failureInfo...)
 				failureInfo = append(failureInfo, string(err.Error()))
-				err := s.fpub.PublishFailure(ip, port, connInfo.userStr.Username, failureInfo)
+				err := s.fpub.PublishFailure(ip, port, connInfo.userStr.Username(), failureInfo)
 				if err != nil {
 					s.log.Error().Msgf("Failed to publish failure: %v", err)
 				}

@@ -18,9 +18,12 @@ import (
 	provisionerv1 "github.com/k8shell-io/common/pkg/api/gen/go/provisioner/v1"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
+	"github.com/k8shell-io/common/pkg/userstr"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+const PROVISION_TIMEOUT = 120 * time.Second
 
 // ProvisionError represents an error that occurred during provisioning.
 type ProvisionError struct {
@@ -248,19 +251,19 @@ func (w *InfoWriter) EndProvisioning(hasError bool) {
 }
 
 // EnsureWorkspace checks if a workspace exists for the user and provisions it if not.
-func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoWriter,
+func EnsureWorkspace(ctx context.Context, userStr *userstr.UserStr, writer *InfoWriter,
 	backends Backends) (*models.WorkspaceDetails, error) {
 
 	canUserStr, err := userStr.Canonicalize()
 	if err != nil {
-		return nil, fmt.Errorf("failed to canonicalize user string for user %s: %w", userStr.Username, err)
+		return nil, fmt.Errorf("failed to canonicalize user string for user %s: %w", userStr.Username(), err)
 	}
 
 	wsStatus, err := backends.Provisioner().FindWorkspace(ctx,
-		&provisionerv1.FindWorkspaceRequest{Workspace: canUserStr.WorkspaceName})
+		&provisionerv1.FindWorkspaceRequest{Workspace: canUserStr.WorkspaceName()})
 	if err != nil {
 		if status.Code(err) != codes.NotFound {
-			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
+			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username(), err)
 		}
 	} else {
 		switch models.WorkspaceStatusMessage(wsStatus.GetWorkspaceStatus().GetStatus()) {
@@ -271,15 +274,15 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 		}
 	}
 
-	wsname, err := provisionWorkspace(ctx, canUserStr.CanonicalUserStrObj, writer, backends)
+	wsname, err := provisionWorkspace(ctx, canUserStr.CanonicalUserStrObj(), writer, backends)
 	if err != nil {
-		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.Username, err)
+		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.Username(), err)
 	}
 
 	wsStatus, err = backends.Provisioner().FindWorkspace(ctx,
 		&provisionerv1.FindWorkspaceRequest{Workspace: wsname})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username, err)
+		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username(), err)
 	}
 
 	if wsStatus.GetWorkspaceStatus().GetStatus() == string(models.WorkspaceStatusRunning) {
@@ -287,11 +290,11 @@ func EnsureWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoW
 	}
 
 	return nil, fmt.Errorf("failed to ensure workspace for user %s: workspace status is %q",
-		userStr.Username, wsStatus.GetWorkspaceStatus().GetStatus())
+		userStr.Username(), wsStatus.GetWorkspaceStatus().GetStatus())
 }
 
 // provisionWorkspace provisions a new workspace for the user.
-func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer *InfoWriter,
+func provisionWorkspace(ctx context.Context, userStr *userstr.UserStr, writer *InfoWriter,
 	backends Backends) (string, error) {
 	var (
 		name     string
@@ -303,9 +306,10 @@ func provisionWorkspace(ctx context.Context, userStr *models.UserStr, writer *In
 		writer.EndProvisioning(eventErr != nil)
 	}()
 
-	_, _, stream, err := backends.Provisioner().ProvisionHandshake(ctx, *userStr, 20)
+	timeout := int32(PROVISION_TIMEOUT / time.Second)
+	_, _, stream, err := backends.Provisioner().ProvisionHandshake(ctx, *userStr, timeout)
 	if err != nil {
-		return "", fmt.Errorf("handshake failed for user %s: %w", userStr.Username, err)
+		return "", fmt.Errorf("handshake failed for user %s: %w", userStr.Username(), err)
 	}
 
 loop:
