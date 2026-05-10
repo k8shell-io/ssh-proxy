@@ -67,7 +67,6 @@ type Connection struct {
 	reportStopCh     chan struct{}                 // channel to signal report goroutine to stop
 	reportWg         sync.WaitGroup                // wait group for report goroutine
 	ptyName          string                        // name of the allocated pseudo-terminal (if any)
-	userToken        string                        // user access token for the identity service
 	userTokenMu      sync.RWMutex                  // mutex for synchronizing access to userToken
 }
 
@@ -89,6 +88,54 @@ type Session struct {
 // Global state storage
 var connStates = make(map[string]*Connection)
 var connStatesMutex sync.RWMutex
+
+// TokenCacheEntry represents a cached user token with metadata
+type TokenCacheEntry struct {
+	Token     string
+	ExpiresAt time.Time
+}
+
+// Time before actual expiration to consider the token expired
+const TokenExpirySkew = 2 * time.Minute
+
+// userTokenCache stores user tokens with thread-safe access
+var userTokenCache = make(map[string]*TokenCacheEntry)
+var userTokenCacheMutex sync.RWMutex
+
+// getCachedUserToken retrieves a user token from the cache if it exists and is not expired
+func getCachedUserToken(user *models.User) (string, bool) {
+	userTokenCacheMutex.RLock()
+	defer userTokenCacheMutex.RUnlock()
+
+	entry, exists := userTokenCache[user.Username+user.Source]
+	if !exists {
+		return "", false
+	}
+
+	if time.Until(entry.ExpiresAt) < TokenExpirySkew {
+		return "", false
+	}
+
+	return entry.Token, true
+}
+
+// setCachedUserToken stores a user token in the cache with expiration time
+func setCachedUserToken(user *models.User, token string) error {
+	claims, err := authz.ParseUnverifiedClaims(token, true)
+	if err != nil {
+		return fmt.Errorf("failed to parse token claims: %w", err)
+	}
+
+	userTokenCacheMutex.Lock()
+	defer userTokenCacheMutex.Unlock()
+
+	userTokenCache[user.Username+user.Source] = &TokenCacheEntry{
+		Token:     token,
+		ExpiresAt: claims.ExpiresAt.Time,
+	}
+
+	return nil
+}
 
 // SESSION_UPDATE_INTERVAL defines the interval for session updates
 const SESSION_UPDATE_INTERVAL = 10 * time.Second
@@ -327,33 +374,26 @@ func grpcClientMessage(err error) string {
 	return strings.Join(strings.Fields(msg), " ")
 }
 
-// GetUserToken retrieves the user access token from the identity service
+// GetUserToken retrieves the user access token from the cache or the identity service.
 func (c *Connection) GetUserToken() (string, error) {
-	c.userTokenMu.RLock()
-	if c.userToken != "" {
-		_, err := authz.ParseUnverifiedClaims(c.userToken, true)
-		if err == nil {
-			token := c.userToken
-			c.userTokenMu.RUnlock()
-			return token, nil
-		}
+	if cachedToken, found := getCachedUserToken(c.user); found {
+		return cachedToken, nil
 	}
-	c.userTokenMu.RUnlock()
 
-	userToken, err := c.identity.GetUserAccessToken(c.ctx,
-		&identityv1.GetUserAccessTokenRequest{
-			Username: c.user.Username},
+	token, err := c.identity.IssueUserToken(c.ctx,
+		&identityv1.IssueUserTokenRequest{
+			Username: c.user.Username,
+			Source:   c.user.Source},
 	)
 	if err != nil {
-		return "", fmt.Errorf("failed to get access token for user %s: %w", c.user.Username, err)
+		return "", fmt.Errorf("failed to issue access token for user %s: %w", c.user.Username, err)
 	}
 
-	token := userToken.GetAccessToken()
-	c.userTokenMu.Lock()
-	c.userToken = token
-	c.userTokenMu.Unlock()
+	if err := setCachedUserToken(c.user, token.GetUserToken()); err != nil {
+		c.log.Debug().Msgf("Failed to cache token for user %s: %v", c.user.Username, err)
+	}
 
-	return token, nil
+	return token.GetUserToken(), nil
 }
 
 // Handshake performs the handshake with the k8shelld daemon and ensures the workspace is ready

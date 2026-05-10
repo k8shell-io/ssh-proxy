@@ -39,6 +39,10 @@ github.com/k8shell-io/common v0.20.3 h1:PD9cvarLo6SRyUb5KJjx/lUe8h4ad4UJ5pOCcVnI
 github.com/k8shell-io/common v0.20.3/go.mod h1:E8dsb9ta4v3ne61AJgtRyTTbTkMMmKeCMAcXD+/9+cY=
 github.com/k8shell-io/common v0.20.6 h1:x0wim6hehlQ31ZDTx2A3af6qtkMdDJEJ1Uqv3p5Wo84=
 github.com/k8shell-io/common v0.20.6/go.mod h1:E8dsb9ta4v3ne61AJgtRyTTbTkMMmKeCMAcXD+/9+cY=
+github.com/k8shell-io/common v0.20.9 h1:NVj07NIzcFe4Bm2JWrqxr2A9KihCdg3E0M5GpqXpuz8=
+github.com/k8shell-io/common v0.20.9/go.mod h1:E8dsb9ta4v3ne61AJgtRyTTbTkMMmKeCMAcXD+/9+cY=
+github.com/k8shell-io/common v0.20.10 h1:C6zgFnQfLDc2zmO/fYi6h+TY2XeVE3SAQ+dir0V9izo=
+github.com/k8shell-io/common v0.20.10/go.mod h1:E8dsb9ta4v3ne61AJgtRyTTbTkMMmKeCMAcXD+/9+cY=
 github.com/k8shell-io/crypto v0.41.1-ssh-proxy h1:8+q6Ofc2ky23Oc9iNyiq8aeiQBIP+y3+O6zzHqe1f48=
 github.com/k8shell-io/crypto v0.41.1-ssh-proxy/go.mod h1:RVZeOJCpqtogniULztSXQESKJCfcI8WCxsS0FagMA8U=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
