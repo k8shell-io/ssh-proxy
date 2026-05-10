@@ -67,7 +67,6 @@ type Connection struct {
 	reportStopCh     chan struct{}                 // channel to signal report goroutine to stop
 	reportWg         sync.WaitGroup                // wait group for report goroutine
 	ptyName          string                        // name of the allocated pseudo-terminal (if any)
-	userTokenMu      sync.RWMutex                  // mutex for synchronizing access to userToken
 }
 
 // Session holds information about a user's SSH session
