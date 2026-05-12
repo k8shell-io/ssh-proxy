@@ -19,8 +19,6 @@ import (
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/common/pkg/userstr"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 )
 
 const PROVISION_TIMEOUT = 120 * time.Second
@@ -259,21 +257,18 @@ func EnsureWorkspace(ctx context.Context, userStr *userstr.UserStr, writer *Info
 		return nil, fmt.Errorf("failed to canonicalize user string for user %s: %w", userStr.Username(), err)
 	}
 
-	wsStatus, err := backends.Provisioner().FindWorkspace(ctx,
-		&provisionerv1.FindWorkspaceRequest{Workspace: canUserStr.WorkspaceName()})
+	ws, err := backends.Provisioner().GetWorkspacesByUserStr(ctx,
+		&provisionerv1.GetWorkspacesByUserStrRequest{Userstr: canUserStr.CanonicalUserStr()})
 	if err != nil {
-		if status.Code(err) != codes.NotFound {
-			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username(), err)
-		} else if canUserStr.CanonicalUserStrObj().Pod() != "" {
-			return nil, fmt.Errorf("workspace %s not found for user %s", canUserStr.WorkspaceName(), userStr.Username())
+		return nil, fmt.Errorf("failed to get workspaces for user %s: %w", userStr.Username(), err)
+	}
+	if len(ws.Workspaces) > 0 {
+		for _, wsDetails := range ws.Workspaces {
+			if wsDetails.GetWorkspaceStatus().GetStatus() == string(models.WorkspaceStatusRunning) {
+				return gapi.ProtoToWorkspaceDetails(wsDetails), nil
+			}
 		}
-	} else {
-		switch models.WorkspaceStatusMessage(wsStatus.GetWorkspaceStatus().GetStatus()) {
-		case models.WorkspaceStatusRunning:
-			return gapi.ProtoToWorkspaceDetails(wsStatus), nil
-		case models.WorkspaceStatusTerminating:
-			return nil, &ProvisionError{Message: "The workspace is currently shutting down. Please retry in a moment."}
-		}
+		return nil, &ProvisionError{Message: "No running workspace found. Please retry in a moment."}
 	}
 
 	wsname, err := provisionWorkspace(ctx, canUserStr.CanonicalUserStrObj(), writer, backends)
@@ -281,7 +276,7 @@ func EnsureWorkspace(ctx context.Context, userStr *userstr.UserStr, writer *Info
 		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.Username(), err)
 	}
 
-	wsStatus, err = backends.Provisioner().FindWorkspace(ctx,
+	wsStatus, err := backends.Provisioner().FindWorkspace(ctx,
 		&provisionerv1.FindWorkspaceRequest{Workspace: wsname})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username(), err)
