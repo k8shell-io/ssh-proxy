@@ -51,18 +51,18 @@ nats:
   password: !file ${SECRET_FILES}/sshproxy_nats_token
 
 identity:
-  address: bruckins-identity.k8shell-io:9020 #identity.k8shell-test:9020
+  address: identity.k8shell-staging:9020 #identity.k8shell-test:9020
   tokenFilePath: /opt/shared/auth/api-server/identity-token
   # caCertPath: /opt/shared/auth/ca.crt
   # serverName: identity.k8shell-test.svc
 
 session:
-  address: bruckins-session.k8shell-io:9010
+  address: session.k8shell-staging:9010
   tokenFilePath: /opt/shared/auth/api-server/session-token
   # caCertPath: /opt/shared/auth/ca.crt
   # serverName: session.k8shell-test.svc
 provisioner:
-  address: bruckins-provisioner.k8shell-io:9030 #provisioner.k8shell-test:9030 # 10.42.2.194:9030 
+  address: 10.42.1.229:9030 #provisioner.k8shell-test:9030 # 10.42.2.194:9030 
   tokenFilePath: /opt/shared/auth/api-server/provisioner-token
   # caCertPath: /opt/shared/auth/ca.crt
   # serverName: provisioner.k8shell-test.svc

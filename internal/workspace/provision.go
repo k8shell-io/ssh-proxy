@@ -264,6 +264,8 @@ func EnsureWorkspace(ctx context.Context, userStr *userstr.UserStr, writer *Info
 	if err != nil {
 		if status.Code(err) != codes.NotFound {
 			return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username(), err)
+		} else if canUserStr.CanonicalUserStrObj().Pod() != "" {
+			return nil, fmt.Errorf("workspace %s not found for user %s", canUserStr.WorkspaceName(), userStr.Username())
 		}
 	} else {
 		switch models.WorkspaceStatusMessage(wsStatus.GetWorkspaceStatus().GetStatus()) {
