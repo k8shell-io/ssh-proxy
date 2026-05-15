@@ -275,7 +275,7 @@ func EnsureWorkspace(ctx context.Context, userStr *userstr.UserStr, writer *Info
 	}
 
 	if userStr.Pod() != "" {
-		return nil, fmt.Errorf("%w: no workspace found", ErrWorkspaceNotFound)
+		return nil, fmt.Errorf("%w: pod=%s, ns=%s", ErrWorkspaceNotFound, userStr.Pod(), userStr.Namespace(""))
 	}
 
 	wsname, err := provisionWorkspace(ctx, canUserStr.CanonicalUserStrObj(), writer, backends)
