@@ -428,9 +428,8 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 
 	status, err := workspace.EnsureWorkspace(c.ctx, c.userStr, infoWriter, backends)
 	if err != nil {
-		var provisionErr *workspace.ProvisionError
-		if errors.As(err, &provisionErr) {
-			infoWriter.WriteError(provisionErr.Message)
+		if errors.Is(err, workspace.ErrWorkspaceNotFound) || errors.Is(err, workspace.ErrProvisionFailed) {
+			infoWriter.WriteError(err.Error())
 		} else {
 			infoWriter.WriteSystemError(err.Error())
 		}

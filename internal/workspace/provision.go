@@ -24,14 +24,17 @@ import (
 const PROVISION_TIMEOUT = 120 * time.Second
 
 // ProvisionError represents an error that occurred during provisioning.
-type ProvisionError struct {
-	Message string
-}
+// type ProvisionError struct {
+// 	Message string
+// }
 
 // Error returns the error message.
-func (e *ProvisionError) Error() string {
-	return e.Message
-}
+// func (e *ProvisionError) Error() string {
+// 	return e.Message
+// }
+
+var ErrProvisionFailed = fmt.Errorf("workspace provisioning failed")
+var ErrWorkspaceNotFound = fmt.Errorf("workspace not found")
 
 // Backends defines an interface for accessing backend services.
 type Backends interface {
@@ -268,12 +271,16 @@ func EnsureWorkspace(ctx context.Context, userStr *userstr.UserStr, writer *Info
 				return gapi.ProtoToWorkspaceDetails(wsDetails), nil
 			}
 		}
-		return nil, &ProvisionError{Message: "No running workspace found. Please retry in a moment."}
+		return nil, fmt.Errorf("%w: no running workspaces found. Please try again later.", ErrWorkspaceNotFound)
+	}
+
+	if userStr.Pod() != "" {
+		return nil, fmt.Errorf("%w: no workspace found", ErrWorkspaceNotFound)
 	}
 
 	wsname, err := provisionWorkspace(ctx, canUserStr.CanonicalUserStrObj(), writer, backends)
 	if err != nil {
-		return nil, fmt.Errorf("failed to provision workspace for user %s: %w", userStr.Username(), err)
+		return nil, fmt.Errorf("%w: failed to provision workspace", err)
 	}
 
 	wsStatus, err := backends.Provisioner().FindWorkspace(ctx,
@@ -353,7 +360,7 @@ loop:
 	}
 
 	if eventErr != nil {
-		return "", &ProvisionError{Message: eventErr.Error()}
+		return "", fmt.Errorf("%w: provisioning failed: %s", ErrProvisionFailed, eventErr.Error())
 	}
 	if name == "" {
 		return "", fmt.Errorf("provisioning completed but no running workspace name received")
