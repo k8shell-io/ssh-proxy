@@ -30,6 +30,7 @@ import (
 	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
+	"github.com/k8shell-io/common/pkg/userstr"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
@@ -42,7 +43,7 @@ type Connection struct {
 	connId           string                        // session key for the connection
 	cancel           context.CancelFunc            // function to cancel the context
 	log              *zerolog.Logger               // logger instance, reused from server
-	userStr          *models.UserStr               // user string information
+	userStr          *userstr.UserStr              // user string information
 	clientIP         string                        // client IP address (detected from proxy protocol if available)
 	clientPort       int                           // client port (detected from proxy protocol if available)
 	identity         *identity.IdentityClient      // identity client for interacting with the identity service
@@ -66,8 +67,6 @@ type Connection struct {
 	reportStopCh     chan struct{}                 // channel to signal report goroutine to stop
 	reportWg         sync.WaitGroup                // wait group for report goroutine
 	ptyName          string                        // name of the allocated pseudo-terminal (if any)
-	userToken        string                        // user access token for the identity service
-	userTokenMu      sync.RWMutex                  // mutex for synchronizing access to userToken
 }
 
 // Session holds information about a user's SSH session
@@ -88,6 +87,54 @@ type Session struct {
 // Global state storage
 var connStates = make(map[string]*Connection)
 var connStatesMutex sync.RWMutex
+
+// TokenCacheEntry represents a cached user token with metadata
+type TokenCacheEntry struct {
+	Token     string
+	ExpiresAt time.Time
+}
+
+// Time before actual expiration to consider the token expired
+const TokenExpirySkew = 2 * time.Minute
+
+// userTokenCache stores user tokens with thread-safe access
+var userTokenCache = make(map[string]*TokenCacheEntry)
+var userTokenCacheMutex sync.RWMutex
+
+// getCachedUserToken retrieves a user token from the cache if it exists and is not expired
+func getCachedUserToken(user *models.User) (string, bool) {
+	userTokenCacheMutex.RLock()
+	defer userTokenCacheMutex.RUnlock()
+
+	entry, exists := userTokenCache[user.Username+user.Source]
+	if !exists {
+		return "", false
+	}
+
+	if time.Until(entry.ExpiresAt) < TokenExpirySkew {
+		return "", false
+	}
+
+	return entry.Token, true
+}
+
+// setCachedUserToken stores a user token in the cache with expiration time
+func setCachedUserToken(user *models.User, token string) error {
+	claims, err := authz.ParseUnverifiedClaims(token, true)
+	if err != nil {
+		return fmt.Errorf("failed to parse token claims: %w", err)
+	}
+
+	userTokenCacheMutex.Lock()
+	defer userTokenCacheMutex.Unlock()
+
+	userTokenCache[user.Username+user.Source] = &TokenCacheEntry{
+		Token:     token,
+		ExpiresAt: claims.ExpiresAt.Time,
+	}
+
+	return nil
+}
 
 // SESSION_UPDATE_INTERVAL defines the interval for session updates
 const SESSION_UPDATE_INTERVAL = 10 * time.Second
@@ -112,12 +159,12 @@ func GetConnectionByAddress(remoteAddr string) *Connection {
 func RemoveState(state *Connection) {
 	connStatesMutex.Lock()
 	defer connStatesMutex.Unlock()
-	delete(connStates, fmt.Sprintf("connid-%s", state.userStr.Username))
+	delete(connStates, fmt.Sprintf("connid-%s", state.userStr.Username()))
 }
 
 // GetConnInfo retrieves or creates a Connection object for the given ssh.ConnMetadata
 func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
-	userStr, err := models.NewUserStr(conn.User(), true)
+	userStr, err := userstr.ParseUserStr(conn.User())
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse user string: %w", err)
 	}
@@ -275,7 +322,7 @@ func (c *Connection) updateSession(action string) (bool, error) {
 		BytesOut:    curOut,
 		Channels:    curChannels,
 		UpdatedAt:   &t,
-		Blueprint:   c.userStr.Blueprint,
+		Blueprint:   c.userStr.Blueprint(),
 	}
 	if action == "create" {
 		d.StartTime = &t
@@ -326,33 +373,26 @@ func grpcClientMessage(err error) string {
 	return strings.Join(strings.Fields(msg), " ")
 }
 
-// GetUserToken retrieves the user access token from the identity service
+// GetUserToken retrieves the user access token from the cache or the identity service.
 func (c *Connection) GetUserToken() (string, error) {
-	c.userTokenMu.RLock()
-	if c.userToken != "" {
-		_, err := authz.ParseUnverifiedClaims(c.userToken, true)
-		if err == nil {
-			token := c.userToken
-			c.userTokenMu.RUnlock()
-			return token, nil
-		}
+	if cachedToken, found := getCachedUserToken(c.user); found {
+		return cachedToken, nil
 	}
-	c.userTokenMu.RUnlock()
 
-	userToken, err := c.identity.GetUserAccessToken(c.ctx,
-		&identityv1.GetUserAccessTokenRequest{
-			Username: c.user.Username},
+	token, err := c.identity.IssueUserToken(c.ctx,
+		&identityv1.IssueUserTokenRequest{
+			Username: c.user.Username,
+			Source:   c.user.Source},
 	)
 	if err != nil {
-		return "", fmt.Errorf("failed to get access token for user %s: %w", c.user.Username, err)
+		return "", fmt.Errorf("failed to issue access token for user %s: %w", c.user.Username, err)
 	}
 
-	token := userToken.GetAccessToken()
-	c.userTokenMu.Lock()
-	c.userToken = token
-	c.userTokenMu.Unlock()
+	if err := setCachedUserToken(c.user, token.GetUserToken()); err != nil {
+		c.log.Debug().Msgf("Failed to cache token for user %s: %v", c.user.Username, err)
+	}
 
-	return token, nil
+	return token.GetUserToken(), nil
 }
 
 // Handshake performs the handshake with the k8shelld daemon and ensures the workspace is ready
@@ -369,12 +409,6 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 
 	infoWriter := workspace.NewInfoWriter(writer, writerOptions)
 
-	if c.userStr.ValidationError != nil {
-		infoWriter.WriteError("Invalid user string: " + c.userStr.ValidationError.Error())
-		return nil, fmt.Errorf("invalid user string for user %s: %w",
-			c.userStr.Username, c.userStr.ValidationError)
-	}
-
 	if !c.user.IsValid {
 		infoWriter.WriteError("User is not valid. Please contact the system administrator.")
 		return nil, fmt.Errorf("user %q is not valid", c.user.Username)
@@ -385,22 +419,21 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 		return nil, fmt.Errorf("user %s is locked", c.user.Username)
 	}
 
-	if c.userStr.BlueprintKind != models.BlueprintKindCustom && !c.user.HasBlueprint(c.userStr.Blueprint) {
+	if c.userStr.BlueprintKind() != userstr.BlueprintKindCustom && !c.user.HasBlueprint(c.userStr.Blueprint()) {
 		infoWriter.WriteError(fmt.Sprintf("Access denied: user %s does not have access to blueprint %s.",
-			c.user.Username, c.userStr.Blueprint))
+			c.user.Username, c.userStr.Blueprint()))
 		return nil, fmt.Errorf("user %s does not have access to blueprint %s",
-			c.user.Username, c.userStr.Blueprint)
+			c.user.Username, c.userStr.Blueprint())
 	}
 
 	status, err := workspace.EnsureWorkspace(c.ctx, c.userStr, infoWriter, backends)
 	if err != nil {
-		var provisionErr *workspace.ProvisionError
-		if errors.As(err, &provisionErr) {
-			infoWriter.WriteError(provisionErr.Message)
+		if errors.Is(err, workspace.ErrWorkspaceNotFound) || errors.Is(err, workspace.ErrProvisionFailed) {
+			infoWriter.WriteError(err.Error())
 		} else {
 			infoWriter.WriteSystemError(err.Error())
 		}
-		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.userStr.Username, err)
+		return nil, fmt.Errorf("failed to ensure workspace for user %s: %w", c.userStr.Username(), err)
 	}
 	infoWriter.WriteMessage(fmt.Sprintf("Connecting to the workspace at %s...", status.ServerName))
 
@@ -414,7 +447,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	c.log.Debug().Msgf("Connecting to k8shelld at %s:%d for user %s, version: %s",
 		status.ServerName, status.Port, c.user.Username, status.AppVersion)
 
-	handshake, err := k8shelld.Handshake(c.ctx)
+	handshake, err := k8shelld.Handshake(c.ctx, "")
 	if err != nil {
 		msg := grpcClientMessage(err)
 		if s, ok := grpcstatus.FromError(err); ok && s.Code() == grpccodes.Unavailable {
