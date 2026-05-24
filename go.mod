@@ -1,6 +1,6 @@
 module github.com/k8shell-io/ssh-proxy
 
-go 1.26.3
+go 1.24.5
 
 require (
 	github.com/k8shell-io/common v0.21.0
