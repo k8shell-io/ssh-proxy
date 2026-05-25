@@ -334,14 +334,19 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 				failureInfo := []string{}
 				failureInfo = append(failureInfo, connInfo.failureInfo...)
 				failureInfo = append(failureInfo, string(err.Error()))
-				err := s.fpub.PublishFailure(ip, port, connInfo.userStr.Username(), failureInfo)
-				if err != nil {
-					s.log.Error().Msgf("Failed to publish failure: %v", err)
+				pubErr := s.fpub.PublishFailure(ip, port, connInfo.userStr.Username(), failureInfo)
+				if pubErr != nil {
+					s.log.Error().Msgf("Failed to publish failure: %v", pubErr)
 				}
 			}
 
 			connInfo.Close()
 			RemoveState(connInfo)
+		} else if s.fpub != nil {
+			pubErr := s.fpub.PublishFailure(ip, port, "", []string{err.Error()})
+			if pubErr != nil {
+				s.log.Error().Msgf("Failed to publish failure: %v", pubErr)
+			}
 		}
 		return
 	}
