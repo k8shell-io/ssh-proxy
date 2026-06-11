@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"golang.org/x/crypto/ssh"
 )
@@ -89,6 +90,16 @@ func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connectio
 	userToken, err := connInfo.GetUserToken()
 	if err != nil {
 		s.log.Error().Msgf("Failed to get user token for user %s: %v", connInfo.user.Username, err)
+		return
+	}
+
+	if authzErr := s.checkSSHAuthz(connInfo.ctx, userToken,
+		authz.NewSSHEvalRequest(authz.SSHActionDirectTCPIP, connInfo.workspaceName).
+			WithOwner(connInfo.user.Username).
+			WithHost(tcpipInfo.destHost).
+			WithPort(fmt.Sprintf("%d", tcpipInfo.destPort)),
+	); authzErr != nil {
+		s.log.Warn().Msgf("SSH direct-tcpip denied for user %s: %v", connInfo.user.Username, authzErr)
 		return
 	}
 

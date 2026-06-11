@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"golang.org/x/crypto/ssh"
@@ -282,6 +283,32 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 		return
 	}
 
+	userToken, err := connInfo.GetUserToken()
+	if err != nil {
+		s.log.Error().Msgf("Failed to get user token for user %s: %v", connInfo.user.Username, err)
+		return
+	}
+
+	if authzErr := s.checkSSHAuthz(connInfo.ctx, userToken,
+		authz.NewSSHEvalRequest(authz.SSHActionShell, connInfo.workspaceName).
+			WithOwner(connInfo.user.Username).
+			WithBlueprint(connInfo.userStr.Blueprint()).
+			WithPTY(session.hasPTY),
+	); authzErr != nil {
+		s.log.Warn().Msgf("SSH shell denied for user %s: %v", connInfo.user.Username, authzErr)
+		return
+	}
+
+	if session.hasAgent {
+		if authzErr := s.checkSSHAuthz(connInfo.ctx, userToken,
+			authz.NewSSHEvalRequest(authz.SSHActionAgentForward, connInfo.workspaceName).
+				WithOwner(connInfo.user.Username),
+		); authzErr != nil {
+			s.log.Warn().Msgf("Agent forwarding denied for user %s: %v", connInfo.user.Username, authzErr)
+			session.hasAgent = false
+		}
+	}
+
 	if session.hasAgent {
 		agentChannel, err := s.handleAgent(sshConn, connInfo)
 		if err != nil {
@@ -289,12 +316,6 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 		} else {
 			defer agentChannel.Close()
 		}
-	}
-
-	userToken, err := connInfo.GetUserToken()
-	if err != nil {
-		s.log.Error().Msgf("Failed to get user token for user %s: %v", connInfo.user.Username, err)
-		return
 	}
 
 	s.log.Debug().Msgf("Starting shell session for user %s, session ID: %s, requested user: %s",
@@ -374,6 +395,14 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *Connection, ch
 		return
 	}
 
+	if authzErr := s.checkSSHAuthz(connInfo.ctx, userToken,
+		authz.NewSSHEvalRequest(authz.SSHActionSFTP, connInfo.workspaceName).
+			WithOwner(connInfo.user.Username),
+	); authzErr != nil {
+		s.log.Warn().Msgf("SSH sftp denied for user %s: %v", connInfo.user.Username, authzErr)
+		return
+	}
+
 	execID := fmt.Sprintf("sf-%s%d", connInfo.connId, connInfo.SeqNumber())
 	s.log.Debug().Msgf("Starting sftp for user %s, exec ID: %s, command: %s",
 		session.username, execID, s.Config.Server.SftpBinary)
@@ -417,6 +446,16 @@ func (s *Server) handleExecRequest(connInfo *Connection, channel ssh.Channel) {
 	userToken, err := connInfo.GetUserToken()
 	if err != nil {
 		s.log.Error().Msgf("Failed to get user token for user %s: %v", connInfo.user.Username, err)
+		return
+	}
+
+	if authzErr := s.checkSSHAuthz(connInfo.ctx, userToken,
+		authz.NewSSHEvalRequest(authz.SSHActionExec, connInfo.workspaceName).
+			WithOwner(connInfo.user.Username).
+			WithCommand(session.command),
+	); authzErr != nil {
+		s.log.Warn().Msgf("SSH exec denied for user %s: %v", connInfo.user.Username, authzErr)
+		s.sendExitStatus(channel, 1)
 		return
 	}
 

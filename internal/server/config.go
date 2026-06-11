@@ -23,6 +23,7 @@ type Config struct {
 	Session     gapi.ClientConfig      `yaml:"session"`
 	Provisioner gapi.ClientConfig      `yaml:"provisioner"`
 	K8shelld    gapi.ClientConfig      `yaml:"k8shelld"`
+	Authz       gapi.ClientConfig      `yaml:"authz"`
 }
 
 // ServerConfig represents the SSH server configuration.
