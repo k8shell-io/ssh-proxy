@@ -299,6 +299,19 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 		return
 	}
 
+	recordShell := s.Config.Server.Recording.RecordShell
+	if ob, found, authzErr := s.checkSessionAuthz(connInfo.ctx, userToken,
+		authz.NewSessionEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeShell).
+			WithSource(authz.SessionSourceSSHProxy).
+			WithOwner(connInfo.user.Username).
+			WithBlueprint(connInfo.userStr.Blueprint()),
+	); authzErr != nil {
+		s.log.Warn().Msgf("Session start denied for user %s: %v", connInfo.user.Username, authzErr)
+		return
+	} else if found {
+		recordShell = ob.Shell
+	}
+
 	if session.hasAgent {
 		if authzErr := s.checkSSHAuthz(connInfo.ctx, userToken,
 			authz.NewSSHEvalRequest(authz.SSHActionAgentForward, connInfo.workspaceName).
@@ -324,7 +337,7 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 	rw := &workspace.ChannelAdapter{Channel: channel}
 	if err := k8shelld.RunShell(connInfo.ctx, userToken, connInfo.userStr.User(), rw,
 		session.sessionId, session.env, session.termWidth, session.termHeight,
-		session.hasPTY, "", false, true, s.Config.Server.Recording.RecordShell, connInfo.SetPtyName); err != nil {
+		session.hasPTY, "", false, true, recordShell, connInfo.SetPtyName); err != nil {
 		s.log.Error().Msgf("Shell session error: %v", err)
 	} else {
 		s.log.Debug().Msgf("Shell session %s completed for user %s", session.sessionId, session.username)
