@@ -292,6 +292,7 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 	if authzErr := s.checkSSHAuthz(connInfo.ctx, userToken,
 		authz.NewSSHEvalRequest(authz.SSHActionShell, connInfo.workspaceName).
 			WithOwner(connInfo.user.Username).
+			WithAsUser(connInfo.userStr.User()).
 			WithBlueprint(connInfo.userStr.Blueprint()).
 			WithPTY(session.hasPTY),
 	); authzErr != nil {
@@ -329,6 +330,12 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 		} else {
 			defer agentChannel.Close()
 		}
+	}
+
+	if s.authzClient == nil && connInfo.userStr.User() == "root" && !connInfo.user.Sudo {
+		s.log.Warn().Msgf("User %s requested root shell without sudo permissions, denying shell access",
+			connInfo.user.Username)
+		return
 	}
 
 	s.log.Debug().Msgf("Starting shell session for user %s, session ID: %s, requested user: %s",
