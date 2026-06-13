@@ -479,13 +479,27 @@ func (s *Server) handleExecRequest(connInfo *Connection, channel ssh.Channel) {
 		return
 	}
 
+	recordExec := s.Config.Server.Recording.RecordExec
+	if ob, found, authzErr := s.checkSessionAuthz(connInfo.ctx, userToken,
+		authz.NewSessionEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeExec).
+			WithSource(authz.SessionSourceSSHProxy).
+			WithOwner(connInfo.user.Username).
+			WithBlueprint(connInfo.userStr.Blueprint()),
+	); authzErr != nil {
+		s.log.Warn().Msgf("Session start denied for user %s: %v", connInfo.user.Username, authzErr)
+		s.sendExitStatus(channel, 1)
+		return
+	} else if found {
+		recordExec = ob.Exec
+	}
+
 	execID := fmt.Sprintf("ex-%s%d", connInfo.connId, connInfo.SeqNumber())
 	s.log.Debug().Msgf("Starting exec for user %s, exec ID: %s, command: %s",
 		session.username, execID, session.command)
 
 	rw := &workspace.ChannelAdapter{Channel: channel}
 	exitcode, err := k8shelld.RunExec(connInfo.ctx, userToken, connInfo.userStr.User(), rw, execID, session.command,
-		"/bin/sh", session.env, session.signalChan, s.Config.Server.Recording.RecordExec)
+		"/bin/sh", session.env, session.signalChan, recordExec)
 	if err != nil {
 		s.log.Error().Msgf("Exec failed for command '%s': %v", session.command, err)
 	}
