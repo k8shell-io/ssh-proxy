@@ -423,13 +423,26 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *Connection, ch
 		return
 	}
 
+	recordSFTP := s.Config.Server.Recording.RecordSFTP
+	if ob, found, authzErr := s.checkSessionAuthz(connInfo.ctx, userToken,
+		authz.NewSessionEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeSFTP).
+			WithSource(authz.SessionSourceSSHProxy).
+			WithOwner(connInfo.user.Username).
+			WithBlueprint(connInfo.userStr.Blueprint()),
+	); authzErr != nil {
+		s.log.Warn().Msgf("Session start denied for user %s: %v", connInfo.user.Username, authzErr)
+		return
+	} else if found {
+		recordSFTP = ob.SFTP
+	}
+
 	execID := fmt.Sprintf("sf-%s%d", connInfo.connId, connInfo.SeqNumber())
 	s.log.Debug().Msgf("Starting sftp for user %s, exec ID: %s, command: %s",
 		session.username, execID, s.Config.Server.SftpBinary)
 
 	rw := &workspace.ChannelAdapter{Channel: channel}
 	exitcode, err := k8shelld.RunExec(connInfo.ctx, userToken, connInfo.userStr.User(), rw, execID,
-		s.Config.Server.SftpBinary, "", []string{}, session.signalChan, s.Config.Server.Recording.RecordExec)
+		s.Config.Server.SftpBinary, "", []string{}, session.signalChan, recordSFTP)
 	if err != nil {
 		s.log.Error().Msgf("sftp exec failed for command '%s': %v", s.Config.Server.SftpBinary, err)
 	}

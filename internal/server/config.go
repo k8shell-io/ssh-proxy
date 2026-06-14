@@ -54,6 +54,7 @@ type PublishSshFailuresConfig struct {
 type RecordingConfig struct {
 	RecordShell       bool `yaml:"recordShell"`
 	RecordExec        bool `yaml:"recordExec"`
+	RecordSFTP        bool `yaml:"recordSFTP"`
 	RecordDirectTCPIP bool `yaml:"recordDirectTCPIP"`
 }
 
