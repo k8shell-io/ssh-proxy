@@ -43,7 +43,7 @@ func (s *Server) checkSessionAuthz(ctx context.Context, token string, req *authz
 		return authz.RecordObligation{}, false, fmt.Errorf("authz: invalid request: %w", err)
 	}
 	protoReq := req.ToProto(token)
-	protoReq.Package = "ssh"
+	protoReq.Package = "session"
 	resp, err := s.authzClient.Evaluate(ctx, protoReq)
 	if err != nil {
 		return authz.RecordObligation{}, false, fmt.Errorf("authz: evaluate %s: %w", req.Action, err)
