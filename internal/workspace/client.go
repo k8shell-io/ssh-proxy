@@ -27,8 +27,11 @@ type K8shelldClient interface {
 	RunUnixSocket(ctx context.Context, userToken string, upstream k8shelldClient.BufferedReadWriter, unixSocketId, socketPath, mode string) error
 	RunPortForward(ctx context.Context, userToken string, upstream k8shelldClient.BufferedReadWriter, portForwardID, sourceIP string,
 		sourcePort uint32, destinationIP string, destinationPort uint32, enableRecording bool) error
-	RunExec(ctx context.Context, userToken string, asUser string, upstream k8shelldClient.BufferedReadWriter, execID string, command string,
-		shellBinary string, envVars []string, signalChan <-chan string, enableRecording bool) (int32, error)
+	RunExec(ctx context.Context, userToken string, asUser string, upstream k8shelldClient.BufferedReadWriter,
+		execID string, command string, shellBinary string, envVars []string, signalChan <-chan string,
+		enableRecording bool) (int32, error)
+	RunSFTP(ctx context.Context, userToken string, asUser string, upstream k8shelldClient.BufferedReadWriter,
+		sessionID string, command string, envVars []string, enableRecording bool) (int32, error)
 	RunCommandProcessor(ctx context.Context, handler k8shelldClient.CommandHandler) error
 	Close() error
 }

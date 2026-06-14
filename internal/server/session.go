@@ -390,24 +390,13 @@ func (s *Server) cancelOnCtrlC(channel ssh.Channel, connInfo *Connection, stopCh
 
 func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *Connection, channel ssh.Channel) {
 	session := connInfo.session
-	s.log.Info().Msgf("Handling sftp subsystem in channel for user %s, command: %s", session.username, session.command)
+	s.log.Info().Msgf("Handling sftp subsystem in channel for user %s", session.username)
 
 	k8shelld, err := connInfo.Handshake(nil, nil, s)
 	if err != nil {
-		s.log.Error().Msgf("Failed to get k8shelld client for sftp exec: %v", err)
+		s.log.Error().Msgf("Failed to get k8shelld client for sftp: %v", err)
 		return
 	}
-
-	if session.signalChan != nil {
-		s.log.Error().Msgf("Signal channel already exists for user %s, cannot start exec", session.username)
-		return
-	}
-
-	session.signalChan = make(chan string, 10)
-	defer func() {
-		close(session.signalChan)
-		session.signalChan = nil
-	}()
 
 	userToken, err := connInfo.GetUserToken()
 	if err != nil {
@@ -441,10 +430,10 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *Connection, ch
 		session.username, execID, s.Config.Server.SftpBinary)
 
 	rw := &workspace.ChannelAdapter{Channel: channel}
-	exitcode, err := k8shelld.RunExec(connInfo.ctx, userToken, connInfo.userStr.User(), rw, execID,
-		s.Config.Server.SftpBinary, "", []string{}, session.signalChan, recordSFTP)
+	exitcode, err := k8shelld.RunSFTP(connInfo.ctx, userToken, connInfo.userStr.User(), rw, execID,
+		s.Config.Server.SftpBinary, []string{}, recordSFTP)
 	if err != nil {
-		s.log.Error().Msgf("sftp exec failed for command '%s': %v", s.Config.Server.SftpBinary, err)
+		s.log.Error().Msgf("sftp failed for command '%s': %v", s.Config.Server.SftpBinary, err)
 	}
 
 	s.log.Debug().Msgf("sftp '%s' executed in the workspace, exit-code=%d", s.Config.Server.SftpBinary, exitcode)
