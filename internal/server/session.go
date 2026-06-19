@@ -302,7 +302,7 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 
 	recordShell := s.Config.Server.Recording.RecordShell
 	if ob, found, authzErr := s.checkSessionAuthz(connInfo.ctx, userToken,
-		authz.NewSessionEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeShell).
+		authz.NewSessionStartEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeShell).
 			WithSource(authz.SessionSourceSSHProxy).
 			WithOwner(connInfo.user.Username).
 			WithBlueprint(connInfo.userStr.Blueprint()),
@@ -414,7 +414,7 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *Connection, ch
 
 	recordSFTP := s.Config.Server.Recording.RecordSFTP
 	if ob, found, authzErr := s.checkSessionAuthz(connInfo.ctx, userToken,
-		authz.NewSessionEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeSFTP).
+		authz.NewSessionStartEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeSFTP).
 			WithSource(authz.SessionSourceSSHProxy).
 			WithOwner(connInfo.user.Username).
 			WithBlueprint(connInfo.userStr.Blueprint()),
@@ -483,7 +483,7 @@ func (s *Server) handleExecRequest(connInfo *Connection, channel ssh.Channel) {
 
 	recordExec := s.Config.Server.Recording.RecordExec
 	if ob, found, authzErr := s.checkSessionAuthz(connInfo.ctx, userToken,
-		authz.NewSessionEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeExec).
+		authz.NewSessionStartEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeExec).
 			WithSource(authz.SessionSourceSSHProxy).
 			WithOwner(connInfo.user.Username).
 			WithBlueprint(connInfo.userStr.Blueprint()),

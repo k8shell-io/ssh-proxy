@@ -105,7 +105,7 @@ func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connectio
 
 	recordTCPIP := s.Config.Server.Recording.RecordDirectTCPIP
 	if ob, found, authzErr := s.checkSessionAuthz(connInfo.ctx, userToken,
-		authz.NewSessionEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeTCPIP).
+		authz.NewSessionStartEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeTCPIP).
 			WithSource(authz.SessionSourceSSHProxy).
 			WithOwner(connInfo.user.Username).
 			WithBlueprint(connInfo.userStr.Blueprint()),

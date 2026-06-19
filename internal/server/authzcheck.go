@@ -35,7 +35,7 @@ func (s *Server) checkSSHAuthz(ctx context.Context, token string, req *authz.SSH
 // checkSessionAuthz evaluates a session:start request and returns the recording
 // obligation from the policy engine. When authz is not configured, returns
 // (zero, false, nil) so callers fall back to their configured defaults.
-func (s *Server) checkSessionAuthz(ctx context.Context, token string, req *authz.SessionEvalRequest) (authz.RecordObligation, bool, error) {
+func (s *Server) checkSessionAuthz(ctx context.Context, token string, req *authz.SessionStartEvalRequest) (authz.RecordObligation, bool, error) {
 	if s.authzClient == nil {
 		return authz.RecordObligation{}, false, nil
 	}
