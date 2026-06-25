@@ -29,16 +29,21 @@ SSH Client ──(auth)──► ssh-proxy ──(gRPC)──► k8shelld (works
 1. Client connects and authenticates (public key or keyboard-interactive)
 2. ssh-proxy resolves the user's workspace via the identity + provisioner services
 3. A gRPC connection is established to `k8shelld` inside the workspace
-4. Channel requests (`shell`, `exec`, `sftp`, port-forward) are proxied through k8shelld
+4. Each channel action (shell, exec, sftp, agent-forward) is evaluated by the authz service (if configured)
+5. Channel requests are proxied through k8shelld; sessions are tracked via the session service
+
+### Authorization
+
+When an `authz` service address is configured, every SSH action is evaluated before the operation begins. The authz service can also return a `RecordObligation` that overrides the static per-channel recording settings for that session. When authz is not configured, the server falls back to the static `recording` config.
 
 ### Forking mode
 
 When `server.forking: true`, ssh-proxy spawns a subprocess per connection, passing the socket via fd 3:
 
 ```
-SSH Client → acceptConnections() → handleConnectionWithProcess()
-  └── spawns: ./ssh-proxy --handle-connection-fd 3 --config config.yaml
-      └── HandleConnectionFromFD(3) → handleConnection()
+SSH Client → acceptConnections() → startSubProcess()
+  └── spawns: ./ssh-proxy --child --config config.yaml
+      └── HandleConnectionChildProcess() → handleConnection()
 ```
 
 ## Getting started
@@ -53,31 +58,9 @@ make build
 ./bin/ssh-proxy
 
 # Flags
-./bin/ssh-proxy -c config/config.yaml   # config path
-./bin/ssh-proxy -text                   # human-readable log output
-./bin/ssh-proxy -v                      # print version and exit
-```
-
-## Configuration
-
-Key settings in `config/config.yaml`:
-
-```yaml
-server:
-  port: 2022
-  serverKey: /path/to/server_key        # SSH host key
-  forking: false                         # subprocess-per-connection mode
-  proxyProtocol: true                    # parse PROXY protocol for real client IP
-  maxDirectTCPIPConnections: 15          # per-connection port-forward limit
-  recording:
-    recordShell: true
-    recordDirectTCPIP: true
-
-identity:
-  address: identity.k8shell-test:9020
-
-session:
-  address: session.k8shell-test:9010
+./bin/ssh-proxy --config config/config.yaml   # config path
+./bin/ssh-proxy --logtext                     # human-readable log output
+./bin/ssh-proxy -v                            # print version and exit
 ```
 
 ## Client SSH config
@@ -97,5 +80,5 @@ Host my-workspace
 
 | Path | Responsibility |
 |---|---|
-| `internal/server` | SSH server, auth, channel dispatch, session/exec/sftp handling |
-| `internal/workspace` | k8shelld gRPC client interface |
+| `internal/server` | SSH server, auth, channel dispatch, session/exec/sftp/agent handling, authz evaluation |
+| `internal/workspace` | k8shelld gRPC client, workspace provisioning, client info display |
