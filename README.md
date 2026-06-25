@@ -63,6 +63,35 @@ make build
 ./bin/ssh-proxy -v                            # print version and exit
 ```
 
+**Configuration** is a YAML file. Secrets and connection parameters can be injected via environment variables or `!file` references. See `config/config.yaml` for the full reference.
+
+## Makefile targets
+
+| Target | Description |
+|---|---|
+| `make build` | Compile binary to `bin/ssh-proxy` |
+| `make test` | Run unit tests with coverage |
+| `make test-static` | Run `golangci-lint` and `gosec` |
+| `make test-self` | Static analysis + build + smoke tests (used in CI) |
+| `make image` | Build Docker image (Alpine by default) |
+| `RUNTIME=distroless make image` | Build production-hardened distroless image |
+| `make vendor` | Vendor Go dependencies |
+
+## Docker images
+
+Two runtime stages are available in `docker/ssh-proxy/Dockerfile`:
+
+| Stage | Base | Use case |
+|---|---|---|
+| `alpine` | `alpine:3.21.3` | Development, debugging (has a shell; restarts on exit) |
+| `distroless` | `distroless/static-debian12:nonroot` | Production (no shell, runs as non-root) |
+
+Both stages use the same statically compiled binary (`CGO_ENABLED=0`). The alpine stage includes debug symbols; the distroless stage strips them (`-ldflags="-s -w"`).
+
+## Running in Kubernetes
+
+Deployment configuration and Helm charts for ssh-proxy and the other k8shell services are maintained in the [k8shell-io/charts](https://github.com/k8shell-io/charts) repository.
+
 ## Client SSH config
 
 ```ssh-config
@@ -76,9 +105,6 @@ Host my-workspace
   StrictHostKeyChecking accept-new
 ```
 
-## Key packages
+## License
 
-| Path | Responsibility |
-|---|---|
-| `internal/server` | SSH server, auth, channel dispatch, session/exec/sftp/agent handling, authz evaluation |
-| `internal/workspace` | k8shelld gRPC client, workspace provisioning, client info display |
+AGPL-3.0-or-later. See [LICENSE](LICENSE).
