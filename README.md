@@ -2,15 +2,9 @@
 
 [![Build](https://github.com/k8shell-io/ssh-proxy/actions/workflows/build.yaml/badge.svg)](https://github.com/k8shell-io/ssh-proxy/actions/workflows/build.yaml)
 
-An SSH proxy that acts as a secure gateway into k8shell workspaces. Clients authenticate against ssh-proxy, which then routes traffic to the target workspace through the in-workspace `k8shelld` daemon.
-
-For full documentation see [docs.k8shell.io/concepts/ssh-proxy](https://docs.k8shell.io/concepts/ssh-proxy).
+ssh-proxy is an SSH gateway for k8shell workspaces. It terminates SSH connections, authenticates clients via the identity service, resolves and provisions their workspace via the provisioner service, then proxies all channel traffic — shell, exec, sftp, port-forwards, and Unix socket forwarding — to the in-workspace `k8shelld` daemon over gRPC.
 
 ## Architecture
-
-```
-SSH Client ──(auth)──► ssh-proxy ──(gRPC)──► k8shelld (workspace) ──► target
-```
 
 **Supported channel types:**
 
