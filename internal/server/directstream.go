@@ -1,3 +1,7 @@
+// Copyright 2025 The K8shell Authors. All rights reserved.
+// Use of this source code is governed by a AGPLv3
+// license that can be found in the LICENSE file.
+
 package server
 
 import (
