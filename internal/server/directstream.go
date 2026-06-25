@@ -1,9 +1,14 @@
+// Copyright 2025 The K8shell Authors. All rights reserved.
+// Use of this source code is governed by a AGPLv3
+// license that can be found in the LICENSE file.
+
 package server
 
 import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"golang.org/x/crypto/ssh"
 )
@@ -46,6 +51,15 @@ func (s *Server) handleDirectStreamLocal(_ *ssh.ServerConn, connInfo *Connection
 	userToken, err := connInfo.GetUserToken()
 	if err != nil {
 		s.log.Error().Msgf("Failed to get user token for user %s: %v", connInfo.user.Username, err)
+		return
+	}
+
+	if authzErr := s.checkSSHAuthz(connInfo.ctx, userToken,
+		authz.NewSSHEvalRequest(authz.SSHActionDirectStreamlocal, connInfo.workspaceName).
+			WithOwner(connInfo.user.Username).
+			WithSocketPath(streamLocal.destPath),
+	); authzErr != nil {
+		s.log.Warn().Msgf("SSH direct-streamlocal denied for user %s: %v", connInfo.user.Username, authzErr)
 		return
 	}
 

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"golang.org/x/crypto/ssh"
@@ -282,6 +283,46 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 		return
 	}
 
+	userToken, err := connInfo.GetUserToken()
+	if err != nil {
+		s.log.Error().Msgf("Failed to get user token for user %s: %v", connInfo.user.Username, err)
+		return
+	}
+
+	if authzErr := s.checkSSHAuthz(connInfo.ctx, userToken,
+		authz.NewSSHEvalRequest(authz.SSHActionShell, connInfo.workspaceName).
+			WithOwner(connInfo.user.Username).
+			WithAsUser(connInfo.userStr.User()).
+			WithBlueprint(connInfo.userStr.Blueprint()).
+			WithPTY(session.hasPTY),
+	); authzErr != nil {
+		s.log.Warn().Msgf("SSH shell denied for user %s: %v", connInfo.user.Username, authzErr)
+		return
+	}
+
+	recordShell := s.Config.Server.Recording.RecordShell
+	if ob, found, authzErr := s.checkSessionAuthz(connInfo.ctx, userToken,
+		authz.NewSessionStartEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeShell).
+			WithSource(authz.SessionSourceSSHProxy).
+			WithOwner(connInfo.user.Username).
+			WithBlueprint(connInfo.userStr.Blueprint()),
+	); authzErr != nil {
+		s.log.Warn().Msgf("Session start denied for user %s: %v", connInfo.user.Username, authzErr)
+		return
+	} else if found {
+		recordShell = ob.Shell
+	}
+
+	if session.hasAgent {
+		if authzErr := s.checkSSHAuthz(connInfo.ctx, userToken,
+			authz.NewSSHEvalRequest(authz.SSHActionAgentForward, connInfo.workspaceName).
+				WithOwner(connInfo.user.Username),
+		); authzErr != nil {
+			s.log.Warn().Msgf("Agent forwarding denied for user %s: %v", connInfo.user.Username, authzErr)
+			session.hasAgent = false
+		}
+	}
+
 	if session.hasAgent {
 		agentChannel, err := s.handleAgent(sshConn, connInfo)
 		if err != nil {
@@ -291,9 +332,9 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 		}
 	}
 
-	userToken, err := connInfo.GetUserToken()
-	if err != nil {
-		s.log.Error().Msgf("Failed to get user token for user %s: %v", connInfo.user.Username, err)
+	if s.authzClient == nil && connInfo.userStr.User() == "root" && !connInfo.user.Sudo {
+		s.log.Warn().Msgf("User %s requested root shell without sudo permissions, denying shell access",
+			connInfo.user.Username)
 		return
 	}
 
@@ -303,7 +344,7 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 	rw := &workspace.ChannelAdapter{Channel: channel}
 	if err := k8shelld.RunShell(connInfo.ctx, userToken, connInfo.userStr.User(), rw,
 		session.sessionId, session.env, session.termWidth, session.termHeight,
-		session.hasPTY, "", false, true, s.Config.Server.Recording.RecordShell, connInfo.SetPtyName); err != nil {
+		session.hasPTY, "", false, true, recordShell, connInfo.SetPtyName); err != nil {
 		s.log.Error().Msgf("Shell session error: %v", err)
 	} else {
 		s.log.Debug().Msgf("Shell session %s completed for user %s", session.sessionId, session.username)
@@ -349,24 +390,13 @@ func (s *Server) cancelOnCtrlC(channel ssh.Channel, connInfo *Connection, stopCh
 
 func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *Connection, channel ssh.Channel) {
 	session := connInfo.session
-	s.log.Info().Msgf("Handling sftp subsystem in channel for user %s, command: %s", session.username, session.command)
+	s.log.Info().Msgf("Handling sftp subsystem in channel for user %s", session.username)
 
 	k8shelld, err := connInfo.Handshake(nil, nil, s)
 	if err != nil {
-		s.log.Error().Msgf("Failed to get k8shelld client for sftp exec: %v", err)
+		s.log.Error().Msgf("Failed to get k8shelld client for sftp: %v", err)
 		return
 	}
-
-	if session.signalChan != nil {
-		s.log.Error().Msgf("Signal channel already exists for user %s, cannot start exec", session.username)
-		return
-	}
-
-	session.signalChan = make(chan string, 10)
-	defer func() {
-		close(session.signalChan)
-		session.signalChan = nil
-	}()
 
 	userToken, err := connInfo.GetUserToken()
 	if err != nil {
@@ -374,15 +404,36 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *Connection, ch
 		return
 	}
 
+	if authzErr := s.checkSSHAuthz(connInfo.ctx, userToken,
+		authz.NewSSHEvalRequest(authz.SSHActionSFTP, connInfo.workspaceName).
+			WithOwner(connInfo.user.Username),
+	); authzErr != nil {
+		s.log.Warn().Msgf("SSH sftp denied for user %s: %v", connInfo.user.Username, authzErr)
+		return
+	}
+
+	recordSFTP := s.Config.Server.Recording.RecordSFTP
+	if ob, found, authzErr := s.checkSessionAuthz(connInfo.ctx, userToken,
+		authz.NewSessionStartEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeSFTP).
+			WithSource(authz.SessionSourceSSHProxy).
+			WithOwner(connInfo.user.Username).
+			WithBlueprint(connInfo.userStr.Blueprint()),
+	); authzErr != nil {
+		s.log.Warn().Msgf("Session start denied for user %s: %v", connInfo.user.Username, authzErr)
+		return
+	} else if found {
+		recordSFTP = ob.SFTP
+	}
+
 	execID := fmt.Sprintf("sf-%s%d", connInfo.connId, connInfo.SeqNumber())
 	s.log.Debug().Msgf("Starting sftp for user %s, exec ID: %s, command: %s",
 		session.username, execID, s.Config.Server.SftpBinary)
 
 	rw := &workspace.ChannelAdapter{Channel: channel}
-	exitcode, err := k8shelld.RunExec(connInfo.ctx, userToken, connInfo.userStr.User(), rw, execID,
-		s.Config.Server.SftpBinary, "", []string{}, session.signalChan, s.Config.Server.Recording.RecordExec)
+	exitcode, err := k8shelld.RunSFTP(connInfo.ctx, userToken, connInfo.userStr.User(), rw, execID,
+		s.Config.Server.SftpBinary, []string{}, recordSFTP)
 	if err != nil {
-		s.log.Error().Msgf("sftp exec failed for command '%s': %v", s.Config.Server.SftpBinary, err)
+		s.log.Error().Msgf("sftp failed for command '%s': %v", s.Config.Server.SftpBinary, err)
 	}
 
 	s.log.Debug().Msgf("sftp '%s' executed in the workspace, exit-code=%d", s.Config.Server.SftpBinary, exitcode)
@@ -420,13 +471,37 @@ func (s *Server) handleExecRequest(connInfo *Connection, channel ssh.Channel) {
 		return
 	}
 
+	if authzErr := s.checkSSHAuthz(connInfo.ctx, userToken,
+		authz.NewSSHEvalRequest(authz.SSHActionExec, connInfo.workspaceName).
+			WithOwner(connInfo.user.Username).
+			WithCommand(session.command),
+	); authzErr != nil {
+		s.log.Warn().Msgf("SSH exec denied for user %s: %v", connInfo.user.Username, authzErr)
+		s.sendExitStatus(channel, 1)
+		return
+	}
+
+	recordExec := s.Config.Server.Recording.RecordExec
+	if ob, found, authzErr := s.checkSessionAuthz(connInfo.ctx, userToken,
+		authz.NewSessionStartEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeExec).
+			WithSource(authz.SessionSourceSSHProxy).
+			WithOwner(connInfo.user.Username).
+			WithBlueprint(connInfo.userStr.Blueprint()),
+	); authzErr != nil {
+		s.log.Warn().Msgf("Session start denied for user %s: %v", connInfo.user.Username, authzErr)
+		s.sendExitStatus(channel, 1)
+		return
+	} else if found {
+		recordExec = ob.Exec
+	}
+
 	execID := fmt.Sprintf("ex-%s%d", connInfo.connId, connInfo.SeqNumber())
 	s.log.Debug().Msgf("Starting exec for user %s, exec ID: %s, command: %s",
 		session.username, execID, session.command)
 
 	rw := &workspace.ChannelAdapter{Channel: channel}
 	exitcode, err := k8shelld.RunExec(connInfo.ctx, userToken, connInfo.userStr.User(), rw, execID, session.command,
-		"/bin/sh", session.env, session.signalChan, s.Config.Server.Recording.RecordExec)
+		"/bin/sh", session.env, session.signalChan, recordExec)
 	if err != nil {
 		s.log.Error().Msgf("Exec failed for command '%s': %v", session.command, err)
 	}

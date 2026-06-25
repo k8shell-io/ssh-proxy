@@ -23,6 +23,7 @@ type Config struct {
 	Session     gapi.ClientConfig      `yaml:"session"`
 	Provisioner gapi.ClientConfig      `yaml:"provisioner"`
 	K8shelld    gapi.ClientConfig      `yaml:"k8shelld"`
+	Authz       gapi.ClientConfig      `yaml:"authz"`
 }
 
 // ServerConfig represents the SSH server configuration.
@@ -53,6 +54,7 @@ type PublishSshFailuresConfig struct {
 type RecordingConfig struct {
 	RecordShell       bool `yaml:"recordShell"`
 	RecordExec        bool `yaml:"recordExec"`
+	RecordSFTP        bool `yaml:"recordSFTP"`
 	RecordDirectTCPIP bool `yaml:"recordDirectTCPIP"`
 }
 

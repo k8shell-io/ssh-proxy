@@ -24,6 +24,7 @@ import (
 	"github.com/k8shell-io/common/pkg/api/client/identity"
 	"github.com/k8shell-io/common/pkg/api/client/provisioner"
 	sessionc "github.com/k8shell-io/common/pkg/api/client/session"
+	authzv1 "github.com/k8shell-io/common/pkg/api/gen/go/authz/v1"
 	"github.com/k8shell-io/common/pkg/gapi"
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
@@ -51,6 +52,7 @@ type Server struct {
 	wg            sync.WaitGroup
 	identity      *identity.IdentityClient
 	provisioner   *provisioner.Client
+	authzClient   authzv1.AuthzServiceClient
 	fpub          *NatsFailuresPublisher
 	configPath    string
 }
@@ -102,6 +104,14 @@ func NewServer(configPath string) (*Server, error) {
 		server.identity, err = identity.NewIdentityClient(config.Identity)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create identity client: %w", err)
+		}
+
+		if config.Authz.IsEnabled() {
+			authzConn, err := gapi.NewClient(config.Authz)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create authz client: %w", err)
+			}
+			server.authzClient = authzv1.NewAuthzServiceClient(authzConn.Conn)
 		}
 
 		server.nats, err = natsc.NewNATSClient(config.Nats)
@@ -218,6 +228,14 @@ func HandleConnectionChildProcess(configPath string) error {
 	server.identity, err = identity.NewIdentityClient(config.Identity)
 	if err != nil {
 		return fmt.Errorf("failed to create identity client: %w", err)
+	}
+
+	if config.Authz.IsEnabled() {
+		authzConn, err := gapi.NewClient(config.Authz)
+		if err != nil {
+			return fmt.Errorf("failed to create authz client: %w", err)
+		}
+		server.authzClient = authzv1.NewAuthzServiceClient(authzConn.Conn)
 	}
 
 	server.nats, err = natsc.NewNATSClient(config.Nats)

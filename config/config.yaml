@@ -42,6 +42,7 @@ server:
   recording:
     recordShell: true
     recordExec: false
+    recordSFTP: false
     recordDirectTCPIP: true
 
 nats:
@@ -56,11 +57,19 @@ identity:
   # caCertPath: /opt/shared/auth/ca.crt
   # serverName: identity.k8shell-test.svc
 
+# authz service - leave address empty to disable authorization checks
+authz:
+  # address: authz.k8shell-staging:9040
+  # tokenFilePath: /opt/shared/auth/api-server/authz-token
+  # caCertPath: /opt/shared/auth/ca.crt
+  # serverName: authz.k8shell-staging.svc
+
 session:
   address: session.k8shell-staging:9010
   tokenFilePath: /opt/shared/auth/api-server/session-token
   # caCertPath: /opt/shared/auth/ca.crt
   # serverName: session.k8shell-test.svc
+  
 provisioner:
   address: 10.42.1.229:9030 #provisioner.k8shell-test:9030 # 10.42.2.194:9030 
   tokenFilePath: /opt/shared/auth/api-server/provisioner-token

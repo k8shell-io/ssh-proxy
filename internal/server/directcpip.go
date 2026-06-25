@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"golang.org/x/crypto/ssh"
 )
@@ -92,10 +93,33 @@ func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connectio
 		return
 	}
 
+	if authzErr := s.checkSSHAuthz(connInfo.ctx, userToken,
+		authz.NewSSHEvalRequest(authz.SSHActionDirectTCPIP, connInfo.workspaceName).
+			WithOwner(connInfo.user.Username).
+			WithHost(tcpipInfo.destHost).
+			WithPort(fmt.Sprintf("%d", tcpipInfo.destPort)),
+	); authzErr != nil {
+		s.log.Warn().Msgf("SSH direct-tcpip denied for user %s: %v", connInfo.user.Username, authzErr)
+		return
+	}
+
+	recordTCPIP := s.Config.Server.Recording.RecordDirectTCPIP
+	if ob, found, authzErr := s.checkSessionAuthz(connInfo.ctx, userToken,
+		authz.NewSessionStartEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeTCPIP).
+			WithSource(authz.SessionSourceSSHProxy).
+			WithOwner(connInfo.user.Username).
+			WithBlueprint(connInfo.userStr.Blueprint()),
+	); authzErr != nil {
+		s.log.Warn().Msgf("Session start denied for user %s: %v", connInfo.user.Username, authzErr)
+		return
+	} else if found {
+		recordTCPIP = ob.DirectTCPIP
+	}
+
 	rw := &workspace.ChannelAdapter{Channel: channel}
 	if err := k8shelld.RunPortForward(connInfo.ctx, userToken, rw,
 		tcpipInfo.directTCPIPId, tcpipInfo.originHost, tcpipInfo.originPort, tcpipInfo.destHost,
-		tcpipInfo.destPort, s.Config.Server.Recording.RecordDirectTCPIP); err != nil {
+		tcpipInfo.destPort, recordTCPIP); err != nil {
 		s.log.Error().Msgf("Port forward failed for user %s: %v", connInfo.user.Username, err)
 	} else {
 		s.log.Debug().Msgf("Port forward %s completed for user %s", tcpipInfo.directTCPIPId, connInfo.user.Username)
