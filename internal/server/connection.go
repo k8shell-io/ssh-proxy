@@ -447,7 +447,13 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	c.log.Debug().Msgf("Connecting to k8shelld at %s:%d for user %s, version: %s",
 		status.ServerName, status.Port, c.user.Username, status.AppVersion)
 
-	handshake, err := k8shelld.Handshake(c.ctx, "")
+	userToken, err := c.GetUserToken()
+	if err != nil {
+		infoWriter.WriteSystemError(err.Error())
+		return nil, fmt.Errorf("failed to get user token for k8shelld handshake for user %s: %w", c.user.Username, err)
+	}
+
+	handshake, err := k8shelld.Handshake(c.ctx, userToken)
 	if err != nil {
 		msg := grpcClientMessage(err)
 		if s, ok := grpcstatus.FromError(err); ok && s.Code() == grpccodes.Unavailable {
