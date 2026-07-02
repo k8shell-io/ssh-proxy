@@ -7,7 +7,6 @@ package server
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 
@@ -45,7 +44,7 @@ func (s *Server) AuthPublicKey(conn ssh.ConnMetadata, pubKey ssh.PublicKey) (*ss
 	}
 	s.updateUser(ctx, connInfo)
 	if connInfo.user != nil {
-		if slices.Contains(connInfo.user.Auths, "publickey") {
+		if len(connInfo.user.AuthKeys) > 0 {
 			if s.authPublicKey(connInfo.user, pubKey) {
 				s.log.Info().Msgf("User %s authenticated with public key", connInfo.user.Username)
 				return &ssh.Permissions{}, nil
@@ -82,7 +81,7 @@ func (s *Server) AuthPassword(conn ssh.ConnMetadata, password []byte) (*ssh.Perm
 	}
 	s.updateUser(ctx, connInfo)
 	if connInfo.user != nil {
-		if slices.Contains(connInfo.user.Auths, "password") {
+		if connInfo.user.Password != "" {
 			if s.authPassword(connInfo.user) {
 				s.log.Info().Msgf("User %s authenticated with password", connInfo.user.Username)
 				return &ssh.Permissions{}, nil
@@ -276,15 +275,13 @@ func (s *Server) getAvailableAuthMethods(connInfo *Connection) *ssh.PartialSucce
 	}
 
 	callbacks := ssh.ServerAuthCallbacks{}
-	for _, authMethod := range connInfo.user.Auths {
-		switch string(authMethod) {
-		case "publickey":
-			s.log.Debug().Msgf("Enabling public key authentication for user %s", connInfo.user.Username)
-			callbacks.PublicKeyCallback = s.AuthPublicKey
-		case "password":
-			s.log.Debug().Msgf("Enabling password authentication for user %s", connInfo.user.Username)
-			callbacks.PasswordCallback = s.AuthPassword
-		}
+	if len(connInfo.user.AuthKeys) > 0 {
+		s.log.Debug().Msgf("Enabling public key authentication for user %s", connInfo.user.Username)
+		callbacks.PublicKeyCallback = s.AuthPublicKey
+	}
+	if connInfo.user.Password != "" {
+		s.log.Debug().Msgf("Enabling password authentication for user %s", connInfo.user.Username)
+		callbacks.PasswordCallback = s.AuthPassword
 	}
 
 	if callbacks.PublicKeyCallback != nil ||

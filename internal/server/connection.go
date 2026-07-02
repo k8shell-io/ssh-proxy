@@ -320,7 +320,7 @@ func (c *Connection) updateSession(action string) (bool, error) {
 		Workspace:   c.workspaceName,
 		BytesIn:     curIn,
 		BytesOut:    curOut,
-		Channels:    curChannels,
+		Operations:  curChannels,
 		UpdatedAt:   &t,
 		Blueprint:   c.userStr.Blueprint(),
 	}

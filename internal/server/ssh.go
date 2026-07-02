@@ -407,7 +407,7 @@ func (s *Server) handleChannels(sshConn *ssh.ServerConn, connInfo *Connection, c
 			case "session":
 				go s.handleSessionChannel(sshConn, connInfo, channel)
 			case "direct-tcpip":
-				connInfo.AddChannelInfo(models.ChannelShortPf)
+				connInfo.AddChannelInfo(string(models.OpPortForward))
 				go s.handleDirectTCPIPChannel(sshConn, connInfo, channel)
 			case "direct-streamlocal@openssh.com":
 				connInfo.AddChannelInfo("ux")
