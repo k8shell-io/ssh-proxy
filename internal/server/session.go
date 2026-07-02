@@ -223,7 +223,9 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 					session.termWidth = width
 					session.termHeight = height
 
-					if err := k8shelld.ResizeTerminal(connInfo.ctx, session.sessionId, width, height); err != nil {
+					if userToken, err := connInfo.GetUserToken(); err != nil {
+						s.log.Error().Msgf("Failed to get user token for resize: %v", err)
+					} else if err := k8shelld.ResizeTerminal(connInfo.ctx, userToken, session.sessionId, width, height); err != nil {
 						s.log.Error().Msgf("Failed to resize terminal: %v", err)
 					}
 				} else {
