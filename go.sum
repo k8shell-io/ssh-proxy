@@ -39,6 +39,8 @@ github.com/k8shell-io/common v0.30.8 h1:GeSrJnu4GBkZ7zzlT0ywIWNl9/+TGbAjFNy6LK5C
 github.com/k8shell-io/common v0.30.8/go.mod h1:40c5GkpS7Y0/aOFa37Lq8z/mLUn3k3GV/AHtFJFL28k=
 github.com/k8shell-io/common v0.30.9 h1:urpQL8G1ucAgpqq5TPetDBdX9BgqlJ34bRc9urnIrBw=
 github.com/k8shell-io/common v0.30.9/go.mod h1:40c5GkpS7Y0/aOFa37Lq8z/mLUn3k3GV/AHtFJFL28k=
+github.com/k8shell-io/common v0.30.10 h1:sIL7pjx38YE/KtRB2VXK+BHL7D+NcM88Lzop/xJfBT8=
+github.com/k8shell-io/common v0.30.10/go.mod h1:40c5GkpS7Y0/aOFa37Lq8z/mLUn3k3GV/AHtFJFL28k=
 github.com/k8shell-io/crypto v0.41.1-ssh-proxy h1:8+q6Ofc2ky23Oc9iNyiq8aeiQBIP+y3+O6zzHqe1f48=
 github.com/k8shell-io/crypto v0.41.1-ssh-proxy/go.mod h1:RVZeOJCpqtogniULztSXQESKJCfcI8WCxsS0FagMA8U=
 github.com/klauspost/compress v1.18.0 h1:c/Cqfb0r+Yi+JtIEq73FWXVkRonBlf0CRNYc8Zttxdo=
