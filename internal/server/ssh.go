@@ -71,7 +71,7 @@ func (bc *BufferedConn) Read(b []byte) (int, error) {
 // forkingEnabled reports whether accepted connections are handled by forking
 // a child process (see startSubProcess) rather than directly in this process.
 func (s *Server) forkingEnabled() bool {
-	return s.Config.Server.Forking
+	return s.Config.Server.Forking && false
 }
 
 // NewServer creates a new SSH server instance.

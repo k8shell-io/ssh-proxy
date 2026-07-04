@@ -98,7 +98,7 @@ func (s *Server) AuthPassword(conn ssh.ConnMetadata, password []byte) (*ssh.Perm
 			connInfo.AddFailureInfo("Password authentication not permitted by policy", nil)
 			return nil, fmt.Errorf("password authentication not available for user %s", connInfo.user.Username)
 		}
-		if s.authPassword(connInfo.user) {
+		if s.authPassword(connInfo.user, password) {
 			s.log.Info().Msgf("User %s authenticated with password", connInfo.user.Username)
 			return &ssh.Permissions{}, nil
 		}
@@ -223,9 +223,20 @@ func (s *Server) authPublicKey(user *models.User, pubKey ssh.PublicKey) bool {
 }
 
 // AuthPassword handles password authentication via the identity service.
-func (s *Server) authPassword(_ *models.User) bool {
-	// TODO: Call identity service to validate password
-	return false
+func (s *Server) authPassword(user *models.User, password []byte) bool {
+	s.log.Debug().Msgf("Authenticating user %s with password", user.Username)
+	authResponse, err := s.identity.AuthUserPassword(s.ctx, &identityv1.AuthUserPasswordRequest{
+		Username: user.Username, Password: string(password)})
+	if err != nil || authResponse == nil {
+		s.log.Error().Msgf("Failed to get authentication response for user %s: %v", user.Username, err)
+		return false
+	}
+
+	if !authResponse.Valid {
+		s.log.Warn().Msgf("Password authentication failed for user %s", user.Username)
+		return false
+	}
+	return true
 }
 
 // updateUser fetches user from the identity service and updates user auth
