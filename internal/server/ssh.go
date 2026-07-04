@@ -68,6 +68,12 @@ func (bc *BufferedConn) Read(b []byte) (int, error) {
 	return bc.reader.Read(b)
 }
 
+// forkingEnabled reports whether accepted connections are handled by forking
+// a child process (see startSubProcess) rather than directly in this process.
+func (s *Server) forkingEnabled() bool {
+	return s.Config.Server.Forking
+}
+
 // NewServer creates a new SSH server instance.
 func NewServer(configPath string) (*Server, error) {
 	log := log.NewLogger("ssh-server")
@@ -90,7 +96,7 @@ func NewServer(configPath string) (*Server, error) {
 		return nil, fmt.Errorf("failed to initialize SSH config: %w", err)
 	}
 
-	if !server.Config.Server.Forking {
+	if !server.forkingEnabled() {
 		server.fpub, err = NewNatsFailuresPublisher(config.Nats, config.Server.PublishSshFailures)
 		if err != nil {
 			server.log.Error().Msgf("failed to create NATS client: %v", err)
@@ -496,7 +502,7 @@ func (s *Server) acceptConnections() {
 			}
 		}
 
-		if s.Config.Server.Forking {
+		if s.forkingEnabled() {
 			s.wg.Add(1)
 			go s.startSubProcess(conn)
 		} else {
