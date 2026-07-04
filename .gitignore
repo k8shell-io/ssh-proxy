@@ -4,3 +4,6 @@ docs
 docker/ssh-proxy/files
 wiki
 reports
+go.work
+go.work.sum
+common
