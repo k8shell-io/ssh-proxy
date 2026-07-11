@@ -12,6 +12,7 @@ import (
 	"time"
 
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
+	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
 	"golang.org/x/crypto/ssh"
@@ -21,13 +22,16 @@ import (
 
 // AllowedAuthsCallback returns the available authentication methods for the user.
 func (s *Server) AllowedAuthsCallback(conn ssh.ConnMetadata) ssh.ServerAuthCallbacks {
+	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
+	defer cancel()
+
 	connInfo, err := s.GetConnInfo(conn)
 	if err != nil {
 		s.log.Error().Msgf("Failed to get connection info: %v", err)
 		return ssh.ServerAuthCallbacks{}
 	}
-	s.updateUser(s.ctx, connInfo)
-	authMethods := s.getAvailableAuthMethods(connInfo)
+	s.updateUser(ctx, connInfo)
+	authMethods := s.getAvailableAuthMethods(ctx, connInfo)
 	if authMethods == nil {
 		return ssh.ServerAuthCallbacks{}
 	}
@@ -45,18 +49,21 @@ func (s *Server) AuthPublicKey(conn ssh.ConnMetadata, pubKey ssh.PublicKey) (*ss
 	}
 	s.updateUser(ctx, connInfo)
 	if connInfo.user != nil {
-		if slices.Contains(connInfo.user.Auths, "publickey") {
-			if s.authPublicKey(connInfo.user, pubKey) {
-				s.log.Info().Msgf("User %s authenticated with public key", connInfo.user.Username)
-				return &ssh.Permissions{}, nil
-			} else {
-				connInfo.AddFailureInfo("Public key authentication failed", nil)
-				return nil, fmt.Errorf("public key authentication failed for user %s", connInfo.user.Username)
-			}
-		} else {
-			connInfo.AddFailureInfo("Public key authentication not available", nil)
+		methods, err := s.resolveAuthMethods(ctx, connInfo)
+		if err != nil {
+			connInfo.AddFailureInfo("Failed to resolve authentication methods", err)
 			return nil, fmt.Errorf("public key authentication not available for user %s", connInfo.user.Username)
 		}
+		if !slices.Contains(methods, authz.UserAuthMethodPublicKey) {
+			connInfo.AddFailureInfo("Public key authentication not permitted by policy", nil)
+			return nil, fmt.Errorf("public key authentication not available for user %s", connInfo.user.Username)
+		}
+		if s.authPublicKey(connInfo.user, pubKey) {
+			s.log.Info().Msgf("User %s authenticated with public key", connInfo.user.Username)
+			return &ssh.Permissions{}, nil
+		}
+		connInfo.AddFailureInfo("Public key authentication failed", nil)
+		return nil, fmt.Errorf("public key authentication failed for user %s", connInfo.user.Username)
 	}
 
 	if connInfo.GetOnboardCap() != nil && connInfo.GetOnboardCap().CanOnboard {
@@ -82,18 +89,21 @@ func (s *Server) AuthPassword(conn ssh.ConnMetadata, password []byte) (*ssh.Perm
 	}
 	s.updateUser(ctx, connInfo)
 	if connInfo.user != nil {
-		if slices.Contains(connInfo.user.Auths, "password") {
-			if s.authPassword(connInfo.user) {
-				s.log.Info().Msgf("User %s authenticated with password", connInfo.user.Username)
-				return &ssh.Permissions{}, nil
-			} else {
-				connInfo.AddFailureInfo("Password authentication failed", nil)
-				return nil, fmt.Errorf("password authentication failed for user %s", connInfo.user.Username)
-			}
-		} else {
-			connInfo.AddFailureInfo("Password authentication not available", nil)
+		methods, err := s.resolveAuthMethods(ctx, connInfo)
+		if err != nil {
+			connInfo.AddFailureInfo("Failed to resolve authentication methods", err)
 			return nil, fmt.Errorf("password authentication not available for user %s", connInfo.user.Username)
 		}
+		if !slices.Contains(methods, authz.UserAuthMethodPassword) {
+			connInfo.AddFailureInfo("Password authentication not permitted by policy", nil)
+			return nil, fmt.Errorf("password authentication not available for user %s", connInfo.user.Username)
+		}
+		if s.authPassword(connInfo.user, password) {
+			s.log.Info().Msgf("User %s authenticated with password", connInfo.user.Username)
+			return &ssh.Permissions{}, nil
+		}
+		connInfo.AddFailureInfo("Password authentication failed", nil)
+		return nil, fmt.Errorf("password authentication failed for user %s", connInfo.user.Username)
 	}
 
 	if connInfo.GetOnboardCap() != nil && connInfo.GetOnboardCap().CanOnboard {
@@ -188,7 +198,7 @@ func (s *Server) checkAuthInteractiveResponse(ctx context.Context,
 		s.log.Error().Msgf("Failed to complete device flow for user %s: %v", onboardInfo.Username, err)
 	}
 	s.log.Info().Msgf("Onboarding completed for user %s", onboardInfo.Username)
-	return nil, s.getAvailableAuthMethods(auth)
+	return nil, s.getAvailableAuthMethods(ctx, auth)
 }
 
 // AuthPublicKey handles public key authentication via the identity service.
@@ -213,9 +223,20 @@ func (s *Server) authPublicKey(user *models.User, pubKey ssh.PublicKey) bool {
 }
 
 // AuthPassword handles password authentication via the identity service.
-func (s *Server) authPassword(_ *models.User) bool {
-	// TODO: Call identity service to validate password
-	return false
+func (s *Server) authPassword(user *models.User, password []byte) bool {
+	s.log.Debug().Msgf("Authenticating user %s with password", user.Username)
+	authResponse, err := s.identity.AuthUserPassword(s.ctx, &identityv1.AuthUserPasswordRequest{
+		Username: user.Username, Password: string(password)})
+	if err != nil || authResponse == nil {
+		s.log.Error().Msgf("Failed to get authentication response for user %s: %v", user.Username, err)
+		return false
+	}
+
+	if !authResponse.Valid {
+		s.log.Warn().Msgf("Password authentication failed for user %s", user.Username)
+		return false
+	}
+	return true
 }
 
 // updateUser fetches user from the identity service and updates user auth
@@ -260,7 +281,7 @@ func (s *Server) updateUser(ctx context.Context, connInfo *Connection) {
 
 // getAvailableAuthMethods returns the available authentication methods for the user.
 // It returns callbacks for the SSH server authentication process.
-func (s *Server) getAvailableAuthMethods(connInfo *Connection) *ssh.PartialSuccessError {
+func (s *Server) getAvailableAuthMethods(ctx context.Context, connInfo *Connection) *ssh.PartialSuccessError {
 	if connInfo.user == nil {
 		onboardCap := connInfo.GetOnboardCap()
 		if onboardCap != nil && onboardCap.CanOnboard {
@@ -275,28 +296,75 @@ func (s *Server) getAvailableAuthMethods(connInfo *Connection) *ssh.PartialSucce
 		return nil
 	}
 
+	methods, err := s.resolveAuthMethods(ctx, connInfo)
+	if err != nil {
+		s.log.Error().Msgf("Failed to resolve authentication methods for user %s: %v", connInfo.user.Username, err)
+		connInfo.AddFailureInfo("Failed to resolve authentication methods", err)
+		return nil
+	}
+
 	callbacks := ssh.ServerAuthCallbacks{}
-	for _, authMethod := range connInfo.user.Auths {
-		switch string(authMethod) {
-		case "publickey":
-			s.log.Debug().Msgf("Enabling public key authentication for user %s", connInfo.user.Username)
-			callbacks.PublicKeyCallback = s.AuthPublicKey
-		case "password":
-			s.log.Debug().Msgf("Enabling password authentication for user %s", connInfo.user.Username)
-			callbacks.PasswordCallback = s.AuthPassword
-		}
+	if slices.Contains(methods, authz.UserAuthMethodPublicKey) {
+		s.log.Debug().Msgf("Enabling public key authentication for user %s", connInfo.user.Username)
+		callbacks.PublicKeyCallback = s.AuthPublicKey
+	}
+	if slices.Contains(methods, authz.UserAuthMethodPassword) {
+		s.log.Debug().Msgf("Enabling password authentication for user %s", connInfo.user.Username)
+		callbacks.PasswordCallback = s.AuthPassword
 	}
 
-	if callbacks.PublicKeyCallback != nil ||
-		callbacks.PasswordCallback != nil ||
-		callbacks.KeyboardInteractiveCallback != nil {
-		return &ssh.PartialSuccessError{
-			Next: callbacks,
-		}
+	if callbacks.PublicKeyCallback == nil && callbacks.PasswordCallback == nil {
+		s.log.Warn().Msgf("No available authentication methods for user %s", connInfo.userStr.Username())
+		connInfo.AddFailureInfo("No available authentication methods", nil)
+		return nil
 	}
 
-	s.log.Warn().Msgf("No available authentication methods for user %s", connInfo.userStr.Username())
-	connInfo.AddFailureInfo("No available authentication methods", nil)
+	return &ssh.PartialSuccessError{
+		Next: callbacks,
+	}
+}
 
-	return nil
+// resolveAuthMethods returns the SSH authentication methods permitted for the
+// connection's user, evaluating the user:auth policy at most once per
+// connection (the result is cached on Connection, since it gates both
+// advertising in getAvailableAuthMethods and enforcement in
+// AuthPublicKey/AuthPassword). When authz is not configured, both methods are
+// permitted. When authz is configured but the response carries no
+// auth_methods obligation, no methods are permitted, per the user:auth
+// contract.
+func (s *Server) resolveAuthMethods(ctx context.Context, connInfo *Connection) ([]authz.UserAuthMethod, error) {
+	if methods, ok := connInfo.GetAuthMethods(); ok {
+		return methods, nil
+	}
+
+	if s.authzClient == nil {
+		methods := []authz.UserAuthMethod{authz.UserAuthMethodPublicKey, authz.UserAuthMethodPassword}
+		connInfo.SetAuthMethods(methods)
+		return methods, nil
+	}
+
+	token, err := connInfo.GetUserToken()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user token for authz check: %w", err)
+	}
+
+	req, err := authz.NewUserAuthEvalRequest(connInfo.user.Username).
+		WithIDP(connInfo.user.Source).
+		WithOrg(connInfo.user.Organization).
+		Build()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build user:auth request: %w", err)
+	}
+
+	ob, found, err := s.checkUserAuthMethodsAuthz(ctx, token, req)
+	if err != nil {
+		return nil, err
+	}
+
+	methods := []authz.UserAuthMethod{}
+	if found {
+		methods = ob.Methods
+	}
+	connInfo.SetAuthMethods(methods)
+	return methods, nil
 }

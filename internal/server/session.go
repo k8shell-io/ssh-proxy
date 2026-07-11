@@ -95,7 +95,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 				if err != nil {
 					s.log.Error().Msgf("Failed to reply to subsystem request: %v", err)
 				}
-				connInfo.AddChannelInfo(models.ChannelShortSf)
+				connInfo.AddChannelInfo(string(models.OpSFTP))
 				sessionType <- "sftp"
 				sessionTypeSent = true
 			} else {
@@ -128,7 +128,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 
 			session.hasPTY = true
 			accepted = true
-			connInfo.AddChannelInfo(models.ChannelShortPt)
+			connInfo.AddChannelInfo(string(models.OpPty))
 			s.log.Debug().Msgf("PTY request accepted for user %s", session.username)
 
 		case "env":
@@ -161,7 +161,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 			s.log.Debug().Msgf("Shell request accepted for user %s", session.username)
 			sessionType <- "shell"
 			sessionTypeSent = true
-			connInfo.AddChannelInfo(models.ChannelShortSh)
+			connInfo.AddChannelInfo(string(models.OpShell))
 
 		case "exec":
 			command, err := s.parseExecRequest(req.Payload)
@@ -173,7 +173,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 				s.log.Debug().Msgf("Exec request accepted for user %s: %s", session.username, command)
 				sessionType <- "exec"
 				sessionTypeSent = true
-				connInfo.AddChannelInfo(models.ChannelShortEx)
+				connInfo.AddChannelInfo(string(models.OpExec))
 			}
 
 		case "signal":
@@ -223,7 +223,9 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 					session.termWidth = width
 					session.termHeight = height
 
-					if err := k8shelld.ResizeTerminal(connInfo.ctx, session.sessionId, width, height); err != nil {
+					if userToken, err := connInfo.GetUserToken(); err != nil {
+						s.log.Error().Msgf("Failed to get user token for resize: %v", err)
+					} else if err := k8shelld.ResizeTerminal(connInfo.ctx, userToken, session.sessionId, width, height); err != nil {
 						s.log.Error().Msgf("Failed to resize terminal: %v", err)
 					}
 				} else {
@@ -243,7 +245,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 			s.log.Debug().Msgf("SSH agent forwarding request accepted for user %s", session.username)
 			session.env = append(session.env, fmt.Sprintf("SSH_AUTH_SOCK=%s",
 				session.sshAuthSock))
-			connInfo.AddChannelInfo(models.ChannelShortAf)
+			connInfo.AddChannelInfo(string(models.OpForwardAgent))
 
 		default:
 			s.log.Warn().Msgf("Unsupported session request type: %s for user %s", req.Type, session.username)

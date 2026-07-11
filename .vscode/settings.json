@@ -1,4 +1,7 @@
 {
+    "git.scanRepositories": [
+        "common"
+    ],
     "[markdown]": {
         "editor.wordWrap": "wordWrapColumn",
         "editor.wordWrapColumn": 120,

@@ -54,3 +54,30 @@ func (s *Server) checkSessionAuthz(ctx context.Context, token string, req *authz
 	ob, found := authz.ParseRecordObligation(resp.GetObligations())
 	return ob, found, nil
 }
+
+// checkUserAuthMethodsAuthz evaluates a user:auth request against the authz
+// service and returns the auth_methods obligation naming which SSH
+// authentication methods the policy permits for the user. When authz is not
+// configured, returns (zero, false, nil) so callers fall back to their own
+// default. When authz is configured but the response carries no auth_methods
+// obligation, found is false and, per the user:auth contract, the caller must
+// offer no authentication methods.
+func (s *Server) checkUserAuthMethodsAuthz(ctx context.Context, token string, req *authz.UserAuthEvalRequest) (authz.AuthMethodsObligation, bool, error) {
+	if s.authzClient == nil {
+		return authz.AuthMethodsObligation{}, false, nil
+	}
+	if err := req.Validate(); err != nil {
+		return authz.AuthMethodsObligation{}, false, fmt.Errorf("authz: invalid request: %w", err)
+	}
+	protoReq := req.ToProto(token)
+	protoReq.Package = "user"
+	resp, err := s.authzClient.Evaluate(ctx, protoReq)
+	if err != nil {
+		return authz.AuthMethodsObligation{}, false, fmt.Errorf("authz: evaluate user:auth: %w", err)
+	}
+	if !resp.GetAllowed() {
+		return authz.AuthMethodsObligation{}, false, fmt.Errorf("user:auth denied: %s", resp.GetReason())
+	}
+	ob, found := authz.ParseAuthMethodsObligation(resp.GetObligations())
+	return ob, found, nil
+}

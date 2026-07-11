@@ -67,6 +67,9 @@ type Connection struct {
 	reportStopCh     chan struct{}                 // channel to signal report goroutine to stop
 	reportWg         sync.WaitGroup                // wait group for report goroutine
 	ptyName          string                        // name of the allocated pseudo-terminal (if any)
+	authMethodsMu    sync.RWMutex                  // mutex for synchronizing access to authMethods
+	authMethods      []authz.UserAuthMethod        // SSH authentication methods permitted by policy (resolved once per connection)
+	authMethodsSet   bool                          // whether authMethods has been resolved
 }
 
 // Session holds information about a user's SSH session
@@ -320,7 +323,7 @@ func (c *Connection) updateSession(action string) (bool, error) {
 		Workspace:   c.workspaceName,
 		BytesIn:     curIn,
 		BytesOut:    curOut,
-		Channels:    curChannels,
+		Operations:  curChannels,
 		UpdatedAt:   &t,
 		Blueprint:   c.userStr.Blueprint(),
 	}
@@ -363,6 +366,25 @@ func (c *Connection) GetOnboardCap() *models.OnboardCapability {
 	c.onboardMu.RLock()
 	defer c.onboardMu.RUnlock()
 	return c.onboardCap
+}
+
+// SetAuthMethods caches the SSH authentication methods permitted by policy
+// for this connection, so the user:auth policy is evaluated at most once per
+// connection even though it gates both advertising (getAvailableAuthMethods)
+// and enforcement (AuthPublicKey/AuthPassword).
+func (c *Connection) SetAuthMethods(methods []authz.UserAuthMethod) {
+	c.authMethodsMu.Lock()
+	defer c.authMethodsMu.Unlock()
+	c.authMethods = methods
+	c.authMethodsSet = true
+}
+
+// GetAuthMethods retrieves the cached policy-permitted authentication methods.
+// The second return value is false when the methods have not been resolved yet.
+func (c *Connection) GetAuthMethods() ([]authz.UserAuthMethod, bool) {
+	c.authMethodsMu.RLock()
+	defer c.authMethodsMu.RUnlock()
+	return c.authMethods, c.authMethodsSet
 }
 
 // grpcClientMessage returns a clean single-line message from an error,
@@ -447,7 +469,13 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	c.log.Debug().Msgf("Connecting to k8shelld at %s:%d for user %s, version: %s",
 		status.ServerName, status.Port, c.user.Username, status.AppVersion)
 
-	handshake, err := k8shelld.Handshake(c.ctx, "")
+	userToken, err := c.GetUserToken()
+	if err != nil {
+		infoWriter.WriteSystemError("Failed to obtain access token.")
+		return nil, fmt.Errorf("failed to get user token for user %s: %w", c.user.Username, err)
+	}
+
+	handshake, err := k8shelld.Handshake(c.ctx, userToken)
 	if err != nil {
 		msg := grpcClientMessage(err)
 		if s, ok := grpcstatus.FromError(err); ok && s.Code() == grpccodes.Unavailable {
