@@ -19,6 +19,7 @@ import (
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/common/pkg/userstr"
+	"google.golang.org/grpc"
 )
 
 const PROVISION_TIMEOUT = 120 * time.Second
@@ -271,6 +272,15 @@ func EnsureWorkspace(ctx context.Context, userStr *userstr.UserStr, writer *Info
 				return gapi.ProtoToWorkspaceDetails(wsDetails), nil
 			}
 		}
+		for _, wsDetails := range ws.Workspaces {
+			if wsDetails.GetWorkspaceStatus().GetStatus() == string(models.WorkspaceStatusStopped) {
+				wsname, err := startWorkspace(ctx, wsDetails.GetName(), writer, backends)
+				if err != nil {
+					return nil, fmt.Errorf("%w: failed to start workspace", err)
+				}
+				return finalizeWorkspace(ctx, wsname, userStr.Username(), backends)
+			}
+		}
 		return nil, fmt.Errorf("%w: no running workspaces found. Please try again later.", ErrWorkspaceNotFound)
 	}
 
@@ -283,10 +293,16 @@ func EnsureWorkspace(ctx context.Context, userStr *userstr.UserStr, writer *Info
 		return nil, fmt.Errorf("%w: failed to provision workspace", err)
 	}
 
+	return finalizeWorkspace(ctx, wsname, userStr.Username(), backends)
+}
+
+// finalizeWorkspace looks up the workspace by name after it has been
+// provisioned or resumed and returns its details once confirmed running.
+func finalizeWorkspace(ctx context.Context, wsname string, username string, backends Backends) (*models.WorkspaceDetails, error) {
 	wsStatus, err := backends.Provisioner().FindWorkspace(ctx,
 		&provisionerv1.FindWorkspaceRequest{Workspace: wsname})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", userStr.Username(), err)
+		return nil, fmt.Errorf("failed to get workspace status for user %s: %w", username, err)
 	}
 
 	if wsStatus.GetWorkspaceStatus().GetStatus() == string(models.WorkspaceStatusRunning) {
@@ -294,12 +310,37 @@ func EnsureWorkspace(ctx context.Context, userStr *userstr.UserStr, writer *Info
 	}
 
 	return nil, fmt.Errorf("failed to ensure workspace for user %s: workspace status is %q",
-		userStr.Username(), wsStatus.GetWorkspaceStatus().GetStatus())
+		username, wsStatus.GetWorkspaceStatus().GetStatus())
 }
 
 // provisionWorkspace provisions a new workspace for the user.
 func provisionWorkspace(ctx context.Context, userStr *userstr.UserStr, writer *InfoWriter,
 	backends Backends) (string, error) {
+	timeout := int32(PROVISION_TIMEOUT / time.Second)
+	_, _, stream, err := backends.Provisioner().ProvisionHandshake(ctx, *userStr, timeout)
+	if err != nil {
+		return "", fmt.Errorf("handshake failed for user %s: %w", userStr.Username(), err)
+	}
+
+	return consumeProvisionStream(ctx, stream, writer)
+}
+
+// startWorkspace resumes a previously stopped workspace.
+func startWorkspace(ctx context.Context, workspaceName string, writer *InfoWriter,
+	backends Backends) (string, error) {
+	timeout := int32(PROVISION_TIMEOUT / time.Second)
+	_, _, stream, err := backends.Provisioner().StartHandshake(ctx, workspaceName, timeout)
+	if err != nil {
+		return "", fmt.Errorf("start handshake failed for workspace %s: %w", workspaceName, err)
+	}
+
+	return consumeProvisionStream(ctx, stream, writer)
+}
+
+// consumeProvisionStream drains a provisioning/start stream, reporting
+// progress via writer, until the workspace reaches a terminal state.
+func consumeProvisionStream(ctx context.Context,
+	stream grpc.ServerStreamingClient[provisionerv1.ProvisionWorkspaceResponse], writer *InfoWriter) (string, error) {
 	var (
 		name     string
 		eventErr error
@@ -309,12 +350,6 @@ func provisionWorkspace(ctx context.Context, userStr *userstr.UserStr, writer *I
 	defer func() {
 		writer.EndProvisioning(eventErr != nil)
 	}()
-
-	timeout := int32(PROVISION_TIMEOUT / time.Second)
-	_, _, stream, err := backends.Provisioner().ProvisionHandshake(ctx, *userStr, timeout)
-	if err != nil {
-		return "", fmt.Errorf("handshake failed for user %s: %w", userStr.Username(), err)
-	}
 
 loop:
 	for {
