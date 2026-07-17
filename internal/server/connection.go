@@ -302,12 +302,14 @@ func (c *Connection) SetTransport(transport io.Closer) {
 	c.transport = transport
 }
 
-// ForceClose terminates the connection's underlying SSH transport and
-// cancels its context, e.g. when the user's account becomes locked mid
-// session. Closing the transport causes the SSH channel loop to observe a
-// closed channels chan and unwind through the normal Close/RemoveState path.
+// ForceClose terminates the connection's underlying SSH transport, e.g. when
+// the user's account becomes locked mid session. Closing the transport drops
+// every open SSH channel (unblocking any in-flight reads/writes with EOF)
+// and causes the channel loop to observe a closed channels chan, unwinding
+// through the normal Close/RemoveState path. It deliberately does not cancel
+// c.ctx: Close() reuses c.ctx to send the final session-delete update, and a
+// canceled context would make that call fail immediately.
 func (c *Connection) ForceClose() {
-	c.cancel()
 	if c.transport != nil {
 		_ = c.transport.Close()
 	}
