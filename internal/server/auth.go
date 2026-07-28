@@ -351,6 +351,7 @@ func (s *Server) resolveAuthMethods(ctx context.Context, connInfo *Connection) (
 	req, err := authz.NewUserAuthEvalRequest(connInfo.user.Username).
 		WithIDP(connInfo.user.Source).
 		WithOrg(connInfo.user.Organization).
+		WithSurface(authz.AuthSurfaceSSH).
 		Build()
 	if err != nil {
 		return nil, fmt.Errorf("failed to build user:auth request: %w", err)

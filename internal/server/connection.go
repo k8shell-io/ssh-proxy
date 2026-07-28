@@ -41,8 +41,10 @@ type Connection struct {
 	ctx              context.Context               // context for managing the connection
 	seqNumberGen     int64                         // sequence number for exec commands
 	connId           string                        // session key for the connection
+	connKey          string                        // key under which this Connection is stored in connStates
 	cancel           context.CancelFunc            // function to cancel the context
 	log              *zerolog.Logger               // logger instance, reused from server
+	transport        io.Closer                     // underlying SSH transport; set once the handshake completes, used to force-terminate the session
 	userStr          *userstr.UserStr              // user string information
 	clientIP         string                        // client IP address (detected from proxy protocol if available)
 	clientPort       int                           // client port (detected from proxy protocol if available)
@@ -162,7 +164,37 @@ func GetConnectionByAddress(remoteAddr string) *Connection {
 func RemoveState(state *Connection) {
 	connStatesMutex.Lock()
 	defer connStatesMutex.Unlock()
-	delete(connStates, fmt.Sprintf("connid-%s", state.userStr.Username()))
+	delete(connStates, state.connKey)
+}
+
+// closeAllSSHConnectionsForUser force-closes every live SSH connection owned
+// by username in this process. A user can hold more than one concurrent
+// session (multiple terminals, port-forwards, etc.), so every match is
+// closed, not just the first.
+func closeAllSSHConnectionsForUser(username string) {
+	connStatesMutex.RLock()
+	matches := make([]*Connection, 0, 1)
+	for _, c := range connStates {
+		if connectionBelongsToUser(c, username) {
+			matches = append(matches, c)
+		}
+	}
+	connStatesMutex.RUnlock()
+
+	for _, c := range matches {
+		c.log.Info().Msgf("Closing SSH connection for locked user %s", username)
+		c.ForceClose()
+	}
+}
+
+// connectionBelongsToUser reports whether c belongs to username, preferring
+// the identity-resolved username and falling back to the raw SSH login name
+// for connections that haven't completed authentication yet.
+func connectionBelongsToUser(c *Connection, username string) bool {
+	if c.user != nil {
+		return c.user.Username == username
+	}
+	return c.userStr != nil && c.userStr.Username() == username
 }
 
 // GetConnInfo retrieves or creates a Connection object for the given ssh.ConnMetadata
@@ -186,6 +218,7 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 
 			connInfo = &Connection{
 				connId:        fmt.Sprintf("%s-%d-%s", GetProxyID(), os.Getpid(), strings.ToLower(rand.Text()[:2])),
+				connKey:       connID,
 				log:           s.log,
 				identity:      s.identity,
 				sessionClient: s.sessionClient,
@@ -256,8 +289,30 @@ func (c *Connection) Close() error {
 		c.reportWg.Wait()
 	}
 
+	RemoveState(c)
+
 	//c.cancel()
 	return nil
+}
+
+// SetTransport records the underlying SSH transport for the connection, so
+// it can be force-closed later (e.g. ForceClose) independently of the
+// per-connection context.
+func (c *Connection) SetTransport(transport io.Closer) {
+	c.transport = transport
+}
+
+// ForceClose terminates the connection's underlying SSH transport, e.g. when
+// the user's account becomes locked mid session. Closing the transport drops
+// every open SSH channel (unblocking any in-flight reads/writes with EOF)
+// and causes the channel loop to observe a closed channels chan, unwinding
+// through the normal Close/RemoveState path. It deliberately does not cancel
+// c.ctx: Close() reuses c.ctx to send the final session-delete update, and a
+// canceled context would make that call fail immediately.
+func (c *Connection) ForceClose() {
+	if c.transport != nil {
+		_ = c.transport.Close()
+	}
 }
 
 // reportSessionData periodically reports session data

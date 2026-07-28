@@ -133,8 +133,9 @@ func NewServer(configPath string) (*Server, error) {
 			if err != nil {
 				return nil, fmt.Errorf("create userstr jetstream cache: %w", err)
 			}
+			go server.startUserLockWatcher()
 		} else {
-			server.log.Warn().Msg("NATS client is not configured, userstr cache disabled")
+			server.log.Warn().Msg("NATS client is not configured, userstr cache and user lock watching disabled")
 		}
 
 		if config.Session.IsEnabled() {
@@ -257,8 +258,9 @@ func HandleConnectionChildProcess(configPath string) error {
 		if err != nil {
 			return fmt.Errorf("create userstr jetstream cache: %w", err)
 		}
+		go server.startUserLockWatcher()
 	} else {
-		logger.Warn().Msg("NATS client is not configured, userstr cache disabled")
+		logger.Warn().Msg("NATS client is not configured, userstr cache and user lock watching disabled")
 	}
 
 	if config.Session.IsEnabled() {
@@ -365,7 +367,6 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 			}
 
 			connInfo.Close()
-			RemoveState(connInfo)
 		} else if s.fpub != nil {
 			pubErr := s.fpub.PublishFailure(ip, port, "", []string{err.Error()})
 			if pubErr != nil {
@@ -389,6 +390,7 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 	}
 	connInfo.clientIP = ip
 	connInfo.clientPort = port
+	connInfo.SetTransport(sshConn)
 	defer connInfo.Close()
 
 	go s.handleGlobalRequests(requests)
