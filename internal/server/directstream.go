@@ -63,7 +63,7 @@ func (s *Server) handleDirectStreamLocal(_ *ssh.ServerConn, connInfo *Connection
 		return
 	}
 
-	if err := k8shelld.RunUnixSocket(connInfo.ctx, userToken, &workspace.ChannelAdapter{Channel: ch},
+	if err := k8shelld.RunUnixSocket(connInfo.ctx, &workspace.ChannelAdapter{Channel: ch},
 		streamLocal.streamLocalId, streamLocal.destPath, "UNIX_SOCKET_MODE_DIAL"); err != nil {
 		s.log.Error().Err(err).Msg("unix socket connect failed")
 		return

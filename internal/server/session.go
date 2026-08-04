@@ -223,9 +223,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 					session.termWidth = width
 					session.termHeight = height
 
-					if userToken, err := connInfo.GetUserToken(); err != nil {
-						s.log.Error().Msgf("Failed to get user token for resize: %v", err)
-					} else if err := k8shelld.ResizeTerminal(connInfo.ctx, userToken, session.sessionId, width, height); err != nil {
+					if err := k8shelld.ResizeTerminal(connInfo.ctx, session.sessionId, width, height); err != nil {
 						s.log.Error().Msgf("Failed to resize terminal: %v", err)
 					}
 				} else {
@@ -560,13 +558,7 @@ func (s *Server) handleAgent(sshConn *ssh.ServerConn, connInfo *Connection) (ssh
 		s.log.Debug().Msgf("Starting agent forwarding for user %s, unix socket id: %s",
 			connInfo.userStr.Username(), connInfo.session.agentUnixID)
 
-		userToken, err := connInfo.GetUserToken()
-		if err != nil {
-			s.log.Error().Msgf("Failed to get user token for user %s: %v", connInfo.user.Username, err)
-			return
-		}
-
-		err = k8shelld.RunUnixSocket(connInfo.ctx, userToken, &workspace.ChannelAdapter{Channel: channel},
+		err := k8shelld.RunUnixSocket(connInfo.ctx, &workspace.ChannelAdapter{Channel: channel},
 			connInfo.session.agentUnixID, connInfo.session.sshAuthSock, "UNIX_SOCKET_MODE_LISTEN")
 		if err != nil {
 			if statusErr, ok := status.FromError(err); ok && statusErr.Code() == codes.Canceled {

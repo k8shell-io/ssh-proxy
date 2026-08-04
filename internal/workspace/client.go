@@ -19,12 +19,12 @@ import (
 )
 
 type K8shelldClient interface {
-	Handshake(ctx context.Context, userToken string) (*k8shelldv1.HandshakeResponse, error)
+	Handshake(ctx context.Context) (*k8shelldv1.HandshakeResponse, error)
 	RunShell(ctx context.Context, userToken string, asUser string, upstream k8shelldClient.BufferedReadWriter, sessionId string, envVars []string,
 		width, height uint32, usePty bool, lockId string, detachOnClose bool, showInitScriptsStatus bool, enableRecording bool,
 		notifyPtyName k8shelld.NotifyPtyNameFunc) error
-	ResizeTerminal(ctx context.Context, userToken string, sessionId string, width, height uint32) error
-	RunUnixSocket(ctx context.Context, userToken string, upstream k8shelldClient.BufferedReadWriter, unixSocketId, socketPath, mode string) error
+	ResizeTerminal(ctx context.Context, sessionId string, width, height uint32) error
+	RunUnixSocket(ctx context.Context, upstream k8shelldClient.BufferedReadWriter, unixSocketId, socketPath, mode string) error
 	RunPortForward(ctx context.Context, userToken string, upstream k8shelldClient.BufferedReadWriter, portForwardID, sourceIP string,
 		sourcePort uint32, destinationIP string, destinationPort uint32, enableRecording bool) error
 	RunExec(ctx context.Context, userToken string, asUser string, upstream k8shelldClient.BufferedReadWriter,
