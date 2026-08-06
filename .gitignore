@@ -7,3 +7,4 @@ reports
 go.work
 go.work.sum
 common
+bin/*
