@@ -25,7 +25,6 @@ import (
 	"github.com/k8shell-io/common/pkg/api/client/k8shelld"
 	sessionc "github.com/k8shell-io/common/pkg/api/client/session"
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
-	provisionerv1 "github.com/k8shell-io/common/pkg/api/gen/go/provisioner/v1"
 	sessionv1 "github.com/k8shell-io/common/pkg/api/gen/go/session/v1"
 	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/gapi"
@@ -538,16 +537,6 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 		return nil, fmt.Errorf("handshake with k8shelld failed for user %s", c.user.Username)
 	}
 
-	go func() {
-		c.log.Debug().Msgf("Running k8shelld command processor for user %s", c.user.Username)
-		err = k8shelld.RunCommandProcessor(c.ctx, c.getCommandHandler(backends, status.Name))
-		if err != nil {
-			c.log.Error().Msgf("Failed to run k8shelld command processor for user %s: %v", c.user.Username, err)
-		} else {
-			c.log.Debug().Msgf("k8shelld command processor stopped for user %s", c.user.Username)
-		}
-	}()
-
 	c.k8shelld = k8shelld
 	c.k8shelldVer = status.AppVersion
 	c.workspaceName = status.Name
@@ -558,50 +547,6 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	}
 
 	return c.k8shelld, nil
-}
-
-func (c *Connection) getCommandHandler(backends workspace.Backends, workspaceName string) k8shelld.CommandHandler {
-	return func(ctx context.Context, command string) (string, error) {
-		parts := strings.SplitN(command, " ", 2)
-		switch parts[0] {
-		case "shutdown":
-			action := "stop"
-			if len(parts) == 2 {
-				action = parts[1]
-			}
-			c.log.Debug().Msgf("Received k8shelld shutdown command (action=%s) for user %s, workspace %s",
-				action, c.user.Username, workspaceName)
-			switch action {
-			case "delete":
-				_, err := backends.Provisioner().DeleteWorkspace(c.ctx,
-					&provisionerv1.DeleteWorkspaceRequest{Workspace: workspaceName, DelaySeconds: 2})
-				if err != nil {
-					c.log.Debug().Msgf("Failed to delete workspace for user %s, workspace %s: %v",
-						c.user.Username, workspaceName, err)
-					return "Cannot delete workspace due to an error.",
-						fmt.Errorf("failed to delete workspace: %w", err)
-				}
-				return "Workspace deletion has been initiated.", nil
-			case "stop":
-				_, err := backends.Provisioner().StopWorkspace(c.ctx,
-					&provisionerv1.StopWorkspaceRequest{Workspace: workspaceName, DelaySeconds: 2})
-				if err != nil {
-					c.log.Debug().Msgf("Failed to stop workspace for user %s, workspace %s: %v",
-						c.user.Username, workspaceName, err)
-					return "Cannot stop workspace due to an error.",
-						fmt.Errorf("failed to stop workspace: %w", err)
-				}
-				return "Workspace stop has been initiated.", nil
-			default:
-				c.log.Error().Msgf("Received unknown shutdown action %q for user %s, workspace %s",
-					action, c.user.Username, workspaceName)
-				return "", fmt.Errorf("unknown shutdown action %q, expected \"delete\" or \"stop\"", action)
-			}
-		}
-		c.log.Error().Msgf("Received unknown k8shelld command %q for user %s, workspace %s",
-			command, c.user.Username, workspaceName)
-		return "", fmt.Errorf("unknown command")
-	}
 }
 
 // IncrementDirectTCPIPCount atomically increments the direct TCP/IP count

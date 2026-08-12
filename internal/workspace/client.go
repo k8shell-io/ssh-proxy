@@ -32,7 +32,6 @@ type K8shelldClient interface {
 		enableRecording bool) (int32, error)
 	RunSFTP(ctx context.Context, userToken string, asUser string, upstream k8shelldClient.BufferedReadWriter,
 		sessionID string, command string, envVars []string, enableRecording bool) (int32, error)
-	RunCommandProcessor(ctx context.Context, handler k8shelldClient.CommandHandler) error
 	Close() error
 }
 
