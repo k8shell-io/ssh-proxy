@@ -25,7 +25,6 @@ import (
 	"github.com/k8shell-io/common/pkg/api/client/k8shelld"
 	sessionc "github.com/k8shell-io/common/pkg/api/client/session"
 	identityv1 "github.com/k8shell-io/common/pkg/api/gen/go/identity/v1"
-	provisionerv1 "github.com/k8shell-io/common/pkg/api/gen/go/provisioner/v1"
 	sessionv1 "github.com/k8shell-io/common/pkg/api/gen/go/session/v1"
 	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/gapi"
@@ -38,40 +37,41 @@ import (
 
 // Connection represents the connection information for a user
 type Connection struct {
-	ctx              context.Context               // context for managing the connection
-	seqNumberGen     int64                         // sequence number for exec commands
-	connId           string                        // session key for the connection
-	connKey          string                        // key under which this Connection is stored in connStates
-	cancel           context.CancelFunc            // function to cancel the context
-	log              *zerolog.Logger               // logger instance, reused from server
-	transport        io.Closer                     // underlying SSH transport; set once the handshake completes, used to force-terminate the session
-	userStr          *userstr.UserStr              // user string information
-	clientIP         string                        // client IP address (detected from proxy protocol if available)
-	clientPort       int                           // client port (detected from proxy protocol if available)
-	identity         *identity.IdentityClient      // identity client for interacting with the identity service
-	sessionClient    *sessionc.Client              // gRPC client for session tracking
-	k8shelldCfg      gapi.ClientConfig             // k8shelld client configuration
-	k8shelld         workspace.K8shelldClient      // client for interacting with the workspace k8shelld daemon
-	k8shelldVer      string                        // version of the k8shelld daemon
-	onboardMu        sync.RWMutex                  // mutex for synchronizing access to onboardInfo and onboardCap
-	onboardCap       *models.OnboardCapability     // onboarding capabilities
-	onboardInfo      *models.OnboardUserDeviceFlow // onboarding information
-	user             *models.User                  // user information
-	mu               sync.RWMutex                  // mutex for synchronizing access
-	session          *Session                      // SSH session information
-	directTCPIP      *sync.Map                     // direct TCP/IP connection information
-	directTCPIPCount int64                         // current count of direct TCP/IP connections
-	counters         *k8shelld.ConnCounters        // connection counters
-	workspaceName    string                        // name of the workspace
-	channelInfoMu    sync.RWMutex                  // mutex for synchronizing access to channelInfo
-	channelInfo      []string                      // channel information
-	failureInfo      []string                      // failure information
-	reportStopCh     chan struct{}                 // channel to signal report goroutine to stop
-	reportWg         sync.WaitGroup                // wait group for report goroutine
-	ptyName          string                        // name of the allocated pseudo-terminal (if any)
-	authMethodsMu    sync.RWMutex                  // mutex for synchronizing access to authMethods
-	authMethods      []authz.UserAuthMethod        // SSH authentication methods permitted by policy (resolved once per connection)
-	authMethodsSet   bool                          // whether authMethods has been resolved
+	ctx                  context.Context               // context for managing the connection
+	seqNumberGen         int64                         // sequence number for exec commands
+	connId               string                        // session key for the connection
+	connKey              string                        // key under which this Connection is stored in connStates
+	cancel               context.CancelFunc            // function to cancel the context
+	log                  *zerolog.Logger               // logger instance, reused from server
+	transport            io.Closer                     // underlying SSH transport
+	userStr              *userstr.UserStr              // user string information
+	clientIP             string                        // client IP address (detected from proxy protocol if available)
+	clientPort           int                           // client port (detected from proxy protocol if available)
+	identity             *identity.IdentityClient      // identity client for interacting with the identity service
+	sessionClient        *sessionc.Client              // gRPC client for session tracking
+	k8shelldCfg          gapi.ClientConfig             // k8shelld client configuration
+	k8shelld             workspace.K8shelldClient      // client for interacting with the workspace k8shelld daemon
+	k8shelldVer          string                        // version of the k8shelld daemon
+	onboardMu            sync.RWMutex                  // mutex for synchronizing access to onboardInfo and onboardCap
+	onboardCap           *models.OnboardCapability     // onboarding capabilities
+	onboardInfo          *models.OnboardUserDeviceFlow // onboarding information
+	user                 *models.User                  // user information
+	mu                   sync.RWMutex                  // mutex for synchronizing access
+	session              *Session                      // SSH session information
+	directTCPIP          *sync.Map                     // direct TCP/IP connection information
+	directTCPIPCount     int64                         // current count of direct TCP/IP connections
+	counters             *k8shelld.ConnCounters        // connection counters
+	workspaceName        string                        // name of the workspace
+	channelInfoMu        sync.RWMutex                  // mutex for synchronizing access to channelInfo
+	channelInfo          []string                      // channel information
+	failureInfo          []string                      // failure information
+	reportStopCh         chan struct{}                 // channel to signal report goroutine to stop
+	reportWg             sync.WaitGroup                // wait group for report goroutine
+	ptyName              string                        // name of the allocated pseudo-terminal (if any)
+	authMethodsMu        sync.RWMutex                  // mutex for synchronizing access to authMethods
+	authMethods          []authz.UserAuthMethod        // SSH authentication methods permitted by policy
+	authMethodsSet       bool                          // whether authMethods has been resolved
+	suppressFailureEvent bool                          // when true, skip publishing an SSH failure event to NATS
 }
 
 // Session holds information about a user's SSH session
@@ -246,6 +246,14 @@ func (c *Connection) AddFailureInfo(info string, err error) {
 	} else {
 		c.failureInfo = append(c.failureInfo, info)
 	}
+}
+
+// ShouldSuppressFailureEvent reports whether the SSH failure event should be
+// suppressed for this connection.
+func (c *Connection) ShouldSuppressFailureEvent() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.suppressFailureEvent
 }
 
 // AddChannelInfo appends channel information to the Connection object
@@ -538,16 +546,6 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 		return nil, fmt.Errorf("handshake with k8shelld failed for user %s", c.user.Username)
 	}
 
-	go func() {
-		c.log.Debug().Msgf("Running k8shelld command processor for user %s", c.user.Username)
-		err = k8shelld.RunCommandProcessor(c.ctx, c.getCommandHandler(backends, status.Name))
-		if err != nil {
-			c.log.Error().Msgf("Failed to run k8shelld command processor for user %s: %v", c.user.Username, err)
-		} else {
-			c.log.Debug().Msgf("k8shelld command processor stopped for user %s", c.user.Username)
-		}
-	}()
-
 	c.k8shelld = k8shelld
 	c.k8shelldVer = status.AppVersion
 	c.workspaceName = status.Name
@@ -558,50 +556,6 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	}
 
 	return c.k8shelld, nil
-}
-
-func (c *Connection) getCommandHandler(backends workspace.Backends, workspaceName string) k8shelld.CommandHandler {
-	return func(ctx context.Context, command string) (string, error) {
-		parts := strings.SplitN(command, " ", 2)
-		switch parts[0] {
-		case "shutdown":
-			action := "stop"
-			if len(parts) == 2 {
-				action = parts[1]
-			}
-			c.log.Debug().Msgf("Received k8shelld shutdown command (action=%s) for user %s, workspace %s",
-				action, c.user.Username, workspaceName)
-			switch action {
-			case "delete":
-				_, err := backends.Provisioner().DeleteWorkspace(c.ctx,
-					&provisionerv1.DeleteWorkspaceRequest{Workspace: workspaceName, DelaySeconds: 2})
-				if err != nil {
-					c.log.Debug().Msgf("Failed to delete workspace for user %s, workspace %s: %v",
-						c.user.Username, workspaceName, err)
-					return "Cannot delete workspace due to an error.",
-						fmt.Errorf("failed to delete workspace: %w", err)
-				}
-				return "Workspace deletion has been initiated.", nil
-			case "stop":
-				_, err := backends.Provisioner().StopWorkspace(c.ctx,
-					&provisionerv1.StopWorkspaceRequest{Workspace: workspaceName, DelaySeconds: 2})
-				if err != nil {
-					c.log.Debug().Msgf("Failed to stop workspace for user %s, workspace %s: %v",
-						c.user.Username, workspaceName, err)
-					return "Cannot stop workspace due to an error.",
-						fmt.Errorf("failed to stop workspace: %w", err)
-				}
-				return "Workspace stop has been initiated.", nil
-			default:
-				c.log.Error().Msgf("Received unknown shutdown action %q for user %s, workspace %s",
-					action, c.user.Username, workspaceName)
-				return "", fmt.Errorf("unknown shutdown action %q, expected \"delete\" or \"stop\"", action)
-			}
-		}
-		c.log.Error().Msgf("Received unknown k8shelld command %q for user %s, workspace %s",
-			command, c.user.Username, workspaceName)
-		return "", fmt.Errorf("unknown command")
-	}
 }
 
 // IncrementDirectTCPIPCount atomically increments the direct TCP/IP count

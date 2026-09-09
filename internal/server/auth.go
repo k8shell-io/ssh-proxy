@@ -253,6 +253,9 @@ func (s *Server) updateUser(ctx context.Context, connInfo *Connection) {
 	if err != nil {
 		if status.Code(err) != codes.NotFound {
 			s.log.Error().Msgf("Failed to get user %s: %v", connInfo.userStr.Username(), err)
+			if status.Code(err) == codes.Unavailable {
+				connInfo.suppressFailureEvent = true
+			}
 			return
 		}
 		// when user is not found, we will check onboarding capability

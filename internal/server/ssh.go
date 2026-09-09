@@ -356,7 +356,7 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 		if connInfo != nil {
 			s.log.Debug().Msgf("Failed connection info: %v", connInfo.failureInfo)
 
-			if s.fpub != nil {
+			if s.fpub != nil && !connInfo.ShouldSuppressFailureEvent() {
 				failureInfo := []string{}
 				failureInfo = append(failureInfo, connInfo.failureInfo...)
 				failureInfo = append(failureInfo, string(err.Error()))
