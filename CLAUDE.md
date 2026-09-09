@@ -45,7 +45,8 @@ This fork adds the `AllowedAuthsCallback` field to `ssh.ServerConfig`, which ssh
 ```
 main.go                         — flag parsing, signal handling, server lifecycle
 internal/server/
-  ssh.go                        — Server struct, listener, connection dispatch, forking
+  ssh.go                        — Server struct, listener, connection dispatch, forking, gRPC server lifecycle
+  grpc.go                       — sshproxy.v1.SSHProxyService implementation (GetVersionInfo)
   auth.go                       — Public key, password, keyboard-interactive callbacks
   authzcheck.go                 — Authz service evaluation (SSH actions + RecordObligation)
   connection.go                 — Connection/Session state, workspace handshake, session reporting
@@ -82,6 +83,12 @@ All clients use `gapi.ClientConfig` (address + optional TLS + token file). A ser
 
 When authz is not configured both functions return nil/false and callers fall back to static config.
 
+## gRPC control interface
+
+`grpc.go` serves `sshproxy.v1.SSHProxyService` (proto + generated stubs live in the `common` module under `pkg/api/proto/sshproxy/v1` and `pkg/api/gen/go/sshproxy/v1`). It is built on `gapi.Server`, same as identity/provisioner/session, and is **opt-in**: it starts only when a port is set under the `grpc:` config block (`gapi.ServerConfig` — port, TLS, `authEnabled`, `allowed` callers). It is started/stopped by `Server.Start`/`Server.Stop` in the non-forking parent only; forking child processes never serve gRPC.
+
+- `GetVersionInfo` — returns `common.v1.GetVersionInfoResponse` (version, commit_id, description) sourced from `SSHPROXY_VERSION`/`SSHPROXY_COMMIT`. Same RPC name/signature every other k8shell service exposes.
+
 ## Logging
 
 zerolog, JSON by default. Pass `--logtext` for human-readable output. Logger names: `ssh-server`, `ssh-failures`. Log level is set via the logger package defaults; no config field.
@@ -94,7 +101,7 @@ zerolog, JSON by default. Pass `--logtext` for human-readable output. Logger nam
 ./ssh-proxy --child --config config.yaml [--logtext]
 ```
 
-Child processes do **not** share the parent's listener, NATS client, or identity/session/provisioner clients — they create their own.
+Child processes do **not** share the parent's listener, NATS client, identity/session/provisioner clients, or gRPC server — they create their own (and never serve gRPC).
 
 ## Config defaults
 
