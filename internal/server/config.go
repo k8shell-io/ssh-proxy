@@ -18,12 +18,19 @@ import (
 // Config represents the server configuration
 type Config struct {
 	Server      ServerConfig           `yaml:"server"`
+	Grpc        gapi.ServerConfig      `yaml:"grpc"`
 	Nats        natsc.NATSClientConfig `yaml:"nats"`
 	Identity    gapi.ClientConfig      `yaml:"identity"`
 	Session     gapi.ClientConfig      `yaml:"session"`
 	Provisioner gapi.ClientConfig      `yaml:"provisioner"`
 	K8shelld    gapi.ClientConfig      `yaml:"k8shelld"`
 	Authz       gapi.ClientConfig      `yaml:"authz"`
+}
+
+// GrpcEnabled reports whether the gRPC control interface should be started.
+// It is opt-in: the server runs only when a port is configured under `grpc`.
+func (c *Config) GrpcEnabled() bool {
+	return c.Grpc.Port != 0
 }
 
 // ServerConfig represents the SSH server configuration.

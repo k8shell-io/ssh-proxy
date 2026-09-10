@@ -25,12 +25,14 @@ import (
 	"github.com/k8shell-io/common/pkg/api/client/provisioner"
 	sessionc "github.com/k8shell-io/common/pkg/api/client/session"
 	authzv1 "github.com/k8shell-io/common/pkg/api/gen/go/authz/v1"
+	sshproxyv1 "github.com/k8shell-io/common/pkg/api/gen/go/sshproxy/v1"
 	"github.com/k8shell-io/common/pkg/gapi"
 	log "github.com/k8shell-io/common/pkg/logger"
 	"github.com/k8shell-io/common/pkg/models"
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	"github.com/rs/zerolog"
 	"golang.org/x/crypto/ssh"
+	"google.golang.org/grpc"
 )
 
 var (
@@ -54,6 +56,7 @@ type Server struct {
 	provisioner   *provisioner.Client
 	authzClient   authzv1.AuthzServiceClient
 	fpub          *NatsFailuresPublisher
+	grpc          *gapi.Server
 	configPath    string
 }
 
@@ -148,9 +151,40 @@ func NewServer(configPath string) (*Server, error) {
 				}
 			}
 		}
+
+		if err := server.initGRPCServer(); err != nil {
+			return nil, fmt.Errorf("failed to initialize gRPC server: %w", err)
+		}
 	}
 
 	return server, nil
+}
+
+// initGRPCServer sets up the sshproxy.v1 gRPC control interface. It is
+// opt-in: when no port is configured under `grpc` the server is left nil and
+// Start/Stop skip it. Forking child processes never call this — only the
+// non-forking parent serves gRPC.
+func (s *Server) initGRPCServer() error {
+	if !s.Config.GrpcEnabled() {
+		s.log.Info().Msg("gRPC control interface disabled (no grpc.port configured)")
+		return nil
+	}
+
+	grpcServer, err := gapi.NewServer(&s.Config.Grpc, true)
+	if err != nil {
+		return fmt.Errorf("create gRPC server: %w", err)
+	}
+
+	err = grpcServer.RegisterService(func(srv *grpc.Server) error {
+		sshproxyv1.RegisterSSHProxyServiceServer(srv, NewSSHProxyService(s))
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("register sshproxy service: %w", err)
+	}
+
+	s.grpc = grpcServer
+	return nil
 }
 
 // Provisioner returns the provisioner client.
@@ -477,6 +511,19 @@ func (s *Server) Start() error {
 	s.wg.Add(1)
 	go s.acceptConnections()
 
+	// Start the gRPC control interface when configured. gapi.Server.Start
+	// blocks until Stop is called, so run it in its own goroutine.
+	if s.grpc != nil {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.log.Info().Int("port", s.Config.Grpc.Port).Msg("Starting gRPC control interface")
+			if err := s.grpc.Start(); err != nil {
+				s.log.Error().Err(err).Msg("gRPC server error")
+			}
+		}()
+	}
+
 	return nil
 }
 
@@ -580,6 +627,10 @@ func (s *Server) Stop() {
 
 	if s.fpub != nil {
 		s.fpub.Close()
+	}
+
+	if s.grpc != nil {
+		s.grpc.Stop()
 	}
 
 	s.wg.Wait()
