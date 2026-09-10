@@ -14,7 +14,7 @@ import (
 
 // sshProxyDescription is the short human-readable summary of what this
 // service does, returned by GetVersionInfo.
-const sshProxyDescription = "Terminates SSH for k8shell workspaces and proxies channel traffic to the in-workspace k8shelld daemon."
+const sshProxyDescription = "Handles SSH and proxies channel traffic to the k8shelld daemon."
 
 // SSHProxyService implements the sshproxy.v1 gRPC service.
 type SSHProxyService struct {
