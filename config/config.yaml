@@ -45,6 +45,20 @@ server:
     recordSFTP: false
     recordDirectTCPIP: true
 
+# gRPC control interface (sshproxy.v1.SSHProxyService).
+# Opt-in: omit this block or leave port unset/0 to disable it.
+grpc:
+  port: 9050
+  enableTLS: false
+  # certFile: /opt/shared/ssh-proxy/tls/tls.crt
+  # keyFile: /opt/shared/ssh-proxy/tls/tls.key
+
+  # JWT required claims for authentication
+  authEnabled: false
+  audience: ssh-proxy
+  # allowed:
+  #   - serviceAccount: api-server
+
 nats:
   enabled: false
   url: nats://${NATS_HOST}:4222
