@@ -151,10 +151,12 @@ func NewServer(configPath string) (*Server, error) {
 				}
 			}
 		}
+	}
 
-		if err := server.initGRPCServer(); err != nil {
-			return nil, fmt.Errorf("failed to initialize gRPC server: %w", err)
-		}
+	// The gRPC control interface is process-level (not per-connection), so it
+	// is initialized in the parent regardless of forking mode.
+	if err := server.initGRPCServer(); err != nil {
+		return nil, fmt.Errorf("failed to initialize gRPC server: %w", err)
 	}
 
 	return server, nil
@@ -162,8 +164,8 @@ func NewServer(configPath string) (*Server, error) {
 
 // initGRPCServer sets up the sshproxy.v1 gRPC control interface. It is
 // opt-in: when no port is configured under `grpc` the server is left nil and
-// Start/Stop skip it. Forking child processes never call this — only the
-// non-forking parent serves gRPC.
+// Start/Stop skip it. It always runs in the parent process, regardless of
+// forking mode — forking child processes never call this.
 func (s *Server) initGRPCServer() error {
 	if !s.Config.GrpcEnabled() {
 		s.log.Info().Msg("gRPC control interface disabled (no grpc.port configured)")
