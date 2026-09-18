@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/k8shell-io/common/pkg/logger"
+	"github.com/k8shell-io/common/pkg/models"
 	natsc "github.com/k8shell-io/common/pkg/nats"
 	"github.com/nats-io/nats.go"
 	"github.com/rs/zerolog"
@@ -23,16 +24,6 @@ type NatsFailuresPublisher struct {
 	failuresConfig PublishSshFailuresConfig
 	conn           *nats.Conn
 	proxyId        string
-}
-
-// FailureEvent represents a failed SSH connection attempt
-type FailureEvent struct {
-	ClientIP    string   `json:"client_ip"`
-	ClientPort  int      `json:"client_port"`
-	Username    string   `json:"username"`
-	Timestamp   string   `json:"timestamp"`
-	FailureInfo []string `json:"failure_info"`
-	ProxyID     string   `json:"proxy_id"`
 }
 
 // NewNatsFailuresPublisher creates a new NATS failures publisher with the given configuration
@@ -80,7 +71,7 @@ func (c *NatsFailuresPublisher) PublishFailure(clientIP string, clientPort int, 
 		return nil
 	}
 
-	event := FailureEvent{
+	event := models.FailedConnectionEvent{
 		ClientIP:    clientIP,
 		ClientPort:  clientPort,
 		Username:    username,
