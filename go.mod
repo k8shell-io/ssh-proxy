@@ -45,3 +45,4 @@ require (
 
 // forked version of golang.org/x/crypto with allowed_auths_callback patch
 replace golang.org/x/crypto v0.43.0 => github.com/k8shell-io/crypto v0.41.1-ssh-proxy
+
