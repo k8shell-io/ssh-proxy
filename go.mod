@@ -3,7 +3,7 @@ module github.com/k8shell-io/ssh-proxy
 go 1.24.5
 
 require (
-	github.com/k8shell-io/common v0.61.2
+	github.com/k8shell-io/common v0.61.3
 	github.com/nats-io/nats.go v1.47.0
 	github.com/rs/zerolog v1.34.0
 	golang.org/x/crypto v0.43.0
@@ -46,5 +46,3 @@ require (
 
 // forked version of golang.org/x/crypto with allowed_auths_callback patch
 replace golang.org/x/crypto v0.43.0 => github.com/k8shell-io/crypto v0.41.1-ssh-proxy
-
-
