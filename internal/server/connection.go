@@ -504,11 +504,34 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 		return nil, fmt.Errorf("user %s is locked", c.user.Username)
 	}
 
-	if c.userStr.BlueprintKind() != userstr.BlueprintKindCustom && !c.user.HasBlueprint(c.userStr.Blueprint()) {
-		infoWriter.WriteError(fmt.Sprintf("Access denied: user %s does not have access to blueprint %s.",
-			c.user.Username, c.userStr.Blueprint()))
-		return nil, fmt.Errorf("user %s does not have access to blueprint %s",
-			c.user.Username, c.userStr.Blueprint())
+	// Mirrors api-server's createWorkspace: evaluate workspace:create
+	// (mode + blueprint source) before ever calling the provisioner, so a
+	// policy that denies this role/mode/source combination is enforced
+	// identically on the SSH auto-provision path and the HTTP path, instead
+	// of being decided only much later by the provisioner's workspace:provision
+	// check (or, for non-custom blueprints, by a local HasBlueprint lookup
+	// that bypasses the authz service entirely).
+	mode := authz.WorkspaceProvisionModeStandalone
+	if c.userStr.Namespace("") != "" && c.userStr.WorkloadName() != "" {
+		mode = authz.WorkspaceProvisionModeInject
+	}
+	createReq, err := authz.NewWorkspaceOwnerEvalRequest(authz.WorkspaceActionCreate, c.user.Username).
+		WithMode(mode).
+		WithSource(authz.WorkspaceSourceFromBlueprintKind(c.userStr.BlueprintKind())).
+		Build()
+	if err != nil {
+		infoWriter.WriteSystemError(err.Error())
+		return nil, fmt.Errorf("failed to build workspace:create authz request for user %s: %w", c.user.Username, err)
+	}
+	userToken, err := c.GetUserToken()
+	if err != nil {
+		infoWriter.WriteSystemError(err.Error())
+		return nil, fmt.Errorf("failed to get user token for user %s: %w", c.user.Username, err)
+	}
+	if authzErr := backends.CheckWorkspaceCreateAuthz(c.ctx, userToken, createReq); authzErr != nil {
+		infoWriter.WriteError(fmt.Sprintf("Access denied: user %s is not authorized to create this workspace: %v",
+			c.user.Username, authzErr))
+		return nil, fmt.Errorf("workspace:create denied for user %s: %w", c.user.Username, authzErr)
 	}
 
 	status, err := workspace.EnsureWorkspace(c.ctx, c.userStr, infoWriter, backends)

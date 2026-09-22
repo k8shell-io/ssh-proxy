@@ -16,6 +16,7 @@ import (
 	"github.com/k8shell-io/common/pkg/api/client/identity"
 	"github.com/k8shell-io/common/pkg/api/client/provisioner"
 	provisionerv1 "github.com/k8shell-io/common/pkg/api/gen/go/provisioner/v1"
+	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/gapi"
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/common/pkg/userstr"
@@ -41,6 +42,13 @@ var ErrWorkspaceNotFound = fmt.Errorf("workspace not found")
 type Backends interface {
 	Provisioner() *provisioner.Client
 	Identity() *identity.IdentityClient
+
+	// CheckWorkspaceCreateAuthz evaluates workspace:create against the authz
+	// service, mirroring the check api-server's HTTP create route performs
+	// before calling ProvisionHandshake. Returns nil when authz is not
+	// configured (opt-in, same convention as the SSH/session checks) or when
+	// the action is allowed.
+	CheckWorkspaceCreateAuthz(ctx context.Context, token string, req *authz.WorkspaceOwnerEvalRequest) error
 }
 
 // InfoWriterOptions defines options for the InfoWriter.

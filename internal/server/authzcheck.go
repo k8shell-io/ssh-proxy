@@ -32,6 +32,29 @@ func (s *Server) checkSSHAuthz(ctx context.Context, token string, req *authz.SSH
 	return nil
 }
 
+// CheckWorkspaceCreateAuthz evaluates a workspace:create request against the
+// authz service, the same check api-server's HTTP create route performs
+// before calling ProvisionHandshake. Returns nil when authz is not configured
+// (opt-in) or when the action is allowed. Backends interface implementation.
+func (s *Server) CheckWorkspaceCreateAuthz(ctx context.Context, token string, req *authz.WorkspaceOwnerEvalRequest) error {
+	if s.authzClient == nil {
+		return nil
+	}
+	if err := req.Validate(); err != nil {
+		return fmt.Errorf("authz: invalid request: %w", err)
+	}
+	protoReq := req.ToProto(token)
+	protoReq.Package = "workspace"
+	resp, err := s.authzClient.Evaluate(ctx, protoReq)
+	if err != nil {
+		return fmt.Errorf("authz: evaluate %s: %w", req.Action, err)
+	}
+	if !resp.GetAllowed() {
+		return fmt.Errorf("action %q denied: %s", req.Action, resp.GetReason())
+	}
+	return nil
+}
+
 // checkSessionAuthz evaluates a session:start request and returns the recording
 // obligation from the policy engine. When authz is not configured, returns
 // (zero, false, nil) so callers fall back to their configured defaults.
