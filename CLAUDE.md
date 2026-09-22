@@ -1,4 +1,8 @@
-# ssh-proxy — agent context
+@common/CLAUDE-SHARED.md
+
+# CLAUDE.md — ssh-proxy
+
+See `CLAUDE-SHARED.md` (imported above) for fleet-wide conventions: the service map, developing against a live `common` checkout.
 
 ## What this repo is
 
