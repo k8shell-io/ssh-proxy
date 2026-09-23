@@ -28,7 +28,8 @@ type K8shelldClient interface {
 	RunPortForward(ctx context.Context, userToken string, upstream k8shelldClient.BufferedReadWriter, portForwardID, sourceIP string,
 		sourcePort uint32, destinationIP string, destinationPort uint32, enableRecording bool) error
 	RunExec(ctx context.Context, userToken string, asUser string, upstream k8shelldClient.BufferedReadWriter,
-		execID string, command string, shellBinary string, envVars []string, signalChan <-chan string,
+		execID string, command string, shellBinary string, envVars []string, usePty bool, width, height uint32,
+		signalChan <-chan string, resizeChan <-chan k8shelld.Resize, notifyPtyName k8shelld.NotifyPtyNameFunc,
 		enableRecording bool) (int32, error)
 	RunSFTP(ctx context.Context, userToken string, asUser string, upstream k8shelldClient.BufferedReadWriter,
 		sessionID string, command string, envVars []string, enableRecording bool) (int32, error)

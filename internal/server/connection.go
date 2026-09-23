@@ -77,6 +77,7 @@ type Connection struct {
 // Session holds information about a user's SSH session
 type Session struct {
 	username    string      // username of the user
+	kind        string      // session type once known: "shell", "exec" or "sftp"
 	termWidth   uint32      // terminal width
 	termHeight  uint32      // terminal height
 	env         []string    // environment variables
@@ -87,6 +88,9 @@ type Session struct {
 	agentUnixID string      // unique identifier for the agent Unix socket
 	sshAuthSock string      // value of SSH_AUTH_SOCK env variable
 	signalChan  chan string `json:"-"`
+	// resizeChan carries window-change events to an in-flight exec's PTY; only
+	// created (in handleExecRequest) when the exec session has a PTY.
+	resizeChan chan k8shelld.Resize `json:"-"`
 }
 
 // Global state storage

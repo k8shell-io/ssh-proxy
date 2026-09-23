@@ -7,8 +7,10 @@ package server
 import (
 	"encoding/binary"
 	"fmt"
+	"strings"
 	"time"
 
+	k8shelldpkg "github.com/k8shell-io/common/pkg/api/client/k8shelld"
 	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/common/pkg/models"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
@@ -96,6 +98,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 					s.log.Error().Msgf("Failed to reply to subsystem request: %v", err)
 				}
 				connInfo.AddChannelInfo(string(models.OpSFTP))
+				session.kind = "sftp"
 				sessionType <- "sftp"
 				sessionTypeSent = true
 			} else {
@@ -158,6 +161,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 
 		case "shell":
 			accepted = true
+			session.kind = "shell"
 			s.log.Debug().Msgf("Shell request accepted for user %s", session.username)
 			sessionType <- "shell"
 			sessionTypeSent = true
@@ -169,6 +173,7 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 				s.log.Error().Msgf("Failed to parse exec request: %v", err)
 			} else {
 				accepted = true
+				session.kind = "exec"
 				session.command = command
 				s.log.Debug().Msgf("Exec request accepted for user %s: %s", session.username, command)
 				sessionType <- "exec"
@@ -212,27 +217,47 @@ func (s *Server) handleSessionRequests(requests <-chan *ssh.Request, connInfo *C
 			}
 
 		case "window-change":
-			k8shelld := connInfo.k8shelld
-			if k8shelld != nil {
-				if len(req.Payload) >= 8 {
-					accepted = true
-					width := binary.BigEndian.Uint32(req.Payload[0:4])
-					height := binary.BigEndian.Uint32(req.Payload[4:8])
-
-					s.log.Debug().Msgf("Window change: %dx%d for user %s", width, height, session.username)
-					session.termWidth = width
-					session.termHeight = height
-
-					if err := k8shelld.ResizeTerminal(connInfo.ctx, session.sessionId, width, height); err != nil {
-						s.log.Error().Msgf("Failed to resize terminal: %v", err)
-					}
-				} else {
-					s.log.Warn().Msgf("Received window-change request for user %s, but payload is too short",
-						session.username)
-				}
-			} else {
-				s.log.Warn().Msgf("Received window-change request for user %s, but k8shelld is not available",
+			if len(req.Payload) < 8 {
+				s.log.Warn().Msgf("Received window-change request for user %s, but payload is too short",
 					session.username)
+				break
+			}
+
+			accepted = true
+			width := binary.BigEndian.Uint32(req.Payload[0:4])
+			height := binary.BigEndian.Uint32(req.Payload[4:8])
+
+			s.log.Debug().Msgf("Window change: %dx%d for user %s", width, height, session.username)
+			session.termWidth = width
+			session.termHeight = height
+
+			switch session.kind {
+			case "exec":
+				// The exec's PTY (if any) is resized over the same gRPC stream
+				// RunExec is using, keyed by the exec's own execID -- session.sessionId
+				// belongs to a different, shell-only ID space and doesn't
+				// identify this exec to k8shelld.
+				if session.resizeChan == nil {
+					s.log.Debug().Msgf("Dropping window-change for user %s: exec session has no PTY or hasn't started yet",
+						session.username)
+					break
+				}
+				select {
+				case session.resizeChan <- k8shelldpkg.Resize{Width: width, Height: height}:
+				default:
+					s.log.Warn().Msgf("Resize channel full, dropping window-change for user %s", session.username)
+				}
+
+			default:
+				k8shelldc := connInfo.k8shelld
+				if k8shelldc == nil {
+					s.log.Warn().Msgf("Received window-change request for user %s, but k8shelld is not available",
+						session.username)
+					break
+				}
+				if err := k8shelldc.ResizeTerminal(connInfo.ctx, session.sessionId, width, height); err != nil {
+					s.log.Error().Msgf("Failed to resize terminal: %v", err)
+				}
 			}
 
 		case "auth-agent-req@openssh.com":
@@ -341,9 +366,11 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 	s.log.Debug().Msgf("Starting shell session for user %s, session ID: %s, requested user: %s",
 		session.username, session.sessionId, session.username)
 
+	env := withLoginEnv(session.env, loginEnvVars(connInfo.user, effectiveAsUser(connInfo)))
+
 	rw := &workspace.ChannelAdapter{Channel: channel}
 	if err := k8shelld.RunShell(connInfo.ctx, userToken, connInfo.userStr.User(), rw,
-		session.sessionId, session.env, session.termWidth, session.termHeight,
+		session.sessionId, env, session.termWidth, session.termHeight,
 		session.hasPTY, "", false, true, recordShell, connInfo.SetPtyName); err != nil {
 		s.log.Error().Msgf("Shell session error: %v", err)
 	} else {
@@ -499,9 +526,21 @@ func (s *Server) handleExecRequest(connInfo *Connection, channel ssh.Channel) {
 	s.log.Debug().Msgf("Starting exec for user %s, exec ID: %s, command: %s",
 		session.username, execID, session.command)
 
+	shellBinary := resolveShellBinary(connInfo.user, connInfo.k8shelldVer)
+	env := withLoginEnv(session.env, loginEnvVars(connInfo.user, effectiveAsUser(connInfo)))
+
+	if session.hasPTY {
+		session.resizeChan = make(chan k8shelldpkg.Resize, 10)
+		defer func() {
+			close(session.resizeChan)
+			session.resizeChan = nil
+		}()
+	}
+
 	rw := &workspace.ChannelAdapter{Channel: channel}
 	exitcode, err := k8shelld.RunExec(connInfo.ctx, userToken, connInfo.userStr.User(), rw, execID, session.command,
-		"/bin/sh", session.env, session.signalChan, recordExec)
+		shellBinary, env, session.hasPTY, session.termWidth, session.termHeight,
+		session.signalChan, session.resizeChan, connInfo.SetPtyName, recordExec)
 	if err != nil {
 		s.log.Error().Msgf("Exec failed for command '%s': %v", session.command, err)
 	}
@@ -598,4 +637,101 @@ func (s *Server) hasTermEnv(envVars []string) bool {
 		}
 	}
 	return false
+}
+
+// preLoginShellExecK8shelldVersions are k8shelld versions known to predate the
+// "empty shell_binary resolves the user's login shell" contract added for the
+// Warp/process-substitution fix. Before that fix, ssh-proxy always sent an
+// explicit "/bin/sh", so these versions' handling of an empty shell_binary on
+// exec was never exercised in production and is unverified — sending them one
+// now (e.g. because identity has no Shell on file for the user) risks hitting
+// dead code. Workspace pods still running one of these get the old, known-safe
+// explicit "/bin/sh" instead.
+//
+// This is a temporary rollout shim for the fleet's per-workspace-pod k8shelld
+// upgrade: once no workspace pod is running a version in this set anymore,
+// delete it and the branch in resolveShellBinary that checks it.
+var preLoginShellExecK8shelldVersions = map[string]bool{
+	"v0.16.0-5754d90": true,
+}
+
+// resolveShellBinary returns the shell binary hint to send to k8shelld for an
+// exec request. ssh-proxy has no visibility into the workspace's /etc/passwd,
+// so it never forces a hardcoded interpreter (e.g. "/bin/sh") here unless
+// talking to a pre-fix k8shelld (see preLoginShellExecK8shelldVersions):
+// forcing one breaks bash/zsh-only exec commands (e.g. Warp's SSH bootstrap
+// script, which uses process substitution). Otherwise it returns the login
+// shell identity resolved for the user, if any, and otherwise an empty
+// string, telling k8shelld to resolve the user's actual login shell inside
+// the workspace itself, the same way it already does for interactive "shell"
+// sessions.
+func resolveShellBinary(user *models.User, k8shelldVer string) string {
+	if preLoginShellExecK8shelldVersions[k8shelldVer] {
+		return "/bin/sh"
+	}
+	if user == nil {
+		return ""
+	}
+	return user.Shell
+}
+
+// loginEnvVars returns the standard login environment variables ssh-proxy can
+// set authoritatively for the workspace user: SHELL (from the login shell
+// identity resolved for the user, if any) and USER/LOGNAME (the workspace
+// user the session runs as), mirroring what OpenSSH's sshd sets for a login
+// session. HOME and PATH are intentionally left unset here: ssh-proxy has no
+// visibility into the workspace's /etc/passwd or filesystem, so those are
+// resolved by k8shelld inside the workspace.
+func loginEnvVars(user *models.User, asUser string) []string {
+	var vars []string
+	if user != nil && user.Shell != "" {
+		vars = append(vars, "SHELL="+user.Shell)
+	}
+	if asUser != "" {
+		vars = append(vars, "USER="+asUser, "LOGNAME="+asUser)
+	}
+	return vars
+}
+
+// effectiveAsUser returns the workspace user a session actually runs as:
+// userStr's explicit "user=" override when the connection asked to run as
+// someone else, and otherwise the authenticated SSH user, since that's who
+// k8shelld actually runs the command as when RunShell/RunExec's asUser is
+// empty ("empty for default"). Without this fallback, USER/LOGNAME are never
+// set for the common case of a user connecting as themselves.
+func effectiveAsUser(connInfo *Connection) string {
+	if asUser := connInfo.userStr.User(); asUser != "" {
+		return asUser
+	}
+	if connInfo.user != nil {
+		return connInfo.user.Username
+	}
+	return ""
+}
+
+// withLoginEnv merges loginVars into env, dropping any existing entries in
+// env that share a variable name with loginVars. This matches sshd, where
+// SHELL/USER/LOGNAME aren't overridable by a client-sent "env" request:
+// resolved login values always win over whatever the client sends.
+func withLoginEnv(env []string, loginVars []string) []string {
+	if len(loginVars) == 0 {
+		return env
+	}
+
+	names := make(map[string]bool, len(loginVars))
+	for _, v := range loginVars {
+		if i := strings.IndexByte(v, '='); i >= 0 {
+			names[v[:i]] = true
+		}
+	}
+
+	merged := make([]string, 0, len(env)+len(loginVars))
+	merged = append(merged, loginVars...)
+	for _, v := range env {
+		if i := strings.IndexByte(v, '='); i >= 0 && names[v[:i]] {
+			continue
+		}
+		merged = append(merged, v)
+	}
+	return merged
 }
