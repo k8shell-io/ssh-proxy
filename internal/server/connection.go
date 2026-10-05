@@ -202,6 +202,13 @@ func connectionBelongsToUser(c *Connection, username string) bool {
 }
 
 // GetConnInfo retrieves or creates a Connection object for the given ssh.ConnMetadata
+// newConnID returns a connection ID of the form <proxyID>-<pid>-<26 base32
+// chars>. It is the session record's primary key and the prefix of every
+// channel ID, so the full 130-bit random part is used to avoid collisions.
+func newConnID() string {
+	return fmt.Sprintf("%s-%d-%s", GetProxyID(), os.Getpid(), strings.ToLower(rand.Text()))
+}
+
 func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 	userStr, err := userstr.ParseUserStr(conn.User())
 	if err != nil {
@@ -221,7 +228,7 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 			ctx, cancel := context.WithCancel(context.Background())
 
 			connInfo = &Connection{
-				connId:        fmt.Sprintf("%s-%d-%s", GetProxyID(), os.Getpid(), strings.ToLower(rand.Text()[:2])),
+				connId:        newConnID(),
 				connKey:       connID,
 				log:           s.log,
 				identity:      s.identity,
