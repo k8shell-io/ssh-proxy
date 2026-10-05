@@ -83,7 +83,7 @@ All clients use `gapi.ClientConfig` (address + optional TLS + token file). A ser
 `authzcheck.go` wraps the authz gRPC service. When `authz.address` is set:
 
 - `checkSSHAuthz` — evaluates shell, exec, sftp, and agent-forward actions; returns an error to deny
-- `checkSessionAuthz` — evaluates session:start and returns a `RecordObligation` that overrides `server.recording.*` for that session
+- `recordingObligation` — evaluates session:record and returns a `RecordObligation` that overrides `server.recording.*` for that session. It is not an access check: `Allowed` is ignored (the `ssh:*` check is the gate), but an Evaluate error still rejects the session (fail-closed)
 
 When authz is not configured both functions return nil/false and callers fall back to static config.
 

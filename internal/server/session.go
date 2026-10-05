@@ -326,13 +326,13 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 	}
 
 	recordShell := s.Config.Server.Recording.RecordShell
-	if ob, found, authzErr := s.checkSessionAuthz(connInfo.ctx, userToken,
-		authz.NewSessionStartEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeShell).
+	if ob, found, authzErr := s.recordingObligation(connInfo.ctx, userToken,
+		authz.NewSessionRecordEvalRequest(authz.SessionActionRecord, connInfo.workspaceName, authz.SessionTypeShell).
 			WithSource(authz.SessionSourceSSHProxy).
 			WithOwner(connInfo.user.Username).
 			WithBlueprint(connInfo.userStr.Blueprint()),
 	); authzErr != nil {
-		s.log.Warn().Msgf("Session start denied for user %s: %v", connInfo.user.Username, authzErr)
+		s.log.Warn().Msgf("Session recording lookup failed for user %s: %v", connInfo.user.Username, authzErr)
 		return
 	} else if found {
 		recordShell = ob.Shell
@@ -440,13 +440,13 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *Connection, ch
 	}
 
 	recordSFTP := s.Config.Server.Recording.RecordSFTP
-	if ob, found, authzErr := s.checkSessionAuthz(connInfo.ctx, userToken,
-		authz.NewSessionStartEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeSFTP).
+	if ob, found, authzErr := s.recordingObligation(connInfo.ctx, userToken,
+		authz.NewSessionRecordEvalRequest(authz.SessionActionRecord, connInfo.workspaceName, authz.SessionTypeSFTP).
 			WithSource(authz.SessionSourceSSHProxy).
 			WithOwner(connInfo.user.Username).
 			WithBlueprint(connInfo.userStr.Blueprint()),
 	); authzErr != nil {
-		s.log.Warn().Msgf("Session start denied for user %s: %v", connInfo.user.Username, authzErr)
+		s.log.Warn().Msgf("Session recording lookup failed for user %s: %v", connInfo.user.Username, authzErr)
 		return
 	} else if found {
 		recordSFTP = ob.SFTP
@@ -509,13 +509,13 @@ func (s *Server) handleExecRequest(connInfo *Connection, channel ssh.Channel) {
 	}
 
 	recordExec := s.Config.Server.Recording.RecordExec
-	if ob, found, authzErr := s.checkSessionAuthz(connInfo.ctx, userToken,
-		authz.NewSessionStartEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeExec).
+	if ob, found, authzErr := s.recordingObligation(connInfo.ctx, userToken,
+		authz.NewSessionRecordEvalRequest(authz.SessionActionRecord, connInfo.workspaceName, authz.SessionTypeExec).
 			WithSource(authz.SessionSourceSSHProxy).
 			WithOwner(connInfo.user.Username).
 			WithBlueprint(connInfo.userStr.Blueprint()),
 	); authzErr != nil {
-		s.log.Warn().Msgf("Session start denied for user %s: %v", connInfo.user.Username, authzErr)
+		s.log.Warn().Msgf("Session recording lookup failed for user %s: %v", connInfo.user.Username, authzErr)
 		s.sendExitStatus(channel, 1)
 		return
 	} else if found {

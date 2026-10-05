@@ -104,13 +104,13 @@ func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connectio
 	}
 
 	recordTCPIP := s.Config.Server.Recording.RecordDirectTCPIP
-	if ob, found, authzErr := s.checkSessionAuthz(connInfo.ctx, userToken,
-		authz.NewSessionStartEvalRequest(authz.SessionActionStart, connInfo.workspaceName, authz.SessionTypeTCPIP).
+	if ob, found, authzErr := s.recordingObligation(connInfo.ctx, userToken,
+		authz.NewSessionRecordEvalRequest(authz.SessionActionRecord, connInfo.workspaceName, authz.SessionTypeTCPIP).
 			WithSource(authz.SessionSourceSSHProxy).
 			WithOwner(connInfo.user.Username).
 			WithBlueprint(connInfo.userStr.Blueprint()),
 	); authzErr != nil {
-		s.log.Warn().Msgf("Session start denied for user %s: %v", connInfo.user.Username, authzErr)
+		s.log.Warn().Msgf("Session recording lookup failed for user %s: %v", connInfo.user.Username, authzErr)
 		return
 	} else if found {
 		recordTCPIP = ob.DirectTCPIP
