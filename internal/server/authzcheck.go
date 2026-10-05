@@ -55,10 +55,14 @@ func (s *Server) CheckWorkspaceCreateAuthz(ctx context.Context, token string, re
 	return nil
 }
 
-// checkSessionAuthz evaluates a session:start request and returns the recording
-// obligation from the policy engine. When authz is not configured, returns
-// (zero, false, nil) so callers fall back to their configured defaults.
-func (s *Server) checkSessionAuthz(ctx context.Context, token string, req *authz.SessionStartEvalRequest) (authz.RecordObligation, bool, error) {
+// recordingObligation evaluates a session:record request and returns the
+// recording obligation from the policy engine. session:record is not an access
+// check: the ssh:* entry checks are the only gate, so PolicyResult.Allowed is
+// ignored here. When authz is not configured, or the policy returns no record
+// obligation, found is false and callers fall back to their configured
+// defaults. An evaluate error is returned so callers fail closed rather than
+// silently skipping recording.
+func (s *Server) recordingObligation(ctx context.Context, token string, req *authz.SessionRecordEvalRequest) (authz.RecordObligation, bool, error) {
 	if s.authzClient == nil {
 		return authz.RecordObligation{}, false, nil
 	}
@@ -70,9 +74,6 @@ func (s *Server) checkSessionAuthz(ctx context.Context, token string, req *authz
 	resp, err := s.authzClient.Evaluate(ctx, protoReq)
 	if err != nil {
 		return authz.RecordObligation{}, false, fmt.Errorf("authz: evaluate %s: %w", req.Action, err)
-	}
-	if !resp.GetAllowed() {
-		return authz.RecordObligation{}, false, fmt.Errorf("action %q denied: %s", req.Action, resp.GetReason())
 	}
 	ob, found := authz.ParseRecordObligation(resp.GetObligations())
 	return ob, found, nil
