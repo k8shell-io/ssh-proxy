@@ -23,7 +23,8 @@ func NewK8shelld_v12(cfg gapi.ClientConfig, status *models.WorkspaceDetails,
 	counters *k8shelldClient.ConnCounters,
 	username string,
 	connectionId string,
-	sessionClient *sessionClient.Client) (K8shelldClient, error) {
+	sessionClient *sessionClient.Client,
+	recording k8shelldClient.RecordingConfig) (K8shelldClient, error) {
 	cfg.Address = fmt.Sprintf("%s:%d", status.PodIP, status.Port)
 	cfg.ServerName = status.ServerName
 
@@ -44,6 +45,6 @@ func NewK8shelld_v12(cfg gapi.ClientConfig, status *models.WorkspaceDetails,
 	}
 
 	return &K8shelld_v12{
-		K8shelldClient: v12,
+		K8shelldClient: v12.WithRecordingConfig(recording),
 	}, nil
 }

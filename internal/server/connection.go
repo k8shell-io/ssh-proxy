@@ -50,6 +50,7 @@ type Connection struct {
 	identity             *identity.IdentityClient      // identity client for interacting with the identity service
 	sessionClient        *sessionc.Client              // gRPC client for session tracking
 	k8shelldCfg          gapi.ClientConfig             // k8shelld client configuration
+	recording            k8shelld.RecordingConfig      // recording setup applied by the k8shelld client
 	k8shelld             workspace.K8shelldClient      // client for interacting with the workspace k8shelld daemon
 	k8shelldVer          string                        // version of the k8shelld daemon
 	onboardMu            sync.RWMutex                  // mutex for synchronizing access to onboardInfo and onboardCap
@@ -62,6 +63,7 @@ type Connection struct {
 	directTCPIPCount     int64                         // current count of direct TCP/IP connections
 	counters             *k8shelld.ConnCounters        // connection counters
 	workspaceName        string                        // name of the workspace
+	workspaceBlueprint   string                        // blueprint the workspace was provisioned from
 	channelInfoMu        sync.RWMutex                  // mutex for synchronizing access to channelInfo
 	channelInfo          []string                      // channel information
 	failureInfo          []string                      // failure information
@@ -234,6 +236,7 @@ func (s *Server) GetConnInfo(conn ssh.ConnMetadata) (*Connection, error) {
 				identity:      s.identity,
 				sessionClient: s.sessionClient,
 				k8shelldCfg:   s.Config.K8shelld,
+				recording:     s.Config.Server.Recording.K8shelld(),
 				userStr:       userStr,
 				directTCPIP:   &sync.Map{},
 				counters:      &k8shelld.ConnCounters{},
@@ -557,7 +560,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	infoWriter.WriteMessage(fmt.Sprintf("Connecting to the workspace at %s...", status.ServerName))
 
 	k8shelld, err := workspace.NewK8shelld(c.k8shelldCfg, status, c.counters, c.user.Username,
-		c.connId, c.sessionClient)
+		c.connId, c.sessionClient, c.recording)
 	if err != nil {
 		infoWriter.WriteSystemError(err.Error())
 		return nil, fmt.Errorf("failed to create k8shelld client for user %s: %w", c.user.Username, err)
@@ -583,6 +586,7 @@ func (c *Connection) Handshake(writer io.Writer, writerOptions *workspace.InfoWr
 	c.k8shelld = k8shelld
 	c.k8shelldVer = status.AppVersion
 	c.workspaceName = status.Name
+	c.workspaceBlueprint = status.Blueprint
 
 	if c.sessionClient != nil {
 		c.reportWg.Add(1)

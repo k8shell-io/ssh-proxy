@@ -318,7 +318,7 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 		authz.NewSSHEvalRequest(authz.SSHActionShell, connInfo.workspaceName).
 			WithOwner(connInfo.user.Username).
 			WithAsUser(connInfo.userStr.User()).
-			WithBlueprint(connInfo.userStr.Blueprint()).
+			WithBlueprint(connInfo.workspaceBlueprint).
 			WithPTY(session.hasPTY),
 	); authzErr != nil {
 		s.log.Warn().Msgf("SSH shell denied for user %s: %v", connInfo.user.Username, authzErr)
@@ -330,7 +330,7 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 		authz.NewSessionRecordEvalRequest(authz.SessionActionRecord, connInfo.workspaceName, authz.SessionTypeShell).
 			WithSource(authz.SessionSourceSSHProxy).
 			WithOwner(connInfo.user.Username).
-			WithBlueprint(connInfo.userStr.Blueprint()),
+			WithBlueprint(connInfo.workspaceBlueprint),
 	); authzErr != nil {
 		s.log.Warn().Msgf("Session recording lookup failed for user %s: %v", connInfo.user.Username, authzErr)
 		return
@@ -444,7 +444,7 @@ func (s *Server) handleSFTPSubsystem(_ *ssh.ServerConn, connInfo *Connection, ch
 		authz.NewSessionRecordEvalRequest(authz.SessionActionRecord, connInfo.workspaceName, authz.SessionTypeSFTP).
 			WithSource(authz.SessionSourceSSHProxy).
 			WithOwner(connInfo.user.Username).
-			WithBlueprint(connInfo.userStr.Blueprint()),
+			WithBlueprint(connInfo.workspaceBlueprint),
 	); authzErr != nil {
 		s.log.Warn().Msgf("Session recording lookup failed for user %s: %v", connInfo.user.Username, authzErr)
 		return
@@ -513,7 +513,7 @@ func (s *Server) handleExecRequest(connInfo *Connection, channel ssh.Channel) {
 		authz.NewSessionRecordEvalRequest(authz.SessionActionRecord, connInfo.workspaceName, authz.SessionTypeExec).
 			WithSource(authz.SessionSourceSSHProxy).
 			WithOwner(connInfo.user.Username).
-			WithBlueprint(connInfo.userStr.Blueprint()),
+			WithBlueprint(connInfo.workspaceBlueprint),
 	); authzErr != nil {
 		s.log.Warn().Msgf("Session recording lookup failed for user %s: %v", connInfo.user.Username, authzErr)
 		s.sendExitStatus(channel, 1)

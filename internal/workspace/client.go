@@ -61,6 +61,7 @@ var KEEPALIVE_TIMEOUT = 20 * time.Second
 func NewK8shelld(cfg gapi.ClientConfig, status *models.WorkspaceDetails,
 	counters *k8shelldClient.ConnCounters,
 	username string, connectionId string,
-	sessionClient *sessionClient.Client) (K8shelldClient, error) {
-	return NewK8shelld_v12(cfg, status, counters, username, connectionId, sessionClient)
+	sessionClient *sessionClient.Client,
+	recording k8shelldClient.RecordingConfig) (K8shelldClient, error) {
+	return NewK8shelld_v12(cfg, status, counters, username, connectionId, sessionClient, recording)
 }
