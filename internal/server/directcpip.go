@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	k8shelldc "github.com/k8shell-io/common/pkg/api/client/k8shelld"
 	"github.com/k8shell-io/common/pkg/authz"
 	"github.com/k8shell-io/ssh-proxy/internal/workspace"
 	"golang.org/x/crypto/ssh"
@@ -103,21 +104,27 @@ func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connectio
 		return
 	}
 
-	recordTCPIP := s.Config.Server.Recording.RecordDirectTCPIP
+	var obligation *authz.RecordObligation
 	if ob, found, authzErr := s.recordingObligation(connInfo.ctx, userToken,
 		authz.NewSessionRecordEvalRequest(authz.SessionActionRecord, connInfo.workspaceName, authz.SessionTypeTCPIP).
 			WithSource(authz.SessionSourceSSHProxy).
 			WithOwner(connInfo.user.Username).
-			WithBlueprint(connInfo.userStr.Blueprint()),
+			WithBlueprint(connInfo.workspaceBlueprint),
 	); authzErr != nil {
 		s.log.Warn().Msgf("Session recording lookup failed for user %s: %v", connInfo.user.Username, authzErr)
 		return
 	} else if found {
-		recordTCPIP = ob.DirectTCPIP
+		obligation = &ob
+	}
+	recordTCPIP, recordOpts := s.Config.Server.Recording.tcpipRecording(obligation)
+
+	ctx := connInfo.ctx
+	if recordTCPIP {
+		ctx = k8shelldc.ContextWithRecordingOptions(ctx, recordOpts)
 	}
 
 	rw := &workspace.ChannelAdapter{Channel: channel}
-	if err := k8shelld.RunPortForward(connInfo.ctx, userToken, rw,
+	if err := k8shelld.RunPortForward(ctx, userToken, rw,
 		tcpipInfo.directTCPIPId, tcpipInfo.originHost, tcpipInfo.originPort, tcpipInfo.destHost,
 		tcpipInfo.destPort, recordTCPIP); err != nil {
 		s.log.Error().Msgf("Port forward failed for user %s: %v", connInfo.user.Username, err)

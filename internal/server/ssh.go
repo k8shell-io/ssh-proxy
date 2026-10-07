@@ -42,22 +42,24 @@ var (
 
 // Server represents the SSH server that handles incoming connections and authentication.
 type Server struct {
-	Config        *Config
-	log           *zerolog.Logger
-	nats          *natsc.NATSClient
-	userstrKV     *natsc.JetStreamKV
-	sessionClient *sessionc.Client
-	listener      net.Listener
-	sshConfig     *ssh.ServerConfig
-	ctx           context.Context
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup
-	identity      *identity.IdentityClient
-	provisioner   *provisioner.Client
-	authzClient   authzv1.AuthzServiceClient
-	fpub          *NatsFailuresPublisher
-	grpc          *gapi.Server
-	configPath    string
+	Config    *Config
+	log       *zerolog.Logger
+	nats      *natsc.NATSClient
+	userstrKV *natsc.JetStreamKV
+	// recordingOverridesKV is read-only: api-server is the sole writer.
+	recordingOverridesKV kvGetter
+	sessionClient        *sessionc.Client
+	listener             net.Listener
+	sshConfig            *ssh.ServerConfig
+	ctx                  context.Context
+	cancel               context.CancelFunc
+	wg                   sync.WaitGroup
+	identity             *identity.IdentityClient
+	provisioner          *provisioner.Client
+	authzClient          authzv1.AuthzServiceClient
+	fpub                 *NatsFailuresPublisher
+	grpc                 *gapi.Server
+	configPath           string
 }
 
 // BufferedConn uses an existing bufio.Reader to avoid losing any data already read from the connection.
@@ -136,9 +138,12 @@ func NewServer(configPath string) (*Server, error) {
 			if err != nil {
 				return nil, fmt.Errorf("create userstr jetstream cache: %w", err)
 			}
+			if err := server.openRecordingOverrides(); err != nil {
+				return nil, err
+			}
 			go server.startUserLockWatcher()
 		} else {
-			server.log.Warn().Msg("NATS client is not configured, userstr cache and user lock watching disabled")
+			server.log.Warn().Msg("NATS client is not configured, userstr cache, user lock watching and recording overrides disabled")
 		}
 
 		if config.Session.IsEnabled() {
@@ -292,9 +297,12 @@ func HandleConnectionChildProcess(configPath string) error {
 		if err != nil {
 			return fmt.Errorf("create userstr jetstream cache: %w", err)
 		}
+		if err := server.openRecordingOverrides(); err != nil {
+			return err
+		}
 		go server.startUserLockWatcher()
 	} else {
-		logger.Warn().Msg("NATS client is not configured, userstr cache and user lock watching disabled")
+		logger.Warn().Msg("NATS client is not configured, userstr cache, user lock watching and recording overrides disabled")
 	}
 
 	if config.Session.IsEnabled() {
