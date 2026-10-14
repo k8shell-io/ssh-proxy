@@ -141,7 +141,7 @@ func NewServer(configPath string) (*Server, error) {
 			if err := server.openRecordingOverrides(); err != nil {
 				return nil, err
 			}
-			go server.startUserLockWatcher()
+			server.startUserLockWatcher()
 		} else {
 			server.log.Warn().Msg("NATS client is not configured, userstr cache, user lock watching and recording overrides disabled")
 		}
@@ -300,7 +300,7 @@ func HandleConnectionChildProcess(configPath string) error {
 		if err := server.openRecordingOverrides(); err != nil {
 			return err
 		}
-		go server.startUserLockWatcher()
+		server.startUserLockWatcher()
 	} else {
 		logger.Warn().Msg("NATS client is not configured, userstr cache, user lock watching and recording overrides disabled")
 	}
@@ -642,6 +642,10 @@ func (s *Server) Stop() {
 	}
 
 	s.wg.Wait()
+
+	if s.nats != nil {
+		s.nats.Close()
+	}
 	s.log.Info().Msg("SSH server stopped")
 }
 
