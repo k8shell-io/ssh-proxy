@@ -9,7 +9,14 @@ BIN_NAME="$REPO_NAME"
 DLV="/go/bin/dlv"
 LISTEN_ADDR="${DLV_LISTEN:-127.0.0.1:2345}"
 
-mapfile -t CHILD_PIDS < <(pgrep -x "$BIN_NAME")
+# Only the process the while-loop started: in forking mode each connection runs
+# in a "--child" process whose parent is the main process, so skip any whose
+# parent is itself ${BIN_NAME}.
+CHILD_PIDS=()
+for pid in $(pgrep -x "$BIN_NAME" || true); do
+  ppid=$(ps -o ppid= -p "$pid" | tr -d ' ')
+  [[ -n "$ppid" && "$(ps -o comm= -p "$ppid")" != "$BIN_NAME" ]] && CHILD_PIDS+=("$pid")
+done
 if [[ ${#CHILD_PIDS[@]} -eq 0 ]]; then
   echo "error: no running ${BIN_NAME} process found" >&2
   exit 1

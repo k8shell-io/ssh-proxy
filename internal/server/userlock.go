@@ -5,57 +5,48 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
-	"os"
 	"time"
 
 	natsc "github.com/k8shell-io/common/pkg/nats"
 )
 
 // userLockWatcherRetryInterval is how long to wait before retrying
-// subscription setup, e.g. when the locked-users bucket's underlying stream
-// doesn't exist yet because api-server hasn't created it.
+// subscription setup, e.g. while the NATS connection is not established.
 const userLockWatcherRetryInterval = 10 * time.Second
 
-// startUserLockWatcher subscribes to account lock/unlock events published by
-// api-server and force-closes every live SSH connection for a user as soon
-// as their account is locked. Unlocking is a no-op here: it does not
+// startUserLockWatcher starts watching account lock/unlock events published
+// by api-server and force-closes every live SSH connection for a user as
+// soon as their account is locked. Unlocking is a no-op here: it does not
 // reconnect anyone, the user simply logs in again normally on their next
-// attempt. It blocks until s.ctx is canceled, so callers should run it in a
-// goroutine.
+// attempt. The watcher runs until s.ctx is canceled; Stop waits for it.
 //
-// The durable consumer name is unique per process, not just per replica:
-// in forking mode each connection is handled by its own child process, each
-// with its own local connection state, so every process that can hold live
-// connections must see every lock event. A durable name shared across
-// subscribers would instead load-balance events between them, so any single
-// subscriber would only observe some lock events instead of all of them.
+// It uses a core NATS subscription rather than a JetStream consumer. In
+// forking mode every accepted connection runs in its own child process, and
+// each must see every lock event; a per-process durable consumer would leave
+// one consumer per connection on the server until its InactiveThreshold
+// expired. A core subscription keeps no server-side state. Events published
+// while disconnected are missed, which is acceptable because the lock is
+// also checked at login.
 func (s *Server) startUserLockWatcher() {
 	if s.nats == nil {
 		return
 	}
+	s.wg.Add(1)
+	go s.runUserLockWatcher()
+}
 
-	durable := fmt.Sprintf("ssh-proxy-%s-%d", GetProxyID(), os.Getpid())
-
+func (s *Server) runUserLockWatcher() {
+	defer s.wg.Done()
 	for {
-		if s.ctx.Err() != nil {
-			return
-		}
-
-		sub, err := s.nats.NewKVSubscriber(natsc.LOCKED_USERS_BUCKET, durable, natsc.KVSubscriberOptions{})
+		sub, err := s.nats.SubscribeKVChanges(natsc.LOCKED_USERS_BUCKET, s.handleUserLockEvent)
 		if err == nil {
-			err = sub.StartPull(s.ctx, s.handleUserLockEvent)
-		}
-
-		if s.ctx.Err() != nil {
+			<-s.ctx.Done()
+			_ = sub.Unsubscribe()
 			return
 		}
-		if err != nil {
-			s.log.Warn().Msgf("locked-users subscription unavailable, retrying in %s: %v",
-				userLockWatcherRetryInterval, err)
-		}
+		s.log.Warn().Msgf("locked-users subscription unavailable, retrying in %s: %v",
+			userLockWatcherRetryInterval, err)
 
 		select {
 		case <-s.ctx.Done():
@@ -66,19 +57,19 @@ func (s *Server) startUserLockWatcher() {
 }
 
 // handleUserLockEvent processes a single locked-users KV event.
-func (s *Server) handleUserLockEvent(_ context.Context, ev *natsc.KVEvent) error {
+func (s *Server) handleUserLockEvent(ev *natsc.KVEvent) {
 	// Deletes/purges of the key carry no value; there is nothing to act on.
 	if len(ev.Value) == 0 {
-		return nil
+		return
 	}
 
 	var state natsc.UserLockState
 	if err := json.Unmarshal(ev.Value, &state); err != nil {
-		return fmt.Errorf("failed to decode lock state for user %s: %w", ev.Key, err)
+		s.log.Warn().Msgf("failed to decode lock state for user %s: %v", ev.Key, err)
+		return
 	}
 
 	if state.Locked {
 		closeAllSSHConnectionsForUser(ev.Key)
 	}
-	return nil
 }

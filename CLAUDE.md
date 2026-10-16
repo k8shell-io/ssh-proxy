@@ -84,6 +84,9 @@ All clients use `gapi.ClientConfig` (address + optional TLS + token file). A ser
 
 - `checkSSHAuthz` — evaluates shell, exec, sftp, and agent-forward actions; returns an error to deny
 - `recordingObligation` — evaluates session:record and returns a `RecordObligation` that overrides `server.recording.*` for that session. It is not an access check: `Allowed` is ignored (the `ssh:*` check is the gate), but an Evaluate error still rejects the session (fail-closed)
+- **Recording override:** `recordingObligation` also reads the workspace's entry in NATS KV `recording-overrides` (`natsc.RECORDING_OVERRIDES_BUCKET`, opened with `NoBucketTTL`; api-server is the sole writer) on every call, i.e. per channel, before evaluating `session:record`. An override takes precedence over everything: when one exists, `session:record` is not evaluated, so neither the policy result nor an authz error can change it. It counts as found (`none` disables recording, even the static defaults). It applies even when authz is not configured. A KV read or decode failure is logged, and the policy result is used instead
+- direct-tcpip: `RecordingConfig.tcpipRecording` combines the obligation (or, without one, `recordDirectTCPIP` + `directTCPIP.vscode.terminals`) into the record decision and per-channel `RecordingOptions`, passed via `k8shelld.ContextWithRecordingOptions`. `direct-tcpip` records raw data, `vscode-terminals` the VS Code terminals, `vscode-input` adds keystrokes; terminals without raw data → format `none`
+- **Temporary:** `NewConfig` defaults `directTCPIP.vscode.{terminals,recordInput}` to true when `session.address` is set (TODO in config.go)
 
 When authz is not configured both functions return nil/false and callers fall back to static config.
 
@@ -115,6 +118,7 @@ Child processes do **not** share the parent's listener, NATS client, identity/se
 | `server.maxDirectTCPIPConnections` | 15 |
 | `server.sftpBinary` | `/usr/local/bin/sftp` |
 | `server.port` | required — no default |
+| `server.recording.{shell,exec,sftp,directTCPIP}` | unset → session service defaults (sent as `session.v1.RecordingOptions` in each recording header; validated in `NewConfig`) |
 
 ## Conventions
 

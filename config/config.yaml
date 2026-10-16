@@ -39,11 +39,35 @@ server:
 
   # enable/disable session recording per stream type
   # requires session to be configured
+  # when authz is configured, a session:record "record" obligation overrides
+  # the record* flags per session; the per-stream options below always apply
   recording:
     recordShell: true
     recordExec: false
     recordSFTP: false
     recordDirectTCPIP: true
+
+    # max bytes each recording buffers before dropping data (reported as a gap)
+    # 0 = client default (8 MiB)
+    # bufferBytes: 8388608
+
+    # per-stream recording options; unset fields use the session service defaults
+    # format: asciinema | pcapng | none   gzip: compress asciinema files
+    # shell:
+    #   gzip: true
+    # exec:
+    #   gzip: true
+    directTCPIP:
+      # none stores no pcap-ng for the port-forward, only the VS Code terminals
+      # (requires vscode.terminals: true)
+      format: pcapng
+      # terminals/recordInput default to true when session is configured (temporary, see config.go)
+      # with authz, the vscode-terminals / vscode-input record obligation tokens decide instead
+      vscode:
+        # record each VS Code integrated terminal as its own asciinema recording
+        terminals: true
+        # include terminal keystrokes in those recordings
+        recordInput: false
 
 # gRPC control interface (sshproxy.v1.SSHProxyService).
 # Opt-in: omit this block or leave port unset/0 to disable it.
