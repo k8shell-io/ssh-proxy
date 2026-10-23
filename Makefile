@@ -29,7 +29,7 @@ install-test-deps: ##@ Install test dependencies
                    ##@ Installs golangci-lint and gosec for static analysis
 	@echo "Installing test dependencies..."
 	@echo "Installing golangci-lint..."
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 	@echo "Installing gosec..."
 	go install github.com/securego/gosec/v2/cmd/gosec@latest
 	@echo "Installing go-junit-report..."
