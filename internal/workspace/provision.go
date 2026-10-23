@@ -160,16 +160,16 @@ func (w *InfoWriter) drawPulseAndPercentage(percentage int, extraMessage string,
 
 	baseMessage := "Starting workspace"
 	if extraMessage != "" {
-		output.WriteString(fmt.Sprintf("%s (%s)...", baseMessage, extraMessage))
+		fmt.Fprintf(&output, "%s (%s)...", baseMessage, extraMessage)
 	} else {
-		output.WriteString(fmt.Sprintf("%s...", baseMessage))
+		fmt.Fprintf(&output, "%s...", baseMessage)
 	}
 
 	if w.opts.ShowPercentage && extraMessage == "" {
-		output.WriteString(fmt.Sprintf(" %d%%", percentage))
+		fmt.Fprintf(&output, " %d%%", percentage)
 	}
 
-	fmt.Fprint(w.Writer, output.String())
+	_, _ = fmt.Fprint(w.Writer, output.String())
 }
 
 // WriteEvent writes a provisioning event to the channel
@@ -178,7 +178,7 @@ func (w *InfoWriter) WriteEvent(event models.WorkspaceStreamEvent) {
 		return
 	}
 	if w.opts.ShowProvisionInfo && (event.Type == models.WorkspaceStreamEventTypeEvent || event.Type == models.WorkspaceStreamEventTypeStatus) {
-		_, _ = w.Writer.Write([]byte(event.String() + "\r\n"))
+		_, _ = w.Write([]byte(event.String() + "\r\n"))
 	} else if (w.opts.ShowPulse || w.opts.ShowPercentage) && event.Type == models.WorkspaceStreamEventTypeProgress {
 		w.pulseMutex.Lock()
 		perc, _ := strconv.Atoi(string(event.Status))
@@ -209,14 +209,14 @@ func (w *InfoWriter) WriteMessage(p string) {
 // WriteError writes an error message to the channel if enabled
 func (w *InfoWriter) WriteError(p string) {
 	if w.Writer != nil && w.opts.ShowErrors {
-		fmt.Fprintf(w.Writer, "%s\r\n", formatClientMessage(p))
+		_, _ = fmt.Fprintf(w.Writer, "%s\r\n", formatClientMessage(p))
 	}
 }
 
 // WriteSystemError writes a system error message to the channel if enabled
 func (w *InfoWriter) WriteSystemError(p string) {
 	if w.Writer != nil && w.opts.ShowSystemErrors {
-		fmt.Fprintf(w.Writer, "%s\r\n", formatClientMessage(p))
+		_, _ = fmt.Fprintf(w.Writer, "%s\r\n", formatClientMessage(p))
 	}
 }
 
@@ -225,7 +225,7 @@ func (w *InfoWriter) WriteSplash(splash string) {
 	if w.Writer != nil {
 		lines := strings.Split(splash, "\n")
 		for _, line := range lines {
-			fmt.Fprintf(w.Writer, "%s\r\n", line)
+			_, _ = fmt.Fprintf(w.Writer, "%s\r\n", line)
 		}
 	}
 }
@@ -236,7 +236,7 @@ func (w *InfoWriter) StartProvisioning() {
 		return
 	}
 	if w.opts.ShowProvisionInfo {
-		_, _ = w.Writer.Write([]byte("Starting workspace...\r\n"))
+		_, _ = w.Write([]byte("Starting workspace...\r\n"))
 	} else if w.opts.ShowPulse || w.opts.ShowPercentage {
 		w.perc = 0
 		w.extraMessage = ""
@@ -256,7 +256,7 @@ func (w *InfoWriter) EndProvisioning(hasError bool) {
 	if w.provStarted && (w.opts.ShowPulse || w.opts.ShowPercentage) {
 		w.stopPulseAnimation()
 		w.drawPulseAndPercentage(100, w.extraMessage, hasError)
-		fmt.Fprintf(w.Writer, "\r\n")
+		_, _ = fmt.Fprint(w.Writer, "\r\n")
 	}
 }
 
@@ -289,7 +289,7 @@ func EnsureWorkspace(ctx context.Context, userStr *userstr.UserStr, writer *Info
 				return finalizeWorkspace(ctx, wsname, userStr.Username(), backends)
 			}
 		}
-		return nil, fmt.Errorf("%w: no running workspaces found. Please try again later.", ErrWorkspaceNotFound)
+		return nil, fmt.Errorf("%w: no running workspaces found", ErrWorkspaceNotFound)
 	}
 
 	if userStr.Pod() != "" {

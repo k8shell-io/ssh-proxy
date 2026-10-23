@@ -232,13 +232,13 @@ func (s *Server) initSSHConfig() error {
 // It is called when a new connection is accepted and processed in a subprocess when forking is enabled.
 func HandleConnectionChildProcess(configPath string) error {
 	file := os.NewFile(uintptr(3), "connection")
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	conn, err := net.FileConn(file)
 	if err != nil {
 		return fmt.Errorf("failed to create connection from file descriptor: %w", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	config, err := NewConfig(configPath)
 	if err != nil {
@@ -346,11 +346,11 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 	if !isDirect {
 		defer s.wg.Done()
 	}
-	defer netConn.Close()
+	defer func() { _ = netConn.Close() }()
 
-	var ip string = ""
+	var ip string
 	var port int
-	var cleanConn net.Conn = netConn
+	cleanConn := netConn
 
 	if s.Config.Server.ProxyProtocol {
 		var err error
@@ -408,7 +408,7 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 				}
 			}
 
-			connInfo.Close()
+			_ = connInfo.Close()
 		} else if s.fpub != nil {
 			pubErr := s.fpub.PublishFailure(ip, port, "", []string{err.Error()})
 			if pubErr != nil {
@@ -417,7 +417,7 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 		}
 		return
 	}
-	defer sshConn.Close()
+	defer func() { _ = sshConn.Close() }()
 	s.log.Info().Msgf("SSH handshake completed for user %s", sshConn.User())
 
 	connInfo, err := s.GetConnInfo(sshConn)
@@ -433,7 +433,7 @@ func (s *Server) handleConnection(netConn net.Conn, isDirect bool) {
 	connInfo.clientIP = ip
 	connInfo.clientPort = port
 	connInfo.SetTransport(sshConn)
-	defer connInfo.Close()
+	defer func() { _ = connInfo.Close() }()
 
 	go s.handleGlobalRequests(requests)
 	s.handleChannels(sshConn, connInfo, channels)
@@ -572,7 +572,7 @@ func (s *Server) acceptConnections() {
 // startSubProcess spawns a new process to handle the SSH connection in a subprocess
 func (s *Server) startSubProcess(netConn net.Conn) {
 	defer s.wg.Done()
-	defer netConn.Close()
+	defer func() { _ = netConn.Close() }()
 
 	s.log.Info().Msgf("Spawning subprocess for SSH connection from %s", netConn.RemoteAddr().String())
 
@@ -587,9 +587,9 @@ func (s *Server) startSubProcess(netConn net.Conn) {
 		s.log.Error().Err(err).Msg("Failed to get connection file descriptor")
 		return
 	}
-	defer connFile.Close()
+	defer func() { _ = connFile.Close() }()
 
-	var optLogtext string = ""
+	var optLogtext string
 	if !log.JsonLogger {
 		optLogtext = "--logtext"
 	}
@@ -630,7 +630,7 @@ func (s *Server) Stop() {
 	s.cancel()
 
 	if s.listener != nil {
-		s.listener.Close()
+		_ = s.listener.Close()
 	}
 
 	if s.fpub != nil {
@@ -689,7 +689,7 @@ func extractPodHash(hostname string) string {
 
 func isValidPodHash(hash string) bool {
 	for _, char := range hash {
-		if !((char >= 'a' && char <= 'z') || (char >= '0' && char <= '9')) {
+		if (char < 'a' || char > 'z') && (char < '0' || char > '9') {
 			return false
 		}
 	}

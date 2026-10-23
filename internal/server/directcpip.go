@@ -68,7 +68,7 @@ func (s *Server) handleDirectTCPIPChannel(_ *ssh.ServerConn, connInfo *Connectio
 		connInfo.user.Username)
 
 	defer func() {
-		channel.Close()
+		_ = channel.Close()
 		if tcpipInfo.directTCPIPId != "" {
 			connInfo.directTCPIP.Delete(tcpipInfo.directTCPIPId)
 			connInfo.DecrementDirectTCPIPCount()

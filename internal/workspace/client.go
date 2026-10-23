@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/k8shell-io/common/pkg/api/client/k8shelld"
-	k8shelldClient "github.com/k8shell-io/common/pkg/api/client/k8shelld"
 	sessionClient "github.com/k8shell-io/common/pkg/api/client/session"
 	k8shelldv1 "github.com/k8shell-io/common/pkg/api/gen/go/k8shelld/v1"
 	"github.com/k8shell-io/common/pkg/gapi"
@@ -20,18 +19,18 @@ import (
 
 type K8shelldClient interface {
 	Handshake(ctx context.Context) (*k8shelldv1.HandshakeResponse, error)
-	RunShell(ctx context.Context, userToken string, asUser string, upstream k8shelldClient.BufferedReadWriter, sessionId string, envVars []string,
+	RunShell(ctx context.Context, userToken string, asUser string, upstream k8shelld.BufferedReadWriter, sessionId string, envVars []string,
 		width, height uint32, usePty bool, lockId string, detachOnClose bool, showInitScriptsStatus bool, enableRecording bool,
 		notifyPtyName k8shelld.NotifyPtyNameFunc) error
 	ResizeTerminal(ctx context.Context, sessionId string, width, height uint32) error
-	RunUnixSocket(ctx context.Context, upstream k8shelldClient.BufferedReadWriter, unixSocketId, socketPath, mode string) error
-	RunPortForward(ctx context.Context, userToken string, upstream k8shelldClient.BufferedReadWriter, portForwardID, sourceIP string,
+	RunUnixSocket(ctx context.Context, upstream k8shelld.BufferedReadWriter, unixSocketId, socketPath, mode string) error
+	RunPortForward(ctx context.Context, userToken string, upstream k8shelld.BufferedReadWriter, portForwardID, sourceIP string,
 		sourcePort uint32, destinationIP string, destinationPort uint32, enableRecording bool) error
-	RunExec(ctx context.Context, userToken string, asUser string, upstream k8shelldClient.BufferedReadWriter,
+	RunExec(ctx context.Context, userToken string, asUser string, upstream k8shelld.BufferedReadWriter,
 		execID string, command string, shellBinary string, envVars []string, usePty bool, width, height uint32,
 		signalChan <-chan string, resizeChan <-chan k8shelld.Resize, notifyPtyName k8shelld.NotifyPtyNameFunc,
 		enableRecording bool) (int32, error)
-	RunSFTP(ctx context.Context, userToken string, asUser string, upstream k8shelldClient.BufferedReadWriter,
+	RunSFTP(ctx context.Context, userToken string, asUser string, upstream k8shelld.BufferedReadWriter,
 		sessionID string, command string, envVars []string, enableRecording bool) (int32, error)
 	Close() error
 }
@@ -59,9 +58,9 @@ var KEEPALIVE_TIMEOUT = 20 * time.Second
 
 // NewK8shelld creates a new K8shelld client.
 func NewK8shelld(cfg gapi.ClientConfig, status *models.WorkspaceDetails,
-	counters *k8shelldClient.ConnCounters,
+	counters *k8shelld.ConnCounters,
 	username string, connectionId string,
 	sessionClient *sessionClient.Client,
-	recording k8shelldClient.RecordingConfig) (K8shelldClient, error) {
+	recording k8shelld.RecordingConfig) (K8shelldClient, error) {
 	return NewK8shelld_v12(cfg, status, counters, username, connectionId, sessionClient, recording)
 }
