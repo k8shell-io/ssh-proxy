@@ -42,7 +42,7 @@ SSH Client → acceptConnections() → startSubProcess()
 
 ## Getting started
 
-**Prerequisites:** Go 1.24+, access to identity/session/provisioner/k8shelld services.
+**Prerequisites:** Go 1.27+, access to identity/session/provisioner/k8shelld services.
 
 ```bash
 # Build
