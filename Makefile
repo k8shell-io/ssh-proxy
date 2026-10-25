@@ -29,7 +29,7 @@ install-test-deps: ##@ Install test dependencies
                    ##@ Installs golangci-lint and gosec for static analysis
 	@echo "Installing test dependencies..."
 	@echo "Installing golangci-lint..."
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
 	@echo "Installing gosec..."
 	go install github.com/securego/gosec/v2/cmd/gosec@latest
 	@echo "Installing go-junit-report..."
@@ -166,3 +166,4 @@ help: ##@ (Default) Print listing of key targets with their descriptions
 		else \
 			printf "\n    \033[34m%-20s\033[0m %s\n", $$1, $$2; \
 	}'
+

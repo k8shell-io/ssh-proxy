@@ -27,7 +27,7 @@ func (s *Server) handleSessionChannel(sshConn *ssh.ServerConn, connInfo *Connect
 		s.log.Error().Msgf("Failed to accept session channel for user %s: %v", connInfo.user.Username, err)
 		return
 	}
-	defer channel.Close()
+	defer func() { _ = channel.Close() }()
 
 	session := &Session{
 		username:   connInfo.user.Username,
@@ -353,7 +353,7 @@ func (s *Server) handleShellRequest(sshConn *ssh.ServerConn, connInfo *Connectio
 		if err != nil {
 			s.log.Error().Msgf("Failed to create agent channel: %v", err)
 		} else {
-			defer agentChannel.Close()
+			defer func() { _ = agentChannel.Close() }()
 		}
 	}
 

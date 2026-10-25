@@ -39,7 +39,7 @@ go build -ldflags="-X github.com/k8shell-io/ssh-proxy/internal/server.SSHPROXY_V
 `golang.org/x/crypto` is **replaced** in `go.mod` with a fork:
 
 ```
-replace golang.org/x/crypto v0.43.0 => github.com/k8shell-io/crypto v0.41.1-ssh-proxy
+replace golang.org/x/crypto => github.com/k8shell-io/crypto v0.41.1-ssh-proxy.0.20261023201546-893d9ab2af69
 ```
 
 This fork adds the `AllowedAuthsCallback` field to `ssh.ServerConfig`, which ssh-proxy uses to advertise available auth methods per-user. Do not remove this replace directive or switch to the upstream package — the feature does not exist upstream.
